@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fingerprintsMatch, markSelectionsAfterDocumentChange } from "../../src/application/selection-state";
+import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange } from "../../src/application/selection-state";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
 
 const fingerprint: ElementFingerprint = { selector: "[data-testid=known-target]", tag: "button", testId: "known-target", text: "Run action", sourceKey: "/src/ProofCard.tsx:8:7" };
@@ -30,6 +30,19 @@ describe("selection freshness", () => {
     ], "desktop", "generation-2");
     expect(result[0].status).toBe("stale");
     expect(result[1].status).toBe("current");
+  });
+
+  it("invalidates only the navigating preview and requires a fresh pick even without a new document", () => {
+    const original = [
+      { capture: capture(), status: "current" as const },
+      { capture: { ...capture(), selectionId: "mobile", previewId: "mobile" as const }, status: "current" as const },
+    ];
+    const result = markSelectionsAfterRouteChange(original, "desktop");
+    expect(result[0]).toMatchObject({ status: "stale", requiresRepick: true, capture: { documentGeneration: "generation-1" } });
+    expect(result[0].staleReason).toContain("route changed");
+    expect(result[1]).toBe(original[1]);
+    expect(original[0].status).toBe("current");
+    expect(markSelectionsAfterRouteChange(result, "desktop")[0].requiresRepick).toBe(true);
   });
 
   it("rejects malformed bridge payloads before presentation or IPC use", () => {

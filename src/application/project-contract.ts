@@ -1,3 +1,5 @@
+import type { CanvasState } from "./canvas-state";
+
 export type SupportedFramework = "vite" | "next";
 export type SupportedPackageManager = "npm" | "pnpm" | "yarn";
 export type WorkspaceStatus =
@@ -54,6 +56,7 @@ export interface ProjectDiscovery {
 }
 
 export interface ActiveWorkspace {
+  canvas?: CanvasState | null;
   workspaceId: string;
   projectRoot: string;
   appRoot: string;

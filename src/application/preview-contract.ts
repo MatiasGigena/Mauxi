@@ -35,11 +35,16 @@ export interface SelectionCapture {
 }
 
 export type BridgeToShellMessage =
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-cancelled" | "navigation-blocked"; session: string; generation: string }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "route"; session: string; generation: string; url: string; navigationId: string | null; safe: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "ready"; session: string; generation: string; url: string; viewport: { width: number; height: number }; reactGrab: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection"; session: string; generation: string; capture: Omit<SelectionCapture, "previewId"> }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidation"; session: string; generation: string; selectionId: string; status: "valid" | "stale"; reason?: string };
 
 export type ShellToBridgeMessage =
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "connect"; session: string; generation: string }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "navigate"; session: string; generation: string; route: string; navigationId: string }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "reload"; session: string; generation: string }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-mode"; session: string; generation: string; enabled: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidate"; session: string; generation: string; selectionId: string; fingerprint: ElementFingerprint };
 
@@ -72,6 +77,8 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
   const record = value as Record<string, unknown>;
   if (record.protocol !== BRIDGE_PROTOCOL || typeof record.kind !== "string") return false;
   if (!boundedString(record.session, 128) || !boundedString(record.generation, 128)) return false;
+  if (record.kind === "selection-cancelled" || record.kind === "navigation-blocked") return true;
+  if (record.kind === "route") return boundedString(record.url, 4096) && nullableString(record.navigationId, 128) && typeof record.safe === "boolean";
   if (record.kind === "ready") {
     return boundedString(record.url, 4_096)
       && finiteRecord(record.viewport, ["width", "height"])
@@ -114,4 +121,17 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
     && boundedString(fingerprint.text, 4_096)
     && nullableString(fingerprint.sourceKey, 1_024)
     && boundedStringRecord(capture.computedStyles);
+}
+
+export function isShellMessage(value: unknown): value is ShellToBridgeMessage {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  if (r.protocol !== BRIDGE_PROTOCOL || !boundedString(r.session, 128) || !boundedString(r.generation, 128)) return false;
+  if (r.kind === "selection-mode") return typeof r.enabled === "boolean";
+  if (r.kind === "reload" || r.kind === "connect") return true;
+  if (r.kind === "navigate") return boundedString(r.route, 4096) && boundedString(r.navigationId, 128);
+  const f = r.fingerprint as Record<string, unknown> | undefined;
+  return r.kind === "revalidate" && boundedString(r.selectionId, 128) && !!f
+    && nullableString(f.selector, 2048) && boundedString(f.tag, 64) && nullableString(f.testId, 512)
+    && boundedString(f.text, 4096) && nullableString(f.sourceKey, 1024);
 }

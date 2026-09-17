@@ -61,6 +61,19 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   expect(storage.workspace).not.toBe(storage.shellDefault);
   expect(await portIsFree()).toBe(false);
 
+  await page.getByRole("button", { name: "Routes linked", exact: true }).click();
+  await page.getByRole("button", { name: "Move Mobile artboard with arrow keys" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await page.getByLabel("Width", { exact: true }).fill("420");
+  await page.getByRole("button", { name: "Apply viewport", exact: true }).click();
+  await page.getByRole("separator", { name: "Resize chat" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await page.getByRole("button", { name: "Focus Mobile", exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => (await window.mauxi!.getBootstrap()).active?.canvas?.focus?.previewId)).toBe("mobile");
+  const saved = await page.evaluate(async () => (await window.mauxi!.getBootstrap()).active!.canvas!);
+  expect(saved).toMatchObject({ linked: false, chatHeight: 232, boards: { mobile: { width: 420 } } });
+
   await writeFile(configPath, `${await readFile(configPath, "utf8")}\n// concurrent user edit kept by lifecycle e2e\n`);
   const welcomeWindow = application.waitForEvent("window");
   await page.getByRole("button", { name: "Close project" }).click();
@@ -74,4 +87,19 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   await expect(access(path.resolve("fixtures/vite/.mauxi/bridge.js"))).rejects.toThrow();
 
   await writeFile(configPath, originalConfig);
+  const reopened = await page.evaluate(async (projectRoot) => window.mauxi!.inspectProjectPath(projectRoot), root);
+  expect(reopened.rememberedPlanId).toBe(plan!.id);
+  const reopenedWindow = application.waitForEvent("window");
+  await page.evaluate(async (request) => window.mauxi!.confirmProject(request), { discoveryId: reopened.discoveryId, planId: reopened.rememberedPlanId!, mode: "start" as const });
+  page = await reopenedWindow;
+  await expect(page.getByRole("button", { name: "Unfocus Mobile", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Routes unlinked", exact: true })).toBeVisible();
+  await expect(page.getByTestId("mobile-preview")).toHaveAttribute("width", "420");
+  const restored = await page.evaluate(async () => (await window.mauxi!.getBootstrap()).active!.canvas!);
+  expect(restored.boards).toEqual(saved.boards); expect(restored.focus).toEqual(saved.focus);
+  await page.getByRole("button", { name: "Unfocus Mobile", exact: true }).click();
+  const secondWelcome = application.waitForEvent("window");
+  await page.getByRole("button", { name: "Close project", exact: true }).click();
+  page = await secondWelcome;
+  await expect.poll(portIsFree, { timeout: 10_000 }).toBe(true);
 });

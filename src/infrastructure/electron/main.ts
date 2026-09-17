@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
+import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
@@ -85,6 +86,22 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
       : new URL(target).pathname === pathToFileURL(renderer.value).pathname;
     if (!allowed) event.preventDefault();
   });
+  const previewOriginAllowed = (target: string): boolean => {
+    const approved = manager.snapshot().active?.origin;
+    const origins = approved ? [new URL(approved).origin] : process.env.MAUXI_PROOF === "1" ? ["http://127.0.0.1:45173", "http://127.0.0.1:45000", "http://127.0.0.1:45001"] : [];
+    try { return origins.includes(new URL(target).origin); } catch { return false; }
+  };
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame && !previewOriginAllowed(event.url)) event.preventDefault();
+  });
+  window.webContents.on("will-redirect", (event) => {
+    if (!event.isMainFrame && !previewOriginAllowed(event.url)) event.preventDefault();
+  });
+  // Enforce the same boundary for redirects and out-of-process subframes, not
+  // only renderer navigation events. Subresources/XHR remain project-owned.
+  window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+    callback({ cancel: details.resourceType === "subFrame" && !previewOriginAllowed(details.url) });
+  });
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
   window.once("ready-to-show", () => window.show());
@@ -134,6 +151,14 @@ function registerIpc(): void {
       if (failed) setTimeout(() => { void createWindow(workspacePartition(failed.projectRoot), failed.projectRoot); }, 100);
       throw error;
     }
+  });
+
+  ipcMain.handle("mauxi:save-canvas", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid canvas request");
+    const value = input as Record<string, unknown>;
+    if (typeof value.workspaceId !== "string" || value.workspaceId.length > 128 || !isCanvasState(value.canvas)) throw new Error("Invalid canvas request");
+    await manager.saveCanvas(value.workspaceId, value.canvas);
   });
 
   ipcMain.handle("mauxi:close-project", async (event) => {

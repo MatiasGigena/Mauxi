@@ -1,198 +1,244 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  BRIDGE_PROTOCOL,
-  isBridgeMessage,
-  type PreviewId,
-  type SelectionCapture,
-} from "../application/preview-contract";
-import { markSelectionsAfterDocumentChange, type StoredSelection } from "../application/selection-state";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
+import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, HEADER_WIDTH, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
+import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, type StoredSelection } from "../application/selection-state";
 import type { ActiveWorkspace } from "../application/project-contract";
+import { ChatDock } from "./ChatDock";
+import { PreviewTools } from "./PreviewTools";
 
-const SESSION = crypto.randomUUID();
-const VIEWPORTS = {
-  desktop: { width: 1440, height: 900, label: "Desktop" },
-  mobile: { width: 390, height: 844, label: "Mobile" },
-} as const;
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
-
 type Fixture = keyof typeof URLS;
-type BridgeCommand =
-  | { kind: "selection-mode"; enabled: boolean }
-  | { kind: "revalidate"; selectionId: string; fingerprint: SelectionCapture["fingerprint"] };
-interface Runtime { generation: string; ready: boolean; reactGrab: boolean }
-type Runtimes = Record<PreviewId, Runtime>;
-
-function previewUrl(base: string, previewId: PreviewId): string {
+type Command = ShellToBridgeMessage extends infer T ? T extends ShellToBridgeMessage ? Omit<T, "protocol" | "session" | "generation"> : never : never;
+interface Runtime { generation: string; ready: boolean; route: string; safe: boolean }
+const emptyRuntimes = (): Record<PreviewId, Runtime> => ({ desktop: { generation: "", ready: false, route: "", safe: false }, mobile: { generation: "", ready: false, route: "", safe: false } });
+function previewUrl(base: string, id: PreviewId, session: string): string {
   const url = new URL(base);
-  url.searchParams.set("mauxiSession", SESSION);
-  url.searchParams.set("mauxiPreview", previewId);
-  url.searchParams.set("mauxiParent", location.origin === "file://" ? "null" : location.origin);
+  url.searchParams.set("mauxiSession", session); url.searchParams.set("mauxiPreview", id); url.searchParams.set("mauxiParent", location.origin);
   return url.toString();
 }
 
 export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => void }) {
   const [fixture, setFixture] = useState<Fixture>("vite");
-  const [zoom, setZoom] = useState(0.55);
-  const [selecting, setSelecting] = useState(false);
+  // Changing projects/fixtures creates a fresh bridge capability, not on focus/zoom.
+  const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
+  const [layout, setLayout] = useState<CanvasState>(() => active?.canvas ?? defaultCanvas());
+  const layoutRef = useRef(layout); layoutRef.current = layout;
+  const [hand, setHand] = useState(false);
+  const [selecting, setSelecting] = useState<PreviewId | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewId>("desktop");
-  const [positions, setPositions] = useState({ desktop: { x: 34, y: 72 }, mobile: { x: 1518, y: 72 } });
-  const [runtimes, setRuntimes] = useState<Runtimes>({ desktop: { generation: "", ready: false, reactGrab: false }, mobile: { generation: "", ready: false, reactGrab: false } });
+  const [tools, setTools] = useState<PreviewId | null>(null);
+  const [runtimes, setRuntimes] = useState(emptyRuntimes);
+  const runtimeRef = useRef(runtimes);
   const [selections, setSelections] = useState<StoredSelection[]>([]);
-  const [notice, setNotice] = useState("Preparing instrumented previews…");
+  const [notice, setNotice] = useState("");
+  const [bridgeDetail, setBridgeDetail] = useState("Preparing instrumented previews…");
+  const [dragging, setDragging] = useState(false);
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
+  const canvas = useRef<HTMLElement>(null);
+  const initialFit = useRef(!active?.canvas);
+  const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT, headerWidth: HEADER_WIDTH });
+  const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const baseUrl = active?.origin ?? URLS[fixture];
+  const origin = new URL(baseUrl).origin;
+  const routes = useMemo(() => new RouteLink(origin), [origin, session]);
+  const urls = useMemo(() => ({ desktop: previewUrl(baseUrl, "desktop", session), mobile: previewUrl(baseUrl, "mobile", session) }), [baseUrl, session]);
 
-  const origins = useMemo(() => new Set(active ? [new URL(active.origin).origin] : Object.values(URLS).map((value) => new URL(value).origin)), [active]);
+  const send = useCallback((id: PreviewId, message: Command) => {
+    const runtime = runtimeRef.current[id];
+    if (!runtime.ready) return;
+    frames.current[id]?.contentWindow?.postMessage({ ...message, protocol: BRIDGE_PROTOCOL, session, generation: runtime.generation }, origin);
+  }, [origin, session]);
+  const navigate = useCallback((command: RouteCommand | null) => {
+    if (command) send(command.previewId, { kind: "navigate", route: command.route, navigationId: command.navigationId });
+  }, [send]);
 
-  const send = useCallback((previewId: PreviewId, message: BridgeCommand) => {
-    const runtime = runtimes[previewId];
-    const frame = frames.current[previewId];
-    if (!runtime.ready || !frame?.contentWindow) return;
-    frame.contentWindow.postMessage({ ...message, protocol: BRIDGE_PROTOCOL, session: SESSION, generation: runtime.generation }, new URL(baseUrl).origin);
-  }, [baseUrl, runtimes]);
+  useEffect(() => {
+    const observer = new ResizeObserver(() => {
+      if (!canvas.current) return;
+      const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      geometry.current = { width: canvas.current.clientWidth, height: canvas.current.clientHeight, headerHeight: rootSize * 3, headerWidth: rootSize * 15 };
+      if (initialFit.current) {
+        initialFit.current = false;
+        setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+      } else if (layoutRef.current.focus) {
+        setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+      }
+    });
+    if (canvas.current) observer.observe(canvas.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const persist = useCallback(async (state: CanvasState) => {
+    if (!active || !window.mauxi) return;
+    try { await window.mauxi.saveCanvas({ workspaceId: active.workspaceId, canvas: state }); }
+    catch (error) { setNotice(`Layout not saved: ${String(error)}`); }
+  }, [active?.workspaceId]);
+  useEffect(() => {
+    if (dragging) return;
+    const timer = setTimeout(() => { void persist(layout); }, 150);
+    return () => clearTimeout(timer);
+  }, [layout, dragging, persist]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent<unknown>) {
-      if (!origins.has(event.origin)) return;
-      let serialized = "";
-      try { serialized = JSON.stringify(event.data); } catch { return; }
-      if (serialized.length > 65_536 || !isBridgeMessage(event.data) || event.data.session !== SESSION) return;
-      const previewId = (["desktop", "mobile"] as const).find((id) => frames.current[id]?.contentWindow === event.source);
-      if (!previewId) return;
+      if (event.origin !== origin) return;
+      try { if (JSON.stringify(event.data).length > 65_536) return; } catch { return; }
+      if (!isBridgeMessage(event.data) || event.data.session !== session) return;
+      const id = PREVIEW_IDS.find((id) => frames.current[id]?.contentWindow === event.source);
+      if (!id) return;
       const message = event.data;
       if (message.kind === "ready") {
-        setRuntimes((current) => {
-          const previous = current[previewId];
-          if (previous.generation && previous.generation !== message.generation) {
-            setSelections((items) => markSelectionsAfterDocumentChange(items, previewId, message.generation));
-          }
-          return { ...current, [previewId]: { generation: message.generation, ready: true, reactGrab: message.reactGrab } };
-        });
-        setNotice(`${active ? (active.framework === "vite" ? "Vite" : "Next.js") : (fixture === "vite" ? "Vite" : "Next.js")} bridge connected`);
-        if (active && window.mauxi) {
-          void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId, generation: message.generation, url: message.url });
-        }
+        if (projectRoute(message.url, origin) === null) return;
+        const previous = runtimeRef.current[id];
+        if (previous.generation && previous.generation !== message.generation) setSelections((items) => markSelectionsAfterDocumentChange(items, id, message.generation));
+        runtimeRef.current = { ...runtimeRef.current, [id]: { ...previous, generation: message.generation, ready: true, route: projectRoute(message.url, origin)! } };
+        setRuntimes(runtimeRef.current);
+        setBridgeDetail(`${active?.framework === "next" || fixture === "next" ? "Next.js" : "Vite"} bridge connected`);
+        if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(String(error)));
         return;
       }
-      if (message.generation !== runtimes[previewId].generation) return;
+      if (message.generation !== runtimeRef.current[id].generation) return;
+      if (message.kind === "selection-cancelled") { setSelecting(null); return; }
+      if (message.kind === "navigation-blocked") { setNotice("External navigation blocked. Previews stay within the approved project origin."); return; }
+      if (message.kind === "route") {
+        const route = projectRoute(message.url, origin);
+        if (route === null) return;
+        if (runtimeRef.current[id].route && runtimeRef.current[id].route !== route) {
+          setSelections((items) => markSelectionsAfterRouteChange(items, id));
+        }
+        runtimeRef.current = { ...runtimeRef.current, [id]: { ...runtimeRef.current[id], route, safe: message.safe } };
+        setRuntimes(runtimeRef.current);
+        navigate(routes.observe(id, message.url, message.navigationId, layoutRef.current.linked && PREVIEW_IDS.every((id) => runtimeRef.current[id].ready), message.safe));
+        return;
+      }
       if (message.kind === "selection") {
-        const capture: SelectionCapture = { ...message.capture, previewId };
-        if (capture.source.filePath && window.mauxi) {
-          const resolution = active
-            ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, hint: capture.source.filePath })
-            : window.mauxi.resolveFixtureSource({ fixture, hint: capture.source.filePath });
-          void resolution.then((resolved) => {
-            if (!resolved) return;
-            capture.source.filePath = resolved.filePath;
-            capture.source.fileFingerprint = resolved.fileFingerprint;
-            setSelections((items) => [...items]);
-          });
-        }
+        const capture: SelectionCapture = { ...message.capture, previewId: id };
+        if (capture.documentGeneration !== message.generation || projectRoute(capture.url, origin) !== runtimeRef.current[id].route) return;
         setSelections((items) => [{ capture, status: "current" as const }, ...items].slice(0, 8));
-        setNotice(capture.source.method === "unresolved" ? "Picked target; source is unresolved" : "Picked target with React source provenance");
-        return;
-      }
-      if (message.kind === "revalidation") {
-        setSelections((items) => items.map((item) => item.capture.selectionId === message.selectionId
-          ? { ...item, status: message.status === "valid" ? "current" : "stale", staleReason: message.reason }
-          : item));
+        if (capture.source.filePath && window.mauxi) {
+          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, hint: capture.source.filePath }) : window.mauxi.resolveFixtureSource({ fixture, hint: capture.source.filePath });
+          void resolution.then((resolved) => {
+            if (resolved) setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, ...resolved } } } : item));
+          }).catch((error) => setNotice(`Source unavailable: ${String(error)}`));
+        }
+        setNotice("Target attached · no page action replayed");
+      } else if (message.kind === "revalidation") {
+        setSelections((items) => items.map((item) => item.capture.selectionId === message.selectionId && item.capture.previewId === id && !item.requiresRepick ? { ...item, status: message.status === "valid" ? "current" : "stale", staleReason: message.reason } : item));
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [active, fixture, origins, runtimes]);
+  }, [active, fixture, origin, session, routes, navigate]);
 
+  useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "selection-mode", enabled: selecting === id && !hand }); }, [selecting, hand, runtimes, send]);
+
+  function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
+    setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }; });
+  }
+  function focus(id: PreviewId) {
+    setLayout((current) => {
+      const restored = unfocus(current);
+      if (current.focus?.previewId === id) return restored;
+      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: fitCamera([restored.boards[id]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) };
+    });
+    setActivePreview(id);
+  }
+  function changeZoom(zoom: number) {
+    setLayout((current) => ({ ...current, camera: zoomAt(current.camera, zoom, { x: geometry.current.width / 2, y: geometry.current.height / 2 }) }));
+  }
   useEffect(() => {
-    for (const id of ["desktop", "mobile"] as const) send(id, { kind: "selection-mode", enabled: selecting });
-  }, [selecting, send]);
+    const element = canvas.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
+      const rect = element.getBoundingClientRect();
+      setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
 
-  function switchFixture(next: Fixture) {
-    setFixture(next);
-    setSelections((items) => items.map((item) => ({ ...item, status: "stale", staleReason: "The active fixture changed; pick this target again." })));
-    setSelecting(false);
-    setRuntimes({ desktop: { generation: "", ready: false, reactGrab: false }, mobile: { generation: "", ready: false, reactGrab: false } });
-    setNotice(`Loading ${next === "vite" ? "React + Vite" : "Next.js App Router"}…`);
-  }
-
-  function startDrag(previewId: PreviewId, event: React.PointerEvent) {
-    if (event.button !== 0) return;
-    setActivePreview(previewId);
+  function startDrag(id: PreviewId | null, event: ReactPointerEvent) {
+    if (event.button !== 0 && event.button !== 1) return;
+    event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    const start = { clientX: event.clientX, clientY: event.clientY, ...positions[previewId] };
-    const move = (moveEvent: PointerEvent) => setPositions((current) => ({ ...current, [previewId]: { x: start.x + (moveEvent.clientX - start.clientX) / zoom, y: start.y + (moveEvent.clientY - start.clientY) / zoom } }));
-    const end = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
+    drag.current = { id, x: event.clientX, y: event.clientY, state: layoutRef.current };
+    setDragging(true); if (id) setActivePreview(id);
+  }
+  function moveDrag(event: ReactPointerEvent) {
+    const start = drag.current; if (!start) return;
+    const delta = { x: event.clientX - start.x, y: event.clientY - start.y };
+    setLayout((current) => start.id ? { ...current, boards: { ...current.boards, [start.id]: dragBoard(start.state.boards[start.id], delta, start.state.camera.zoom) } } : { ...current, camera: { ...start.state.camera, x: start.state.camera.x + delta.x, y: start.state.camera.y + delta.y } });
+  }
+  function endDrag() { drag.current = null; setDragging(false); }
+  function switchFixture(next: Fixture) {
+    if (next === fixture) return;
+    setFixture(next); setSelecting(null); setTools(null); setSelections([]);
+    runtimeRef.current = emptyRuntimes(); setRuntimes(runtimeRef.current); setNotice(""); setBridgeDetail("Connecting previews…");
+  }
+  function connectFrame(id: PreviewId) {
+    runtimeRef.current = { ...runtimeRef.current, [id]: { ...runtimeRef.current[id], ready: false } };
+    setRuntimes(runtimeRef.current);
+    setBridgeDetail("Waiting for preview bridge. Reload from Actions if it cannot connect.");
+    frames.current[id]?.contentWindow?.postMessage({ protocol: BRIDGE_PROTOCOL, session, generation: "", kind: "connect" }, origin);
+  }
+  function fullyVisible(id: PreviewId) {
+    const frame = frames.current[id]?.getBoundingClientRect(); const area = canvas.current?.getBoundingClientRect();
+    return !!frame && !!area && frame.x >= area.x && frame.y >= area.y && frame.right <= area.right + .5 && frame.bottom <= area.bottom + .5;
+  }
+  async function capture(id: PreviewId) {
+    setTools(null); setSelecting(null); setActivePreview(id);
+    // Let the dialog/selection overlay leave the compositor before capture.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const frame = frames.current[id];
+    if (!frame || !window.mauxi || !fullyVisible(id)) { setNotice("Fit the full viewport before capturing."); return; }
+    try {
+      const bounds = frame.getBoundingClientRect();
+      const result = await window.mauxi.capturePreview({ workspaceId: active?.workspaceId, previewId: id, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      setNotice(`Captured ${id} only · ${result.width}×${result.height} · ${result.path}`);
+    } catch (error) { setNotice(`Capture failed: ${String(error)}`); }
   }
 
-  async function capture(previewId: PreviewId) {
-    const frame = frames.current[previewId];
-    if (!frame || !window.mauxi) { setNotice("Capture is available in the Electron proof host."); return; }
-    const bounds = frame.getBoundingClientRect();
-    const result = await window.mauxi.capturePreview({ workspaceId: active?.workspaceId, previewId, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
-    setNotice(`Captured ${previewId} only · ${result.width}×${result.height}`);
-  }
-
-  function revalidate(item: StoredSelection) {
-    const id = item.capture.previewId;
-    send(id, { kind: "revalidate", selectionId: item.capture.selectionId, fingerprint: item.capture.fingerprint });
-  }
-
-  return (
-    <div className="workspace">
-      <header className="topbar">
-        <div className="brand"><span className="brand-mark">M</span><div><strong>Mauxi</strong><span>{active ? active.appRoot : "Core interaction proof"}</span></div></div>
-        {!active && <div className="fixture-switch" aria-label="Fixture">
-          <button className={fixture === "vite" ? "active" : ""} onClick={() => switchFixture("vite")}>Vite</button>
-          <button className={fixture === "next" ? "active" : ""} onClick={() => switchFixture("next")}>Next.js</button>
-        </div>}
-        <div className="canvas-actions">
-          <button data-testid="selection-toggle" className={selecting ? "accent active" : ""} onClick={() => setSelecting((value) => !value)}>{selecting ? "Selecting" : "Select"}</button>
-          <label className="zoom"><span>{Math.round(zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
-          <button onClick={() => setZoom(0.55)}>Fit both</button>
-        </div>
-        <div className="connection"><i className={runtimes.desktop.ready && runtimes.mobile.ready ? "online" : ""} />{active?.statusDetail ?? notice}{active && <button className="close-project" onClick={onClose}>Close project</button>}</div>
-      </header>
-
-      <main className="canvas" data-testid="canvas">
-        <div className="stage" style={{ transform: `scale(${zoom})` }}>
-          {(["desktop", "mobile"] as const).map((id) => {
-            const viewport = VIEWPORTS[id];
-            return (
-              <section key={`${active?.workspaceId ?? fixture}-${id}`} className="artboard" data-preview-id={id} style={{ left: positions[id].x, top: positions[id].y, width: viewport.width, zIndex: activePreview === id ? 2 : 1 }}>
-                <header className="artboard-header" onPointerDown={(event) => startDrag(id, event)}>
-                  <div><strong>{viewport.label}</strong><span>{viewport.width} × {viewport.height}</span></div>
-                  <div className="artboard-actions"><span className={runtimes[id].ready ? "bridge-ready" : ""}>{runtimes[id].ready ? "Live" : "Connecting"}</span><button onPointerDown={(event) => event.stopPropagation()} onClick={() => capture(id)}>Capture</button></div>
-                </header>
-                <iframe
-                  ref={(node) => { frames.current[id] = node; }}
-                  data-testid={`${id}-preview`}
-                  title={`${viewport.label} preview`}
-                  src={previewUrl(baseUrl, id)}
-                  width={viewport.width}
-                  height={viewport.height}
-                  sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
-                />
-              </section>
-            );
-          })}
-        </div>
-      </main>
-
-      <footer className="context-dock">
-        <div className="dock-heading"><div><span className="eyebrow">SELECTION CONTEXT</span><strong>{selections.length ? `${selections.length} captured target${selections.length === 1 ? "" : "s"}` : "Pick an element from either live preview"}</strong></div><span>Camera zoom never changes the CSS viewport.</span></div>
-        <div className="selection-list" data-testid="selection-list">
-          {selections.length === 0 ? <p className="empty">Turn on Select, then click the nested arrow or button. Page actions are suppressed while picking.</p> : selections.map((item) => (
-            <article className={`selection-chip ${item.status}`} key={item.capture.selectionId}>
-              <div><span className="preview-pill">{item.capture.previewId}</span><strong>{item.capture.element.label}</strong><small>{item.capture.element.tag} · {item.capture.viewport.width}×{item.capture.viewport.height}</small></div>
-              <code title={item.capture.source.filePath}>{item.capture.source.filePath ? `${item.capture.source.filePath.split(/[\\/]/).slice(-2).join("/")}:${item.capture.source.lineNumber ?? "?"}` : "Source unresolved"}</code>
-              <span className="provenance">{item.status === "stale" ? "Stale" : item.capture.source.method}</span>
-              <button onClick={() => revalidate(item)}>Revalidate</button>
-              <button aria-label="Remove selection" onClick={() => setSelections((items) => items.filter((entry) => entry !== item))}>×</button>
-            </article>
-          ))}
-        </div>
-      </footer>
-    </div>
-  );
+  const allReady = PREVIEW_IDS.every((id) => runtimes[id].ready);
+  const serverFailed = active?.status === "failed";
+  const statusText = serverFailed ? active.statusDetail : notice || (allReady ? active?.statusDetail : undefined) || bridgeDetail;
+  return <div className="workspace">
+    <header className="topbar">
+      <div className="brand"><span className="brand-mark">M</span><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
+      {!active && <div className="fixture-switch" aria-label="Fixture"><button aria-pressed={fixture === "vite"} onClick={() => switchFixture("vite")}>Vite</button><button aria-pressed={fixture === "next"} onClick={() => switchFixture("next")}>Next.js</button></div>}
+      <div className="canvas-actions" aria-label="Canvas controls">
+        <button aria-pressed={hand} onClick={() => { setHand(!hand); setSelecting(null); }}>{hand ? "Hand on" : "Hand"}</button>
+        <button onClick={() => fit()}>Fit both</button><button onClick={() => { setLayout((current) => ({ ...unfocus(current), camera: { x: 24, y: 24, zoom: 1 } })); }}>Reset</button>
+        <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+        <button aria-pressed={layout.linked} title="Link same-project routes, never clicks or forms. Unlink for custom action routes." onClick={() => setLayout((current) => ({ ...current, linked: !current.linked }))}>{layout.linked ? "Routes linked" : "Routes unlinked"}</button>
+      </div>
+      <div className="connection"><span className={allReady && !serverFailed ? "online" : ""} aria-hidden="true">●</span><span className="status-text" role="status" title={`${active?.statusDetail ?? bridgeDetail}\n${notice}`}>{statusText}</span>{active && <button onClick={() => { void persist(layoutRef.current).then(onClose); }}>Close project</button>}</div>
+    </header>
+    <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
+      onPointerDown={(event) => { if (event.target === event.currentTarget || hand) startDrag(null, event); }}
+      onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+      onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Escape") { setLayout(unfocus); setHand(false); setSelecting(null); } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      {PREVIEW_IDS.map((id) => {
+        const board = layout.boards[id]; const zoom = layout.camera.zoom;
+        return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: `max(15rem, ${board.width * zoom}px)`, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
+          <header className="artboard-header" onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(id, event); }}>
+            <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
+            <div className="artboard-actions">
+              <button aria-label={`Select in ${LABELS[id]}`} title="Basic element picker" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { setSelecting(selecting === id ? null : id); setHand(false); }}>↖</button>
+              <button aria-label={`${layout.focus?.previewId === id ? "Unfocus" : "Focus"} ${LABELS[id]}`} aria-pressed={layout.focus?.previewId === id} onClick={() => focus(id)}>⛶</button>
+              <button aria-label={`${LABELS[id]} actions`} aria-haspopup="dialog" onClick={() => { setTools(id); setActivePreview(id); }}>•••</button>
+            </div>
+          </header>
+          <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
+            <iframe ref={(node) => { frames.current[id] = node; }} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand ? -1 : 0} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            {(hand || dragging) && <div className="input-shield" aria-hidden="true" onPointerDown={(event) => startDrag(null, event)} />}
+          </div>
+        </section>;
+      })}
+    </main>
+    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { if (!item.requiresRepick) send(item.capture.previewId, { kind: "revalidate", selectionId: item.capture.selectionId, fingerprint: item.capture.fingerprint }); }} />
+    {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
+  </div>;
 }

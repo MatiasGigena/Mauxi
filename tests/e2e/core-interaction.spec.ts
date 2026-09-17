@@ -49,25 +49,29 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string) {
   expect(await mobile.locator("body").evaluate(() => innerWidth)).toBe(390);
 
   const initialSelectionCount = await page.locator(".selection-chip").count();
-  await page.getByTestId("selection-toggle").click();
+  await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
   await desktop.locator('[data-testid="known-icon"]').click();
   await expect(desktop.locator('[data-testid="click-count"]')).toContainText("0");
   const selection = page.locator(".selection-chip").first();
   await expect(selection).toContainText(sourceName, { timeout: 15_000 });
   await expect(selection).toContainText("react-grab");
 
+  await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
   await mobile.locator('[data-testid="known-target"]').click();
   await expect(mobile.locator('[data-testid="click-count"]')).toContainText("0");
   await expect(page.locator(".selection-chip")).toHaveCount(initialSelectionCount + 2);
 
-  await page.getByTestId("selection-toggle").click();
+  await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
+  await page.getByRole("button", { name: "Fit both", exact: true }).click();
+  const frameBounds = await page.getByTestId("desktop-preview").boundingBox();
   const before = new Set(await readdir(evidenceDirectory));
-  await page.locator('[data-preview-id="desktop"] .artboard-actions button').click();
-  await expect(page.locator(".connection")).toContainText("Captured desktop only · 1008×630");
+  await page.getByRole("button", { name: "Desktop actions", exact: true }).click();
+  await page.getByRole("button", { name: "Capture screenshot", exact: true }).click();
+  await expect(page.locator(".connection")).toContainText(`Captured desktop only · ${Math.ceil(frameBounds!.width)}×${Math.ceil(frameBounds!.height)}`);
   const created = (await readdir(evidenceDirectory)).filter((file) => !before.has(file));
   expect(created).toHaveLength(1);
   expect(created[0]).toMatch(/^desktop-\d+\.png$/);
-  const evidenceName = fixture === "Vite" ? "vite-desktop-70.png" : "next-desktop-70.png";
+  const evidenceName = fixture === "Vite" ? "vite-desktop-fit.png" : "next-desktop-fit.png";
   await rename(path.join(evidenceDirectory, created[0]), path.join(evidenceDirectory, evidenceName));
 }
 
@@ -107,9 +111,28 @@ test("Next App Router/Webpack: server-client fixture has precise source picking"
   try {
     await writeFile(sourcePath, original.replace("Run action", "Run changed action"));
     await expect(desktop.getByText("Run changed action")).toBeVisible({ timeout: 30_000 });
+    await expect(page.frameLocator('[data-testid="mobile-preview"]').getByText("Run changed action")).toBeVisible({ timeout: 30_000 });
     await page.locator(".selection-chip").first().getByText("Revalidate").click();
     await expect(page.locator(".selection-chip").first()).toContainText("Stale");
   } finally {
     await writeFile(sourcePath, original);
   }
+  await expect(page.frameLocator('[data-testid="mobile-preview"]').getByText("Run action", { exact: true })).toBeVisible();
+});
+
+test("Next Link client navigation reaches the peer once without remounting the source", async () => {
+  await page.reload();
+  await page.getByRole("button", { name: "Next.js", exact: true }).click();
+  await waitForBridge();
+  const desktop = page.frameLocator('[data-testid="desktop-preview"]');
+  const mobile = page.frameLocator('[data-testid="mobile-preview"]');
+  const peer = page.frames().find((frame) => frame.url().includes("mauxiPreview=mobile"));
+  const peerNavigations: string[] = [];
+  page.on("framenavigated", (frame) => { if (frame === peer) peerNavigations.push(frame.url()); });
+  const marker = await desktop.locator("body").evaluate(() => { document.body.dataset.instance = crypto.randomUUID(); return document.body.dataset.instance; });
+  await desktop.getByRole("link", { name: "Next client route", exact: true }).click();
+  await expect.poll(() => peer?.url()).toBe("http://127.0.0.1:45000/?view=linked");
+  await expect(mobile.getByRole("link", { name: "Next client route", exact: true })).toBeVisible();
+  expect(peerNavigations.filter((url) => url.endsWith("/?view=linked"))).toHaveLength(1);
+  expect(await desktop.locator("body").getAttribute("data-instance")).toBe(marker);
 });

@@ -6,14 +6,30 @@ import {
 import {
   BRIDGE_PROTOCOL,
   type ElementFingerprint,
-  type ShellToBridgeMessage,
+  isShellMessage,
   type SourceLocation,
 } from "../../application/preview-contract";
 
+import { supportedRoute } from "../../application/route-link";
+
 const params = new URLSearchParams(location.search);
-const session = params.get("mauxiSession");
-const previewId = params.get("mauxiPreview");
-const expectedParent = params.get("mauxiParent") ?? "null";
+// Frame-local bootstrap survives ordinary same-origin document navigation. This
+// is untrusted transport metadata, never an authority for host IPC.
+let previous: Record<string, unknown> = {};
+try { if (window.name.startsWith("mauxi:")) previous = JSON.parse(window.name.slice(6)); } catch { /* fresh frame */ }
+if (previous.origin !== location.origin) previous = {};
+const session = params.get("mauxiSession") ?? (typeof previous.session === "string" ? previous.session : null);
+const previewId = params.get("mauxiPreview") ?? previous.previewId;
+const expectedParent = params.get("mauxiParent") ?? (typeof previous.parent === "string" ? previous.parent : "null");
+let navigationId = typeof previous.navigationId === "string" ? previous.navigationId : null;
+let unsafeRoute = previous.unsafeRoute === true;
+let reportedUrl: string | null = null;
+let reportedSafe = true;
+let routeRevision = 0;
+function saveBootstrap() {
+  window.name = `mauxi:${JSON.stringify({ origin: location.origin, session, previewId, parent: expectedParent, navigationId, unsafeRoute })}`;
+}
+saveBootstrap();
 const generation = crypto.randomUUID();
 let selectionEnabled = false;
 let hoverTarget: Element | null = null;
@@ -183,15 +199,31 @@ document.addEventListener("click", async (event) => {
   cancelPageAction(event);
   const target = hoverTarget ?? elementAt(event.clientX, event.clientY);
   if (!target) return;
+  const revision = routeRevision;
   const capture = await describe(target, event.clientX, event.clientY);
+  // Source resolution may finish after a router replaces the selected page.
+  if (revision !== routeRevision || !target.isConnected || !selectionEnabled) return;
   send({ kind: "selection", capture });
 }, true);
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (event.source !== window.parent || event.origin !== expectedParent) return;
-  if (!event.data || typeof event.data !== "object") return;
-  const message = event.data as ShellToBridgeMessage;
-  if (message.protocol !== BRIDGE_PROTOCOL || message.session !== session || message.generation !== generation) return;
+  try { if (JSON.stringify(event.data).length > 65_536) return; } catch { return; }
+  if (!isShellMessage(event.data)) return;
+  const message = event.data;
+  if (message.session !== session) return;
+  if (message.kind === "connect") { reportReady(); return; }
+  if (message.generation !== generation) return;
+  if (message.kind === "reload") { location.reload(); return; }
+  if (message.kind === "navigate") {
+    const route = supportedRoute(message.route, location.origin);
+    if (!route) return;
+    navigationId = message.navigationId;
+    unsafeRoute = false;
+    saveBootstrap();
+    location.assign(route);
+    return;
+  }
   if (message.kind === "selection-mode") {
     selectionEnabled = message.enabled;
     document.documentElement.style.cursor = message.enabled ? "crosshair" : "";
@@ -199,9 +231,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     return;
   }
   if (message.kind === "revalidate") {
-    const candidate = message.fingerprint.selector
-      ? document.querySelector(message.fingerprint.selector)
-      : null;
+    let candidate: Element | null = null;
+    try { if (message.fingerprint.selector) candidate = document.querySelector(message.fingerprint.selector); } catch { /* invalid untrusted selector */ }
     const current = candidate
       ? {
           selector: simpleSelector(candidate),
@@ -226,10 +257,66 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   }
 });
 
-send({
-  kind: "ready",
-  url: location.href,
-  viewport: { width: innerWidth, height: innerHeight },
-  reactGrab: true,
-  previewId,
-});
+// Observe URLs only: never serialize history state, clicks, POST bodies or scroll.
+function reportRoute() {
+  if (reportedUrl !== location.href) {
+    reportedUrl = location.href;
+    reportedSafe = !unsafeRoute;
+    // A form marker belongs to its resulting navigation, not every later route.
+    // Same-URL history updates must neither consume a pending form marker nor
+    // relabel an already-reported form destination as safe.
+    unsafeRoute = false;
+    routeRevision++;
+    drawOutline(null);
+  }
+  send({ kind: "route", url: location.href, navigationId, safe: reportedSafe });
+  navigationId = null;
+  saveBootstrap();
+}
+for (const method of ["pushState", "replaceState"] as const) {
+  const original = history[method];
+  history[method] = function (...args: Parameters<History[typeof method]>) {
+    original.apply(this, args);
+    reportRoute();
+  };
+}
+window.addEventListener("popstate", reportRoute);
+window.addEventListener("hashchange", reportRoute);
+function markFormNavigation() {
+  unsafeRoute = true;
+  saveBootstrap();
+}
+// Native submit() intentionally skips the submit event (requestSubmit does not).
+// Keep native validation/dispatch behavior, while covering this separate path.
+const nativeSubmit = HTMLFormElement.prototype.submit;
+HTMLFormElement.prototype.submit = function () {
+  if (selectionEnabled) return;
+  const previousUnsafe = unsafeRoute;
+  markFormNavigation();
+  try { return nativeSubmit.call(this); }
+  catch (error) { unsafeRoute = previousUnsafe; saveBootstrap(); throw error; }
+};
+document.addEventListener("submit", (event) => {
+  if (selectionEnabled) { cancelPageAction(event); return; }
+  markFormNavigation();
+}, true);
+document.addEventListener("keydown", (event) => {
+  if (selectionEnabled && event.key === "Escape") { cancelPageAction(event); send({ kind: "selection-cancelled" }); }
+  if (selectionEnabled && (event.key === "Enter" || event.key === " ")) cancelPageAction(event);
+}, true);
+document.addEventListener("click", (event) => {
+  if (!selectionEnabled && event.target instanceof Element) {
+    const anchor = event.target.closest<HTMLAnchorElement>("a[href]");
+    if (!anchor) return;
+    // Keep the live document intact for an external link. The Electron request
+    // boundary also denies scripted navigations and redirects off-origin.
+    if (new URL(anchor.href, location.href).origin !== location.origin) { event.preventDefault(); send({ kind: "navigation-blocked" }); return; }
+    unsafeRoute = false; saveBootstrap();
+  }
+}, true);
+
+function reportReady() {
+  send({ kind: "ready", url: location.href, viewport: { width: innerWidth, height: innerHeight }, reactGrab: true, previewId });
+}
+reportReady();
+reportRoute();

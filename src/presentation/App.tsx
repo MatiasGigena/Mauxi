@@ -87,9 +87,6 @@ export function App() {
     <>
       <Workspace active={bootstrap.active} onClose={() => void closeProject()} />
       {error && <div className="floating-error" role="alert">{error}</div>}
-      {bootstrap.active.logs.length > 0 && bootstrap.active.status === "failed" && (
-        <details className="log-drawer" open><summary>Development server logs</summary><pre>{bootstrap.active.logs.slice(-80).join("\n")}</pre></details>
-      )}
     </>
   );
 

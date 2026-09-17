@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isCanvasState, type CanvasState } from "./canvas-state";
 import type {
   ActiveWorkspace,
   ConfirmProjectRequest,
@@ -112,6 +113,7 @@ export class WorkspaceManager {
       closing: false,
       value: {
         workspaceId: randomUUID(),
+        canvas: await this.workspaces.canvas(plan.projectRoot),
         projectRoot: plan.projectRoot,
         appRoot: plan.appRoot,
         framework: plan.framework,
@@ -209,6 +211,13 @@ export class WorkspaceManager {
       active.value.statusDetail = `Connected ${previewId}; waiting for the other preview…`;
     }
     this.emit();
+  }
+
+  async saveCanvas(workspaceId: string, canvas: CanvasState): Promise<void> {
+    const active = this.active;
+    if (!active || active.value.workspaceId !== workspaceId || !isCanvasState(canvas)) throw new Error("Invalid or stale canvas layout");
+    await this.workspaces.saveCanvas(active.value.projectRoot, canvas);
+    active.value.canvas = structuredClone(canvas);
   }
 
   async close(): Promise<WorkspaceEvent> {

@@ -6,6 +6,7 @@ export interface StoredSelection {
   capture: SelectionCapture;
   status: SelectionStatus;
   staleReason?: string;
+  requiresRepick?: boolean;
 }
 
 export function fingerprintsMatch(original: ElementFingerprint, current: ElementFingerprint): boolean {
@@ -13,6 +14,15 @@ export function fingerprintsMatch(original: ElementFingerprint, current: Element
   if (original.sourceKey && current.sourceKey && original.sourceKey !== current.sourceKey) return false;
   if (original.testId && current.testId) return original.testId === current.testId && original.text === current.text;
   return original.selector === current.selector && original.text === current.text;
+}
+
+export function markSelectionsAfterRouteChange(
+  selections: StoredSelection[],
+  previewId: string,
+): StoredSelection[] {
+  return selections.map((selection) => selection.capture.previewId === previewId
+    ? { ...selection, status: "stale", requiresRepick: true, staleReason: "The preview route changed; pick this target again." }
+    : selection);
 }
 
 export function markSelectionsAfterDocumentChange(
