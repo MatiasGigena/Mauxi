@@ -8,8 +8,9 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
-**G1 project lifecycle is in progress.** The Linux app can statically inspect a local project, show a launch and temporary-integration plan for confirmation, own or explicitly attach to a development server, connect the two proven previews, and perform journaled conflict-safe cleanup and next-launch recovery.
+**G1 project lifecycle is complete.** The Linux app can statically inspect a local project, show a launch and temporary-integration plan for confirmation, own or explicitly attach to a development server, connect the two proven previews, and perform journaled conflict-safe cleanup and next-launch recovery. The supported matrix covers React + Vite and Next.js 15.3+ with Webpack or Turbopack.
 
+- [G1 acceptance issue and evidence](https://github.com/MatiasGigena/Mauxi/issues/2)
 - [G1 launch, cleanup, recovery, and AppImage flow](docs/G1-PROJECT-LIFECYCLE.md)
 - [G0 proof, tested matrix, steps, and limitations](docs/G0-PROOF.md)
 - [Product and technical specification](SPEC.md)
