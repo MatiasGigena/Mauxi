@@ -8,13 +8,14 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
-**G0 feasibility proof complete.** The repository now contains the smallest Electron/React slice used to validate live transformed previews, React Grab source selection, preview-only capture, HMR freshness, and reversible development instrumentation.
+**G1 project lifecycle is in progress.** The Linux app can statically inspect a local project, show a launch and temporary-integration plan for confirmation, own or explicitly attach to a development server, connect the two proven previews, and perform journaled conflict-safe cleanup and next-launch recovery.
 
+- [G1 launch, cleanup, recovery, and AppImage flow](docs/G1-PROJECT-LIFECYCLE.md)
 - [G0 proof, tested matrix, steps, and limitations](docs/G0-PROOF.md)
 - [Product and technical specification](SPEC.md)
 - [Original workspace concept](docs/assets/workspace-concept.png)
 
-Run the automated checks with `npm run check` and, on Linux with a display available, `npm run test:e2e`. The proof is not the full alpha application.
+Run `npm run check`, `npm run test:e2e`, `npm run test:lifecycle-e2e`, `npm run test:turbopack-e2e`, and `npm run verify:production`. Build the first Linux private-alpha artifact with `npm run dist:linux`.
 
 ## Direction
 
@@ -22,4 +23,4 @@ Run the automated checks with `npm run check` and, on Linux with a display avail
 - Use **`/apple-design`** for a clear, restrained visual interface and direct, responsive interactions.
 - Keep the canvas and chat central; avoid speculative frameworks, extra services, and permanent panels for secondary tools.
 
-The next step is to review the specification and then break it into a few feature-sized implementation issues. The specification distinguishes agreed decisions from proposed defaults and unresolved technical risks.
+The implementation remains intentionally concrete: one Electron app, one active workspace, ordinary TypeScript modules, and no background cleanup service or cross-platform abstraction.

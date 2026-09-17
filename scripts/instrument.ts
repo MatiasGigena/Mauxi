@@ -5,6 +5,7 @@ import {
   applyIntegration,
   cleanupIntegration,
   createIntegrationPlan,
+  prepareIntegrationPlan,
   transactionIdFor,
 } from "../src/infrastructure/instrumentation/plan";
 
@@ -15,12 +16,15 @@ if (!new Set(["apply", "clean", "recover"]).has(action)) {
 
 const stateDirectory = process.env.MAUXI_STATE_DIR ?? path.join(os.homedir(), ".config", "Mauxi", "recovery");
 const store = new JournalStore(stateDirectory);
-const plans = [
-  createIntegrationPlan("fixtures/vite", "vite"),
-  createIntegrationPlan("fixtures/next", "next"),
+const targets = [
+  { root: "fixtures/vite", framework: "vite" as const },
+  { root: "fixtures/next", framework: "next" as const },
 ];
 
-for (const plan of plans) {
+for (const target of targets) {
+  const plan = action === "apply"
+    ? await prepareIntegrationPlan(target.root, target.framework)
+    : createIntegrationPlan(target.root, target.framework);
   const id = transactionIdFor(plan);
   const result = action === "apply"
     ? await applyIntegration(plan, store)

@@ -1,12 +1,17 @@
 {
-  "name": "mauxi-g0-proof",
+  "name": "mauxi",
+  "productName": "Mauxi",
+  "description": "A local-first Linux workspace for polishing real web interfaces.",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
-  "workspaces": ["fixtures/*"],
+  "main": "dist-electron/main.js",
+  "workspaces": [
+    "fixtures/*"
+  ],
   "scripts": {
     "build": "vite build && npm run build:host",
-    "build:host": "esbuild src/infrastructure/electron/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist-electron/main.js && esbuild src/infrastructure/electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs",
+    "build:host": "esbuild src/infrastructure/electron/main.ts --bundle --platform=node --format=esm --external:electron --external:esbuild --outfile=dist-electron/main.js && esbuild src/infrastructure/electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs && esbuild src/infrastructure/preview/bridge.ts --bundle --platform=browser --format=esm --outfile=dist-electron/bridge-entry.js",
     "dev": "npm run build:host && concurrently -k -s first \"vite --host 127.0.0.1 --port 44173\" \"wait-on http://127.0.0.1:44173 && cross-env MAUXI_RENDERER_URL=http://127.0.0.1:44173 electron dist-electron/main.js\"",
     "instrument:apply": "tsx scripts/instrument.ts apply",
     "instrument:clean": "tsx scripts/instrument.ts clean",
@@ -16,8 +21,11 @@
     "verify:production": "npm run fixtures:build && tsx scripts/verify-production.ts",
     "test": "vitest run tests/unit",
     "test:e2e": "bash scripts/e2e.sh",
+    "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
+    "test:turbopack-e2e": "bash scripts/turbopack-e2e.sh",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "dist:linux": "npm run build && electron-builder --linux AppImage"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.1.1",
@@ -36,11 +44,32 @@
     "concurrently": "9.2.4",
     "cross-env": "10.1.0",
     "electron": "44.4.1",
+    "electron-builder": "26.0.12",
     "esbuild": "0.28.2",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "4.1.11",
     "wait-on": "9.0.4"
+  },
+  "build": {
+    "appId": "dev.mauxi.app",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "artifactName": "Mauxi-${version}-${arch}.AppImage"
+    }
   }
 }

@@ -1,62 +1,58 @@
-import { app, BrowserWindow, ipcMain, session, type Rectangle } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, type Rectangle } from "electron";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { WorkspaceManager } from "../../application/workspace-manager";
+import type { ConfirmProjectRequest } from "../../application/project-contract";
+import { JournalStore } from "../instrumentation/journal";
+import { WorkspaceStore } from "../project/workspace-store";
+import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
+let currentWorkspaceRoot: string | null = null;
+let manager: WorkspaceManager;
+let quittingAfterCleanup = false;
+let cleanupInProgress = false;
 
-if (!app.requestSingleInstanceLock()) app.quit();
+app.setName("Mauxi");
+if (!app.requestSingleInstanceLock()) app.exit(0);
 
 app.on("second-instance", () => {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
   mainWindow.focus();
 });
 
-function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is { previewId: string; x: number; y: number; width: number; height: number } {
+function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error("Untrusted IPC sender");
+  }
+}
+
+function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is { workspaceId?: string; previewId: string; x: number; y: number; width: number; height: number } {
   if (!value || typeof value !== "object") throw new Error("Invalid capture request");
   const input = value as Record<string, unknown>;
   if (!/^(desktop|mobile)$/.test(String(input.previewId))) throw new Error("Invalid preview ID");
   for (const key of ["x", "y", "width", "height"] as const) {
     if (typeof input[key] !== "number" || !Number.isFinite(input[key])) throw new Error(`Invalid ${key}`);
   }
-  const x = Number(input.x);
-  const y = Number(input.y);
-  const width = Number(input.width);
-  const height = Number(input.height);
+  const x = Number(input.x); const y = Number(input.y);
+  const width = Number(input.width); const height = Number(input.height);
   if (width < 1 || height < 1 || width > bounds.width || height > bounds.height) throw new Error("Capture dimensions exceed the shell");
   if (x < 0 || y < 0 || x + width > bounds.width + 1 || y + height > bounds.height + 1) throw new Error("Capture rectangle is outside the shell");
 }
 
-async function resolveFixtureSource(input: unknown) {
-  if (!input || typeof input !== "object") throw new Error("Invalid source request");
-  const value = input as Record<string, unknown>;
-  if (value.fixture !== "vite" && value.fixture !== "next") throw new Error("Invalid fixture");
-  if (typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid source hint");
-  const root = path.resolve(process.cwd(), "fixtures", value.fixture);
-  const basename = path.basename(value.hint);
-  if (!/^[\w.-]+\.(tsx?|jsx?)$/.test(basename)) return null;
-  const matches: string[] = [];
-  async function walk(directory: string): Promise<void> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name === ".next" || entry.name === "dist" || entry.name === ".mauxi") continue;
-      const candidate = path.join(directory, entry.name);
-      if (entry.isDirectory()) await walk(candidate);
-      else if (entry.isFile() && entry.name === basename) matches.push(candidate);
-    }
-  }
-  await walk(root);
-  if (matches.length !== 1) return null;
-  const content = await readFile(matches[0]);
-  return {
-    filePath: path.relative(root, matches[0]).split(path.sep).join("/"),
-    fileFingerprint: createHash("sha256").update(content).digest("hex"),
-  };
+function rendererLocation(): { kind: "url" | "file"; value: string } {
+  if (process.env.MAUXI_RENDERER_URL) return { kind: "url", value: process.env.MAUXI_RENDERER_URL };
+  return { kind: "file", value: path.resolve(__dirname, "../dist/renderer/index.html") };
 }
 
-async function createWindow() {
+async function createWindow(partition?: string, workspaceRoot: string | null = null): Promise<BrowserWindow> {
+  const previous = mainWindow;
+  currentWorkspaceRoot = workspaceRoot;
   const window = new BrowserWindow({
     width: 1500,
     height: 1000,
@@ -71,46 +67,164 @@ async function createWindow() {
       nodeIntegration: false,
       nodeIntegrationInSubFrames: false,
       webSecurity: true,
+      ...(partition ? { partition } : {}),
     },
   });
   mainWindow = window;
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => {
-    const rendererUrl = process.env.MAUXI_RENDERER_URL;
-    if (rendererUrl && url.startsWith(rendererUrl)) return;
-    if (!rendererUrl && url.startsWith("file:")) return;
-    event.preventDefault();
+  window.on("close", (event) => {
+    if (window === mainWindow && manager?.snapshot().active && !quittingAfterCleanup) {
+      event.preventDefault();
+      app.quit();
+    }
   });
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event, target) => {
+    const renderer = rendererLocation();
+    const allowed = renderer.kind === "url"
+      ? new URL(target).origin === new URL(renderer.value).origin
+      : new URL(target).pathname === pathToFileURL(renderer.value).pathname;
+    if (!allowed) event.preventDefault();
+  });
+  window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  window.webContents.session.setPermissionCheckHandler(() => false);
   window.once("ready-to-show", () => window.show());
-  if (process.env.MAUXI_RENDERER_URL) await window.loadURL(process.env.MAUXI_RENDERER_URL);
-  else await window.loadFile(path.resolve(__dirname, "../renderer/index.html"));
+  const renderer = rendererLocation();
+  if (renderer.kind === "url") await window.loadURL(renderer.value);
+  else await window.loadFile(renderer.value);
+  if (previous && !previous.isDestroyed()) previous.destroy();
+  return window;
 }
 
-ipcMain.handle("mauxi:resolve-fixture-source", async (event, input: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Untrusted source sender");
-  return resolveFixtureSource(input);
+function workspacePartition(root: string): string {
+  const key = createHash("sha256").update(root).digest("hex").slice(0, 24);
+  return `persist:mauxi-workspace-${key}`;
+}
+
+function registerIpc(): void {
+  ipcMain.handle("mauxi:get-bootstrap", (event) => {
+    assertTrustedSender(event);
+    const state = manager.snapshot();
+    return { mode: process.env.MAUXI_PROOF === "1" ? "proof" : "project", ...state };
+  });
+
+  ipcMain.handle("mauxi:open-project", async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog(mainWindow!, { title: "Open a local project", properties: ["openDirectory"] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return manager.inspect(result.filePaths[0]);
+  });
+
+  ipcMain.handle("mauxi:inspect-project-path", async (event, selectedPath: unknown) => {
+    assertTrustedSender(event);
+    if (process.env.MAUXI_TEST_MODE !== "1" || typeof selectedPath !== "string" || selectedPath.length > 4_096) throw new Error("Path inspection is test-only");
+    return manager.inspect(selectedPath);
+  });
+
+  ipcMain.handle("mauxi:confirm-project", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid confirmation");
+    const value = input as Record<string, unknown>;
+    if (typeof value.discoveryId !== "string" || value.discoveryId.length > 128 || typeof value.planId !== "string" || value.planId.length > 128 || (value.mode !== "start" && value.mode !== "attach")) throw new Error("Invalid confirmation");
+    try {
+      const active = await manager.confirm(value as unknown as ConfirmProjectRequest);
+      setTimeout(() => { void createWindow(workspacePartition(active.projectRoot), active.projectRoot); }, 100);
+      return active;
+    } catch (error) {
+      const failed = manager.snapshot().active;
+      if (failed) setTimeout(() => { void createWindow(workspacePartition(failed.projectRoot), failed.projectRoot); }, 100);
+      throw error;
+    }
+  });
+
+  ipcMain.handle("mauxi:close-project", async (event) => {
+    assertTrustedSender(event);
+    const result = await manager.close();
+    setTimeout(() => { void createWindow(); }, 100);
+    return result;
+  });
+
+  ipcMain.handle("mauxi:bridge-ready", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid bridge readiness");
+    const value = input as Record<string, unknown>;
+    if (typeof value.workspaceId !== "string" || value.workspaceId.length > 128 || (value.previewId !== "desktop" && value.previewId !== "mobile") || typeof value.generation !== "string" || value.generation.length > 128 || typeof value.url !== "string" || value.url.length > 4_096) throw new Error("Invalid bridge readiness");
+    manager.bridgeReady(value.workspaceId, value.previewId, value.generation, value.url);
+  });
+
+  ipcMain.handle("mauxi:resolve-source", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const active = manager.snapshot().active;
+    if (!active || !input || typeof input !== "object") throw new Error("No active workspace");
+    const value = input as Record<string, unknown>;
+    if (value.workspaceId !== active.workspaceId || typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid source request");
+    return resolveWorkspaceSource(active.appRoot, value.hint);
+  });
+
+  // G0 proof compatibility is isolated from the project lifecycle APIs.
+  ipcMain.handle("mauxi:resolve-fixture-source", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (process.env.MAUXI_PROOF !== "1" || !input || typeof input !== "object") throw new Error("Proof API disabled");
+    const value = input as Record<string, unknown>;
+    if ((value.fixture !== "vite" && value.fixture !== "next") || typeof value.hint !== "string") throw new Error("Invalid fixture source request");
+    return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint);
+  });
+
+  ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!mainWindow) throw new Error("Window unavailable");
+    const bounds = mainWindow.getContentBounds();
+    assertCaptureRect(input, bounds);
+    const active = manager.snapshot().active;
+    if (process.env.MAUXI_PROOF !== "1" && (!active || input.workspaceId !== active.workspaceId)) throw new Error("Stale capture workspace");
+    const rect = { x: Math.floor(input.x), y: Math.floor(input.y), width: Math.ceil(input.width), height: Math.ceil(input.height) };
+    const image = await mainWindow.webContents.capturePage(rect);
+    const outputDirectory = process.env.MAUXI_EVIDENCE_DIR ?? path.join(app.getPath("userData"), "captures");
+    await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
+    const outputPath = path.join(outputDirectory, `${input.previewId}-${Date.now()}.png`);
+    await writeFile(outputPath, image.toPNG(), { mode: 0o600 });
+    const size = image.getSize();
+    return { path: outputPath, width: size.width, height: size.height };
+  });
+}
+
+app.whenReady().then(async () => {
+  const userData = app.getPath("userData");
+  manager = new WorkspaceManager(
+    new JournalStore(process.env.MAUXI_STATE_DIR ?? path.join(userData, "recovery")),
+    new WorkspaceStore(path.join(userData, "workspaces")),
+    path.join(__dirname, "bridge-entry.js"),
+  );
+  if (process.env.MAUXI_PROOF !== "1") await manager.initialize();
+  registerIpc();
+  manager.subscribe((state) => {
+    const eventRoot = state.active?.projectRoot ?? null;
+    if (eventRoot !== currentWorkspaceRoot) return;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:workspace-event", state);
+  });
+  await createWindow();
 });
 
-ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Untrusted capture sender");
-  const bounds = mainWindow.getContentBounds();
-  assertCaptureRect(input, bounds);
-  const rect = {
-    x: Math.floor(input.x),
-    y: Math.floor(input.y),
-    width: Math.ceil(input.width),
-    height: Math.ceil(input.height),
-  };
-  const image = await mainWindow.webContents.capturePage(rect);
-  const outputDirectory = process.env.MAUXI_EVIDENCE_DIR ?? path.resolve(process.cwd(), "evidence/captures");
-  await mkdir(outputDirectory, { recursive: true });
-  const outputPath = path.join(outputDirectory, `${input.previewId}-${Date.now()}.png`);
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(outputPath, image.toPNG());
-  const size = image.getSize();
-  return { path: outputPath, width: size.width, height: size.height };
+app.on("before-quit", (event) => {
+  if (quittingAfterCleanup || !manager?.snapshot().active) return;
+  event.preventDefault();
+  if (cleanupInProgress) return;
+  cleanupInProgress = true;
+  void manager.close().then(() => {
+    quittingAfterCleanup = true;
+    app.quit();
+  }).catch(async (error) => {
+    cleanupInProgress = false;
+    const choice = await dialog.showMessageBox({
+      type: "warning",
+      title: "Cleanup needs attention",
+      message: error instanceof Error ? error.message : String(error),
+      detail: "Mauxi will preserve its recovery record. Exiting now may leave temporary integration in the project.",
+      buttons: ["Keep Mauxi open", "Exit and recover next launch"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (choice.response === 1) { quittingAfterCleanup = true; app.quit(); }
+  });
 });
 
-app.whenReady().then(createWindow);
 app.on("window-all-closed", () => app.quit());

@@ -6,6 +6,7 @@ import {
   type SelectionCapture,
 } from "../application/preview-contract";
 import { markSelectionsAfterDocumentChange, type StoredSelection } from "../application/selection-state";
+import type { ActiveWorkspace } from "../application/project-contract";
 
 const SESSION = crypto.randomUUID();
 const VIEWPORTS = {
@@ -29,7 +30,7 @@ function previewUrl(base: string, previewId: PreviewId): string {
   return url.toString();
 }
 
-export function Workspace() {
+export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => void }) {
   const [fixture, setFixture] = useState<Fixture>("vite");
   const [zoom, setZoom] = useState(0.55);
   const [selecting, setSelecting] = useState(false);
@@ -39,20 +40,23 @@ export function Workspace() {
   const [selections, setSelections] = useState<StoredSelection[]>([]);
   const [notice, setNotice] = useState("Preparing instrumented previews…");
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
+  const baseUrl = active?.origin ?? URLS[fixture];
 
-  const origins = useMemo(() => new Set(Object.values(URLS).map((value) => new URL(value).origin)), []);
+  const origins = useMemo(() => new Set(active ? [new URL(active.origin).origin] : Object.values(URLS).map((value) => new URL(value).origin)), [active]);
 
   const send = useCallback((previewId: PreviewId, message: BridgeCommand) => {
     const runtime = runtimes[previewId];
     const frame = frames.current[previewId];
     if (!runtime.ready || !frame?.contentWindow) return;
-    frame.contentWindow.postMessage({ ...message, protocol: BRIDGE_PROTOCOL, session: SESSION, generation: runtime.generation }, new URL(URLS[fixture]).origin);
-  }, [fixture, runtimes]);
+    frame.contentWindow.postMessage({ ...message, protocol: BRIDGE_PROTOCOL, session: SESSION, generation: runtime.generation }, new URL(baseUrl).origin);
+  }, [baseUrl, runtimes]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent<unknown>) {
-      if (!origins.has(event.origin) || !isBridgeMessage(event.data)) return;
-      if (JSON.stringify(event.data).length > 65_536 || event.data.session !== SESSION) return;
+      if (!origins.has(event.origin)) return;
+      let serialized = "";
+      try { serialized = JSON.stringify(event.data); } catch { return; }
+      if (serialized.length > 65_536 || !isBridgeMessage(event.data) || event.data.session !== SESSION) return;
       const previewId = (["desktop", "mobile"] as const).find((id) => frames.current[id]?.contentWindow === event.source);
       if (!previewId) return;
       const message = event.data;
@@ -64,14 +68,20 @@ export function Workspace() {
           }
           return { ...current, [previewId]: { generation: message.generation, ready: true, reactGrab: message.reactGrab } };
         });
-        setNotice(`${fixture === "vite" ? "Vite" : "Next.js"} bridge connected`);
+        setNotice(`${active ? (active.framework === "vite" ? "Vite" : "Next.js") : (fixture === "vite" ? "Vite" : "Next.js")} bridge connected`);
+        if (active && window.mauxi) {
+          void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId, generation: message.generation, url: message.url });
+        }
         return;
       }
       if (message.generation !== runtimes[previewId].generation) return;
       if (message.kind === "selection") {
         const capture: SelectionCapture = { ...message.capture, previewId };
         if (capture.source.filePath && window.mauxi) {
-          void window.mauxi.resolveFixtureSource({ fixture, hint: capture.source.filePath }).then((resolved) => {
+          const resolution = active
+            ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, hint: capture.source.filePath })
+            : window.mauxi.resolveFixtureSource({ fixture, hint: capture.source.filePath });
+          void resolution.then((resolved) => {
             if (!resolved) return;
             capture.source.filePath = resolved.filePath;
             capture.source.fileFingerprint = resolved.fileFingerprint;
@@ -90,7 +100,7 @@ export function Workspace() {
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [fixture, origins, runtimes]);
+  }, [active, fixture, origins, runtimes]);
 
   useEffect(() => {
     for (const id of ["desktop", "mobile"] as const) send(id, { kind: "selection-mode", enabled: selecting });
@@ -119,7 +129,7 @@ export function Workspace() {
     const frame = frames.current[previewId];
     if (!frame || !window.mauxi) { setNotice("Capture is available in the Electron proof host."); return; }
     const bounds = frame.getBoundingClientRect();
-    const result = await window.mauxi.capturePreview({ previewId, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+    const result = await window.mauxi.capturePreview({ workspaceId: active?.workspaceId, previewId, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
     setNotice(`Captured ${previewId} only · ${result.width}×${result.height}`);
   }
 
@@ -131,17 +141,17 @@ export function Workspace() {
   return (
     <div className="workspace">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">M</span><div><strong>Mauxi</strong><span>Core interaction proof</span></div></div>
-        <div className="fixture-switch" aria-label="Fixture">
+        <div className="brand"><span className="brand-mark">M</span><div><strong>Mauxi</strong><span>{active ? active.appRoot : "Core interaction proof"}</span></div></div>
+        {!active && <div className="fixture-switch" aria-label="Fixture">
           <button className={fixture === "vite" ? "active" : ""} onClick={() => switchFixture("vite")}>Vite</button>
           <button className={fixture === "next" ? "active" : ""} onClick={() => switchFixture("next")}>Next.js</button>
-        </div>
+        </div>}
         <div className="canvas-actions">
           <button data-testid="selection-toggle" className={selecting ? "accent active" : ""} onClick={() => setSelecting((value) => !value)}>{selecting ? "Selecting" : "Select"}</button>
           <label className="zoom"><span>{Math.round(zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
           <button onClick={() => setZoom(0.55)}>Fit both</button>
         </div>
-        <div className="connection"><i className={runtimes.desktop.ready && runtimes.mobile.ready ? "online" : ""} />{notice}</div>
+        <div className="connection"><i className={runtimes.desktop.ready && runtimes.mobile.ready ? "online" : ""} />{active?.statusDetail ?? notice}{active && <button className="close-project" onClick={onClose}>Close project</button>}</div>
       </header>
 
       <main className="canvas" data-testid="canvas">
@@ -149,7 +159,7 @@ export function Workspace() {
           {(["desktop", "mobile"] as const).map((id) => {
             const viewport = VIEWPORTS[id];
             return (
-              <section key={`${fixture}-${id}`} className="artboard" data-preview-id={id} style={{ left: positions[id].x, top: positions[id].y, width: viewport.width, zIndex: activePreview === id ? 2 : 1 }}>
+              <section key={`${active?.workspaceId ?? fixture}-${id}`} className="artboard" data-preview-id={id} style={{ left: positions[id].x, top: positions[id].y, width: viewport.width, zIndex: activePreview === id ? 2 : 1 }}>
                 <header className="artboard-header" onPointerDown={(event) => startDrag(id, event)}>
                   <div><strong>{viewport.label}</strong><span>{viewport.width} × {viewport.height}</span></div>
                   <div className="artboard-actions"><span className={runtimes[id].ready ? "bridge-ready" : ""}>{runtimes[id].ready ? "Live" : "Connecting"}</span><button onPointerDown={(event) => event.stopPropagation()} onClick={() => capture(id)}>Capture</button></div>
@@ -158,7 +168,7 @@ export function Workspace() {
                   ref={(node) => { frames.current[id] = node; }}
                   data-testid={`${id}-preview`}
                   title={`${viewport.label} preview`}
-                  src={previewUrl(URLS[fixture], id)}
+                  src={previewUrl(baseUrl, id)}
                   width={viewport.width}
                   height={viewport.height}
                   sandbox="allow-scripts allow-forms allow-same-origin allow-modals"

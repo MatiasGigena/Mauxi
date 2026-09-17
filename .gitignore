@@ -1,12 +1,15 @@
 node_modules/
 dist/
 dist-electron/
+release/
 playwright-report/
 test-results/
 fixtures/*/.next/
 fixtures/*/dist/
 fixtures/*/.mauxi/
 .mauxi-proof-state/
+.mauxi-turbopack-state/
+.mauxi-package-smoke-state/
 evidence/captures/*.png
 !evidence/captures/vite-desktop-70.png
 !evidence/captures/next-desktop-70.png

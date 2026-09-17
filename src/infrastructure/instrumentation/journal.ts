@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type TransactionState = "planned" | "applying" | "applied" | "cleaning" | "clean" | "conflicted";
@@ -9,6 +9,7 @@ export interface PatchRecord {
   originalHash: string;
   appliedHash: string | null;
   ownedText: string;
+  originalContent?: string;
   anchor: string;
   applied: boolean;
 }
@@ -49,10 +50,29 @@ export class JournalStore {
     const temporaryPath = `${finalPath}.${process.pid}.tmp`;
     const next = { ...journal, updatedAt: new Date().toISOString() };
     await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    const temporary = await open(temporaryPath, "r");
+    try { await temporary.sync(); } finally { await temporary.close(); }
     await rename(temporaryPath, finalPath);
+    const directory = await open(this.directory, "r");
+    try { await directory.sync(); } finally { await directory.close(); }
   }
 
   async read(transactionId: string): Promise<InstrumentationJournal> {
     return JSON.parse(await readFile(this.pathFor(transactionId), "utf8")) as InstrumentationJournal;
+  }
+
+  async list(): Promise<InstrumentationJournal[]> {
+    let names: string[];
+    try { names = await readdir(this.directory); } catch { return []; }
+    const journals: InstrumentationJournal[] = [];
+    for (const name of names.filter((entry) => entry.endsWith(".json")).sort()) {
+      try {
+        const value = JSON.parse(await readFile(path.join(this.directory, name), "utf8")) as InstrumentationJournal;
+        if (value.version === 1 && typeof value.transactionId === "string") journals.push(value);
+      } catch (error) {
+        throw new Error(`Unreadable recovery record ${path.join(this.directory, name)}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return journals;
   }
 }

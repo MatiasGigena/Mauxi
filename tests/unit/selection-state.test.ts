@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fingerprintsMatch, markSelectionsAfterDocumentChange } from "../../src/application/selection-state";
-import type { ElementFingerprint, SelectionCapture } from "../../src/application/preview-contract";
+import { BRIDGE_PROTOCOL, isBridgeMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
 
 const fingerprint: ElementFingerprint = { selector: "[data-testid=known-target]", tag: "button", testId: "known-target", text: "Run action", sourceKey: "/src/ProofCard.tsx:8:7" };
 
@@ -30,5 +30,18 @@ describe("selection freshness", () => {
     ], "desktop", "generation-2");
     expect(result[0].status).toBe("stale");
     expect(result[1].status).toBe("current");
+  });
+
+  it("rejects malformed bridge payloads before presentation or IPC use", () => {
+    const { previewId: _previewId, ...bridgeCapture } = capture();
+    expect(isBridgeMessage({
+      protocol: BRIDGE_PROTOCOL,
+      kind: "selection",
+      session: "session",
+      generation: "generation-1",
+      capture: bridgeCapture,
+    })).toBe(true);
+    expect(isBridgeMessage({ protocol: BRIDGE_PROTOCOL, kind: "selection", session: "session", generation: "generation-1", capture: {} })).toBe(false);
+    expect(isBridgeMessage({ protocol: BRIDGE_PROTOCOL, kind: "ready", session: "session", generation: "generation-1", url: "file:///forged", viewport: {}, reactGrab: true })).toBe(false);
   });
 });

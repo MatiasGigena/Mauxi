@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-const signatures = ["mauxi-preview-v1", "data-mauxi-overlay", "React Grab could not resolve", "mauxi-preview-bridge"];
+const signatures = ["mauxi-preview-v1", "data-mauxi-overlay", "React Grab could not resolve", "mauxi-preview-bridge", "mauxi-owned:start preview-bridge", "mauxiSession"];
 const roots = ["fixtures/vite/dist", "fixtures/next/.next/static", "fixtures/next/.next/server/app"];
 const findings: string[] = [];
 
