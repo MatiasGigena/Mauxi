@@ -6,7 +6,7 @@
 
 **Initial audience:** Matias and a small group of frontend/design engineers.
 
-**Initial platform:** Linux, with a cross-platform architecture.
+**Platform:** Linux only. The macOS and Windows products will use different stacks and repositories. They are outside this specification; this codebase has no portability, shared-runtime, or cross-platform UI obligations.
 
 ## 1. Purpose and reading guide
 
@@ -32,7 +32,7 @@ The differentiator is not merely placing a chat beside a browser. It is the qual
 | --- | --- |
 | D-01 | Build a standalone desktop app powered by pi's SDK, not a fork of pi's core. |
 | D-02 | Begin with a private alpha for the founder and a few design engineers. |
-| D-03 | Linux is the first supported desktop platform. |
+| D-03 | This repository implements the Linux product only. macOS and Windows use separate stacks and repositories, not later ports of this codebase. |
 | D-04 | Changes are chat-driven edits to real project files, not a visual properties editor or drag-and-drop authoring system. |
 | D-05 | The workspace is a freely pannable and zoomable canvas, not a fixed split-pane layout. |
 | D-06 | The alpha has two live previews of the same implementation: desktop and mobile, with configurable viewport sizes. These are not competing design branches. |
@@ -50,12 +50,14 @@ The differentiator is not merely placing a chat beside a browser. It is the qual
 | D-18 | Preview URLs are linked by default; scrolling and other interactions are independent. Navigation can be unlinked temporarily. |
 | D-19 | Bundle pi's SDK and use its provider, authentication, and model capabilities. A separate pi CLI installation is not required. |
 | D-20 | Project edits can run automatically after trust; arbitrary commands and dependency installation require approval. Saved dev/test commands can be pre-approved. |
+| D-21 | Use a simple layered architecture in one Linux application: presentation, application, and infrastructure. Do not build speculative frameworks or abstractions for other platforms. |
+| D-22 | Use `/apple-design` to guide Mauxi's visual interface and interaction design. Keep the interface minimal, clear, and focused on the previews and conversation. |
 
 ### Concept reference
 
 ![Original workspace sketch](docs/assets/workspace-concept.png)
 
-This is a composition reference, not final visual design. The interview adds a freeform canvas, window-anchored chat, precise multi-selection, and explicit agent-control states.
+This is a composition reference. Use `/apple-design` for the visual and interaction direction, within the minimal canvas-plus-bottom-chat layout. The freeform canvas, precise multi-selection, and explicit agent-control states remain core requirements.
 
 ## 3. Alpha scope and boundaries
 
@@ -74,6 +76,7 @@ This is a composition reference, not final visual design. The interview adds a f
 
 ### Deferred or outside this alpha
 
+- macOS/Windows implementations, portability layers, shared cross-platform packages, or coordination with those separate products. These are outside this repository, not a later phase of this plan.
 - Pi core fork or a replacement provider/agent framework.
 - Visual CSS/property editing, drag-and-drop page construction, or an animation timeline/keyframe editor.
 - Dedicated animation pause/scrub/slow-motion controls; skill-guided code changes are sufficient for the current scope.
@@ -88,6 +91,8 @@ This is a composition reference, not final visual design. The interview adds a f
 
 **Proposed simplification:** one open project and one active agent execution at a time. A project can have several saved conversations, but parallel agents and simultaneous project workspaces are deferred.
 
+**Implementation discipline:** one application, ordinary TypeScript modules, direct function calls within the host, and only the IPC required by the desktop/browser boundary. Do not introduce a service, package, generic interface, or background process unless a current feature demonstrably needs it. Minimal scope does not mean imprecise selection or destructive cleanup.
+
 ## 4. User experience requirements
 
 ### 4.1 Project opening and lifecycle
@@ -100,7 +105,7 @@ This is a composition reference, not final visual design. The interview adds a f
 
 **WS-04 — Useful startup states.** Display preparing, starting, waiting for server, connecting preview, ready, failed, and stopped states. A successful HTTP response alone is insufficient: verify that the intended app and instrumentation bridge are connected. Missing dependencies, wrong URLs, port conflicts, unsupported integrations, and compiler errors need actionable diagnostics and bounded logs.
 
-**WS-05 — Workspace ownership.** Hold an application-level lease for the canonical project path so two Mauxi instances cannot simultaneously instrument or mutate the same workspace. This does not lock out external editors or other coding agents; detect conflicting changes and explain the limitation.
+**WS-05 — Single application instance.** Use the desktop host's single-instance guard and one-active-project rule to prevent duplicate Mauxi ownership. A general workspace lease service is unnecessary for this alpha. This does not lock out external editors or other coding agents; detect conflicting file changes and explain the limitation.
 
 **WS-06 — Project-scoped state.** Remember confirmed setup, canvas layout, viewport sizes, navigation-link preference, and recent conversations. Do not silently rerun a saved command on application launch. Switching or closing a project uses the same cleanup flow as quitting.
 
@@ -171,7 +176,7 @@ Picker-specific stabilization of a moving element may be explored during the fea
 
 Authentication belongs to Mauxi's app-owned pi profile. Existing terminal configuration is not automatically imported or mutated. Provider access remains subject to the provider's requirements and the capabilities of the pinned SDK; Mauxi does not promise unrestricted subscription use.
 
-**AGT-05 — Curated, extensible resources.** Bundle a reviewed design-engineering skill/tool set. Show loaded resources and allow explicit import/enable/disable of selected skills and compatible extensions. Review executable resources before loading; do not automatically execute every project or globally installed extension just because the project folder is trusted. Missing packages require approval before installation.
+**AGT-05 — Curated, extensible resources.** Bundle a reviewed design-engineering skill/tool set. Show loaded resources and allow explicit import/enable/disable of selected skills and compatible extensions. A small settings view or local-path configuration is sufficient; do not build a resource marketplace or general package-management UI. Review executable resources before loading; do not automatically execute every project or globally installed extension just because the project folder is trusted. Missing packages require approval before installation.
 
 **AGT-06 — Skills guide decisions.** Skills should help the agent choose appropriate design and animation approaches, preserve project conventions, consider accessibility/reduced motion, and verify the result. Make relevant skills discoverable for task-based loading and allow explicit invocation. Do not assume that a skill description guarantees the model will load it: add workflow guidance and evaluate representative scenarios. Do not alter the user's existing manual-only terminal skills to achieve this.
 
@@ -187,11 +192,21 @@ Skill content, versions, and redistribution rights must be reviewed before bundl
 
 **BRW-02 — Explicit ownership.** Model ownership as human, picker, or agent. Request a visible handoff before agent interaction. While the agent owns control, show the affected previews and keep chat, Stop, and Take back control reachable. Serialize browser mutations and coordinate linked navigation across both previews. The agent must not race the user's mouse/keyboard.
 
-**BRW-03 — Revocable control.** Take back control cancels queued browser actions and prevents new actions under the revoked lease. Stop additionally aborts the current agent execution and its cancellable tools. Do not claim to undo an HTTP request or external effect already in flight. Returning control must work after tool failure, navigation failure, model error, or renderer disconnect.
+**BRW-03 — Revocable control.** Take back control cancels queued browser actions and invalidates the previous control generation so it cannot authorize new actions. A small in-memory ownership state is sufficient; no control-lease service is required. Stop additionally aborts the current agent execution and its cancellable tools. Do not claim to undo an HTTP request or external effect already in flight. Returning control must work after tool failure, navigation failure, model error, or renderer disconnect.
 
 **BRW-04 — Targeted capabilities.** The initial browser tool surface covers screenshot, DOM/source/style inspection, bounded console/page-error retrieval, navigate, click, type, hover, and scroll. Every operation identifies the workspace, preview, and current document generation. Arbitrary page evaluation is not an innocuous read operation and must not bypass control/approval rules.
 
 **BRW-05 — Local is not consequence-free.** A local dev page can call a production API. Warn users to use development/test accounts. Destructive submissions, purchases, publishing, or other consequential actions require explicit approval; a general control handoff is not blanket approval for them. These safeguards reduce risk but cannot perfectly infer all side effects of application event handlers.
+
+### 4.6 Minimal visual direction
+
+**UI-01 — Apply `/apple-design` to Mauxi.** Use the skill when implementing or reviewing Mauxi's shell: clear hierarchy, careful typography, predictable spatial relationships, immediate feedback, and restraint. This is design guidance for a Linux application, not a requirement for a macOS lookalike, Apple-only assets, or a native Apple stack. It does not force an Apple style onto the user's project; target-project changes follow that project's conventions and the user's intent.
+
+**UI-02 — Keep the working surface small.** The resting workspace shows the canvas, two preview headers with their three primary actions, an anchored chat, and compact project/status controls. Put diagnostics, resource settings, and detailed tool output behind existing actions or expandable sections rather than permanent extra panels. Keep selected-context chips, pending approvals, Stop, and Take back control easy to find. Minimal does not mean hiding necessary context or removing labels people need.
+
+**UI-03 — Direct, restrained interaction.** Artboard dragging follows the pointer 1:1 from its grab point. Press feedback is immediate. Any focus/panel transition is brief, interruptible, and starts from the current on-screen state; never block input until an animation finishes. Use a simple spring only where continuity helps an interaction. No decorative bouncing, elaborate gesture physics, custom animation engine, or animation prerequisite for ordinary actions.
+
+**UI-04 — Legibility before decoration.** Start with the Linux system font, a small set of type/spacing/color values, neutral surfaces, and functional accent color. Use translucency sparingly only when it clarifies separation; prefer opaque surfaces when blur adds cost or reduces contrast. Respect keyboard focus, text sizing, reduced motion, and reduced transparency/contrast preferences where supported, with readable fallbacks. No separate design-system package or comprehensive component-library project is needed.
 
 ## 5. File changes, checkpoints, and instrumentation
 
@@ -216,7 +231,7 @@ Do not blindly run an upstream install/init command that changes manifests, lock
 
 **INS-04 — Normal close.** Quiesce agent/file operations, revoke browser control, disconnect previews, stop only owned dev processes, remove owned integration patches/artifacts, and mark cleanup complete. Keep an external server running if Mauxi merely attached. Do not report a clean close while instrumentation remains.
 
-**INS-05 — Abnormal termination.** Cleanup cannot execute after power loss or an unconditional process kill. On the next launch, reconcile unfinished journals before reinstrumenting the project. Operations must be idempotent and recover from partially applied setup as well as partially completed cleanup. A surviving supervisor may improve crash cleanup, but is not a substitute for a durable journal.
+**INS-05 — Abnormal termination.** Cleanup cannot execute after power loss or an unconditional process kill. On the next launch, reconcile unfinished journals before reinstrumenting the project. Operations must be idempotent and recover from partially applied setup as well as partially completed cleanup. A small file-backed recovery journal and next-launch recovery are sufficient; do not add a cleanup daemon or process supervisor.
 
 **INS-06 — Conflict safety.** If automatic removal cannot preserve user edits confidently, show the residual patch and require resolution. Offer retry/manual recovery guidance; a force-exit path must warn that cleanup remains pending. Do not use `git reset --hard`, `git clean`, blanket stashes/restores, or lockfile regeneration as cleanup shortcuts. Preserve recovery artifacts until cleanup is proven complete.
 
@@ -267,90 +282,61 @@ A page bridge can report selection/inspection data; it cannot authorize a comman
 
 Local-first does not mean offline: configured model providers receive submitted code/context/images, and the running project can make its own network requests. Bound/redact logs and make attachments inspectable. Proposed alpha default: no Mauxi analytics or cloud sync; explicitly configure/document any inherited SDK network/update/telemetry behavior.
 
-## 7. Recommended technical architecture
+## 7. Simple layered architecture
 
-### 7.1 Stack recommendation
+### 7.1 Recommended Linux stack
 
-The interview agreed on the pi SDK, not a final desktop framework. The recommended stack for review is:
+Use one application and one repository. **Electron + React + TypeScript**, with Vite for Mauxi's UI build, remains the recommended stack: Chromium suits live web previews and the Node host can use pi's SDK directly. Portability is not a reason for this choice and not an implementation requirement.
 
-| Layer | Recommendation | Reason |
+- **Canvas:** DOM artboards and a small pan/zoom/drag controller; no full drawing-editor framework.
+- **Agent:** pinned `@earendil-works/pi-coding-agent`, initially in the existing Node-capable desktop host. No separate pi CLI installation or mandatory agent subprocess.
+- **Selection:** evaluate pinned React Grab primitives through a small integration module; keep Mauxi's own minimal picker UI.
+- **Browser control:** Electron/Chromium capabilities targeting the visible previews; use Playwright where it reduces work, not to launch a second verification browser.
+- **Storage:** pi-native sessions plus small JSON metadata/recovery files and file snapshots outside the project. No database or persistence framework by default.
+- **Tests:** ordinary unit/integration tests and a focused Electron/browser end-to-end suite, with fake provider/agent behavior by default.
+- **Delivery:** one Linux artifact for the actual alpha testers. No macOS/Windows builds, platform adapters, or shared packages.
+
+Pin a tested combination of dependencies and target-project fixtures. Do not maintain multiple preview engines, transports, or desktop-stack implementations in anticipation of future needs.
+
+### 7.2 Three code layers
+
+| Layer | Suggested folder | Responsibility |
 | --- | --- | --- |
-| Desktop host | Electron, supported stable release | Consistent Chromium engine, browser instrumentation APIs, Node ecosystem, Linux-first with a cross-platform path. Accept a larger download/runtime footprint. |
-| Application UI | React + TypeScript, Vite build tooling | Fits the team's domain and the existing pi web UI reference; good support for interactive UI and typed contracts. This is Mauxi's stack, not a requirement that every target app uses Vite. |
-| Canvas | DOM artboards plus a small pan/zoom/drag controller | Two live frames do not initially justify adopting a full drawing-editor model. Keep canvas state and camera math separate from React chat state. |
-| Agent runtime | Pinned `@earendil-works/pi-coding-agent` SDK in a dedicated Node-capable process | Keep agent work, resource loading, and model traffic off the UI and Electron main event loops. No shelling out to a globally installed pi. |
-| Selection | Evaluate pinned React Grab primitives behind a Mauxi adapter | Reuse hit testing and structured source context without adopting an entire third-party UI or installer. Verify compatibility before committing to it. |
-| Browser control | Host-owned preview service using Electron/Chromium frame instrumentation; Playwright where compatible | Control the actual visible targets without launching a second browser. Exact capture/control mechanism is a feasibility result. |
-| Local state | Pi-native session storage plus versioned Mauxi metadata, artifact files, and recovery journals | Avoid a second conversation source of truth. A local database is optional only if a demonstrated need emerges. |
-| Verification | Unit/integration tests plus Playwright/Electron end-to-end tests | Fake agent/provider adapters by default; opt-in real-provider smoke tests. |
-| Distribution | Linux package with bundled SDK/runtime resources | Users still provide the project's own Node/package-manager/toolchain. Select the first artifact format during packaging planning. |
+| Presentation | `src/presentation/` | React canvas, preview headers, chat, selection chips, and small dialogs/settings views. Apply `/apple-design`. Render state and invoke application actions; no direct SDK, filesystem, or shell access. |
+| Application | `src/application/` | Plain TypeScript use cases and state: open/close a project, prepare previews, send selected context to pi, approve commands, hand off browser control, review/undo edits, and coordinate cleanup. |
+| Infrastructure | `src/infrastructure/` | Concrete integrations with pi, Electron, the filesystem, child processes, browser/source inspection, and Vite/Next.js development setup. |
 
-Tauri is not the default because it uses WebKit on Linux and would require a separate Node integration for pi. It remains a possible alternative only if the Electron feasibility work fails or size constraints change.
-
-Do not select exact dependency versions from memory or automatically use `latest`. Pin a compatible, tested set after the feasibility work, including the browser engine, SDK, selection engine, and supported target framework fixtures.
-
-### 7.2 Process and responsibility boundaries
+The dependency direction is **presentation → application → infrastructure**. Keep shared payload types small and neutral. These are folders and module boundaries, not services, separately published packages, or one process per layer.
 
 ```text
-Trusted application UI (React)
-  canvas camera · toolbars · chat · diffs · permission/auth dialogs
-           │ narrow, validated IPC
-           ▼
-Electron host / workspace coordinator
-  window lifecycle · project lease · browser target registry
-  operation approvals · dev process ownership · mutation/recovery service
-           │                                  │
-           │ typed agent protocol             │ controlled preview operations
-           ▼                                  ▼
-Dedicated pi SDK runtime                 Two isolated live preview frames
-  models/auth · sessions                 desktop / mobile, actual dev app
-  curated skills/extensions              development-only Mauxi bridge
-  managed tools → host operations        selection/context → validated host path
+React renderer: presentation
+        │ narrow, validated Electron IPC
+        ▼
+Desktop host: application → infrastructure
+                            ├─ pi SDK
+                            ├─ files, checkpoints, dev process
+                            └─ visible previews + development-only bridge
 ```
 
-- The renderer never imports the Node SDK or calls providers directly.
-- The Electron host coordinates privileged operations but delegates expensive filesystem/source work so its event loop remains responsive.
-- The agent process exposes a small typed protocol and uses managed operations for file writes, commands, and browser actions.
-- A crash in the agent runtime must not erase the workspace journal or prevent the shell from showing partial changes and taking back browser control.
-- The bridge is an adapter, not an application-wide RPC gateway into the user's filesystem.
+Start with direct function calls in the host and the SDK's existing event subscriptions. Use a few typed IPC actions only where the renderer/host boundary requires them. Do not add an application-wide event bus, dependency-injection container, generic repository classes, custom agent RPC protocol, or reusable platform framework.
 
-### 7.3 Preview embedding: provisional, subject to gate G0
+Use asynchronous operations and keep the host event loop responsive. Add a worker/process only if profiling or a concrete isolation problem demonstrates the need; it is not a prerequisite. A host crash uses next-launch recovery rather than a promised independently surviving agent service. Browser sandboxing, validated IPC, command approvals, and conflict-safe file changes remain required regardless of process count.
 
-Start by evaluating **isolated DOM iframe artboards transformed with CSS**. They naturally participate in canvas transforms, clipping, stacking, and DOM-based controls while preserving the page's CSS viewport size.
+### 7.3 Prove the hard preview interaction first
 
-This approach must prove:
+The leading approach is **isolated DOM iframe artboards transformed with CSS**. They naturally participate in canvas positioning, scaling, clipping, and overlays while retaining their own layout viewport.
 
-1. Live rendering and input correctness at non-100% zoom.
-2. Dev-server framing policies, hot-reload websockets, navigation, and Next.js rendering/hydration behavior.
-3. Early-enough bridge/source instrumentation in both supported frameworks.
-4. Source lookup and screenshots from the actual isolated frame, including offscreen/clipped canvas positions.
-5. A viable origin/session strategy for authenticated local apps without disabling web security or globally stripping cookie protections.
-6. Browser automation ownership and cancellation without a separate headless copy.
+G0 checks the actual risk on one Vite and one Next.js fixture: live input at non-100% zoom, correct source picking/capture, HMR, and a safe dev-only integration. Also test local-app cookies and framing/origin behavior early; a custom app scheme does not automatically solve iframe authentication. Keep shell and project origins separate and `webSecurity` enabled. Any necessary dev-only framing changes must be narrow and reversible.
 
-The shell and project must remain separate origins. They may need a carefully designed same-site arrangement for local-app cookies; a custom app scheme is not assumed to solve iframe authentication. Narrow dev-only framing/origin configuration is acceptable with approval; blanket removal of CSP/security headers is not.
+React Grab's cross-frame helpers cover **same-origin** frames. Run a cooperating bridge inside each isolated preview and translate its data explicitly; do not weaken isolation to call it from the shell. Only add the messages needed for selection, inspection, navigation, and control, with schema and current-session checks. This is an internal bridge shipped with the app, not a public versioned protocol ecosystem.
 
-React Grab's inspected primitives expose hit testing, element bounds, structured source locations, selectors, and styles. Its cross-frame helpers describe **same-origin** iframe support. Mauxi must run a cooperating adapter inside each isolated preview and explicitly translate its data; it must not weaken isolation just to call these helpers from the shell.
+If this fails on Linux, investigate that concrete failure before choosing another embedding method. `WebContentsView` is not a DOM element and offscreen rendering has real complexity; neither needs a parallel implementation now. Electron discourages `<webview>`. Do not substitute static screenshots, a fixed layout, or imprecise selection to avoid solving the agreed core interaction.
 
-Alternatives are not interchangeable drop-ins:
+### 7.4 Keep integrations concrete
 
-- `WebContentsView` offers browser control, but is a native view rather than a DOM element. Canvas transforms, clipping, layering, and logical viewport size need a separate proof.
-- Offscreen rendering adds frame delivery, input routing, accessibility, text input/IME, performance, and GPU/platform complexity. It is not the default fallback.
-- Electron discourages the `<webview>` tag; do not adopt it merely to avoid the feasibility work.
+Use a thin pi integration and separate Vite/Next.js functions only where those frameworks differ. Introduce an interface when it enables an actual test or a genuinely different implementation, not for every class or file. No public plugin API is required.
 
-If the chosen approach fails, record the result and review the architecture. Do not quietly ship static screenshot artboards, imprecise selection, or a fixed layout as substitutes for agreed requirements.
-
-### 7.4 Adapter contracts
-
-| Boundary | Responsibilities |
-| --- | --- |
-| Project adapter | Static detection; compatibility diagnostics; launch/instrumentation plan; readiness; reversible activation/deactivation. |
-| Preview adapter | Target identity/generation; viewport and navigation; selection and screenshots; browser operation execution; disconnect/reconnect. |
-| Source resolver | Verify runtime source provenance against allowed local files; preserve mapping kind; detect changed fingerprints and ambiguity. |
-| Agent adapter | SDK lifecycle; events; models/auth; resources; structured desktop questions; stop/steer/follow-up. |
-| Mutation/recovery service | Durable transaction records; coordinated source/instrumentation writes; version checks; diffs; safe reversal. |
-| Permission service | Exact operation approvals; saved command policy; control leases; audit metadata; fail-closed behavior. |
-
-These are internal boundaries, not a public plugin API promised in the alpha. Version all cross-process/bridge messages and reject unsupported versions explicitly.
+Cleanup and undo need coordinated writes and durable recovery information, not an enterprise transaction system. A small application module, serialized file operations, snapshots, and an atomic recovery file are the starting point. The behavior in sections 5 and 6 matters; infrastructure sophistication does not.
 
 ## 8. State and persistence model
 
@@ -363,7 +349,7 @@ These are internal boundaries, not a public plugin API promised in the alpha. Ve
 | Selection capture | Immutable historical DOM/source/image context plus separate live revalidation status. |
 | Change set | Request grouping, file-operation records, coverage, review/undo status, and errors. |
 | Instrumentation transaction | Planned/applied/cleaning/clean/conflicted state, owned patches/artifacts, fingerprints, and recovery information. |
-| Approval/control lease | Exact authorized action or browser scope, generation, expiry/revocation, and result. |
+| Approval/control state | Exact authorized action or current browser owner, generation, cancellation, and result. Simple local state, not a lease service. |
 
 Proposed storage defaults:
 
@@ -384,7 +370,7 @@ Proposed storage defaults:
 | Next.js | A pinned modern Next.js App Router fixture using its selected/default bundler, with server/client components, hydration, streaming, route changes, and source selection. | Framework agreed; exact versions pending. |
 | Next.js Pages Router / alternative bundlers | Decide whether included in alpha and add distinct fixtures if so. | Open scope refinement; do not claim support before validation. |
 | Real projects | At least one representative local project per supported integration, with test data/accounts. | Projects to be nominated; inspected local Vite candidates exist. |
-| Linux | Defined distro, display server, architecture, GPU and packaged-app checks. | Linux agreed; certification target pending. |
+| Linux | Record and test the founder's and actual alpha testers' Linux environments and the packaged app. No broad distro/GPU certification program. | Linux-only scope agreed; first artifact format pending. |
 
 Synthetic fixtures should contain repeated components, nested icons, overlapping elements, portals, scrolling/fixed/sticky layouts, responsive breakpoints, source edits that shift line numbers, and authenticated local routes. Failures on these cases must be visible and reproducible.
 
@@ -396,7 +382,7 @@ Synthetic fixtures should contain repeated components, nested icons, overlapping
 | Hot reload/compiler failure | Show the real error, keep partial diffs, allow repair or undo. |
 | Missing/expired provider auth | Pause model work and offer the SDK's setup/re-auth path; no credential prompts in chat. |
 | Denied command or revoked browser control | Do not execute it or retry through another tool to evade the decision. |
-| Agent process crash | Retain partial changes and session data; recover an idle runtime without automatic replay of mutating actions. |
+| Agent/runtime failure | Retain partial changes and session data; return to an idle/recoverable state without automatically replaying mutating actions. A host-process crash follows app recovery. |
 | App crash during instrumentation/cleanup | Reconcile the durable journal on restart before preparing that workspace again. |
 | External file edit or cleanup/undo conflict | Preserve current user content, show the conflict, and require a safe resolution. |
 | Disk full/checkpoint unavailable | Stop managed writes, report the failure, preserve existing recovery information. |
@@ -416,7 +402,7 @@ These criteria describe future evidence. **No browser, source-linking, cleanup, 
 | AC-06 | Multiple desktop/mobile captures reach one request with correct labels, source fingerprints, and screenshot regions. Users can inspect/remove each before submission. |
 | AC-07 | After HMR, list reorder, remount, or navigation, an old target either revalidates unambiguously or becomes stale. It never silently acts on another instance. |
 | AC-08 | Linked same-project navigation updates the peer once without feedback loops. Clicking a side-effectful control in one preview produces no replayed click/POST in the other. Unlink works. |
-| AC-09 | Agent verification demonstrably uses the visible targets. Taking back control blocks queued/new browser mutations under the old lease and restores human input after success, error, or disconnect. |
+| AC-09 | Agent verification demonstrably uses the visible targets. Taking back control blocks queued/new browser mutations under the old control generation and restores human input after success, error, or disconnect. |
 | AC-10 | A bundled pi SDK session supports streaming, a structured question, tool updates, Stop, steering, follow-up, and resume without a separate installed pi CLI or duplicate session writer. |
 | AC-11 | Provider UI drives the bundled SDK's authentication/model APIs. Automated tests use fakes for success/error/cancel/re-auth; opt-in smoke tests cover representative supported auth flows without exposing secrets. |
 | AC-12 | An arbitrary command, dependency install, scope escape, or changed saved script cannot execute without the applicable approval. Denial/missing UI/disconnect cannot become implicit approval. |
@@ -426,65 +412,55 @@ These criteria describe future evidence. **No browser, source-linking, cleanup, 
 | AC-16 | Forced termination at each transaction stage is recovered on next launch. Partial setup is reversible; unfinished cleanup is not mistaken for a clean workspace. The same applies when the user changed branches or moved a file. |
 | AC-17 | A production build contains no Mauxi instrumentation and still works with inactive residual dev hooks after simulated abnormal termination. |
 | AC-18 | Preview-origin spoofing, stale generation IDs, oversized messages, forged source paths, and untrusted IPC senders cannot invoke privileged host actions or retrieve credentials. Project browser storage does not leak into another workspace. |
-| AC-19 | On one real project for each certified integration, complete a responsive layout refinement, a component polish task, and an animation adjustment using the applicable skills, then verify and review/undo without manual copying of DOM context. Record human assessment and actual checks; do not assert model quality from mock tests. |
+| AC-19 | On one real project for each tested integration, complete a responsive layout refinement, a component polish task, and an animation adjustment using the applicable skills, then verify and review/undo without manual copying of DOM context. Record human assessment and actual checks; do not assert model quality from mock tests. |
 | AC-20 | A packaged Linux build opens a project, resolves its external toolchain, authenticates through the SDK, runs the full loop, and exits/reopens with correct process and recovery behavior. |
+| AC-21 | The resting interface stays focused on two previews and anchored chat. Settings/diagnostics do not require permanent extra panels; selections, approvals, and stop/take-back controls remain discoverable. Review pointer tracking, transition interruption, keyboard focus, text sizing, and reduced-motion behavior against UI-01 through UI-04 and `/apple-design`. |
 
-### Proposed non-functional targets
+### Practical quality bar
 
-Establish a reproducible reference Linux machine and fixture workload in G0 before treating these as release thresholds:
-
-- Aim for a 60 Hz-feeling canvas; provisional p95 frame interval at most 33 ms during scripted pan/zoom with both fixture previews visible and chat streaming.
-- Picker hover feedback: provisional p95 at most 50 ms after input under the reference workload.
-- Source/context capture: show immediate progress; provisional warm p95 at most 1 second. Slow/cold resolution must remain cancellable and must never be represented as complete before it is.
+- Pan/zoom, picking, and typing must stay responsive with both fixture previews visible and chat streaming on the actual Linux test machine. Profile observed problems; do not start a separate benchmarking project or invent hardware-wide performance promises.
+- Provide immediate press/selection feedback and progress for slower source lookup. Source capture remains cancellable and cannot appear complete before it is.
 - No silent background model calls on project open. Real-provider tests are opt-in and have explicit cost limits.
 - Logs, artifacts, retry loops, and tool payloads are bounded. Repeated open/close cycles must not accumulate orphaned owned dev processes or browser targets.
-- Keyboard and pointer access to Stop/Take back control remains available even when a project page or agent is busy.
+- Keyboard and pointer access to Stop/Take back control remains available while a page or agent is busy.
 
-These are proposed targets, not measured performance claims or guarantees for arbitrarily expensive project code.
+These are behavior targets for the alpha, not measured performance claims.
 
 ## 11. Recommended delivery sequence
 
-### G0 — Feasibility and safety proof
+### G0 — Small proof of the core interaction
 
-**Do first, before polishing the full application.**
+Before polishing the whole app, use one pinned Vite and one Next.js fixture to prove two live movable/scalable previews, accurate source-linked selection and capture, and HMR. Check the real framing/cookie constraints early. Demonstrate that a temporary integration can be removed without losing an unrelated edit, stays out of production output, and leaves enough recovery information after a forced close.
 
-Build a disposable technical slice using pinned Vite and Next.js fixtures to prove:
+Keep this slice small and reuse successful code. Deliver a short note with tested versions, results, and remaining limitations—not a general browser platform or a full recovery UI. The complete failure matrix and agent-control workflow belong in later slices. No paid model calls are needed for this proof. If it fails, resolve the actual problem rather than weakening D-05, D-10, or D-12.
 
-- Two live transformed browser artboards and correct coordinate/input handling.
-- Precise visual/source selection, hierarchy, context capture, and source refresh after HMR.
-- Safe cross-origin bridge and authenticated local-app behavior.
-- Agent-addressable visible browser targets, capture, handoff, and cancellation.
-- Reversible dev-only instrumentation, cleanup conflicts, crash recovery, and production absence.
+### G1 — Minimal application and project opening
 
-Deliver an architecture decision record, exact fixture/version matrix, test evidence, known limitations, and the selected preview/source approach. If it fails, resolve the architecture openly rather than weakening D-05, D-10, or D-12. No full agent UI or paid model call is needed to prove most of this gate.
+Establish the three code folders/layers, reuse the proven preview work, and add project discovery/trust, dev-command confirmation, app-owned pi configuration, and the small file-backed recovery module. Keep the SDK in the host initially. Exercise one Linux package early; no portability framework or separate agent service.
 
-### G1 — Application and project foundation
+### G2 — Minimal workspace and precise context
 
-After G0: establish the Electron/React/TypeScript app, typed boundaries, project discovery/trust, toolchain/command confirmation, lifecycle coordinator, app profile, and durable state/recovery services. Establish deterministic fake-agent tests and a first Linux package early.
+Build the freeform canvas, two preview headers, focus, route linking, picker hierarchy, selection chips, and anchored chat layout. Apply `/apple-design` as these interactions are built, not as a late decorative pass. Keep diagnostics/settings behind existing controls. Test source freshness and coordinate correctness on the known fixtures.
 
-### G2 — Workspace and precise context
+### G3 — Pi conversation and controlled changes
 
-Build the freeform canvas, two previews, toolbar/focus behavior, route linking, picker hierarchy, multi-selection chips, and context freshness/capture UI on the proven adapters. Exercise the security and source-mapping fixtures continuously.
+Connect SDK auth/models/sessions, streaming conversation, structured questions, curated skills, managed file/command operations, approvals, checkpoints, review, and undo. Put approval and safe-write checks in the application flow before enabling agent edits; they do not need separate services.
 
-### G3 — Pi integration and controlled changes
+### G4 — Visible verification and Linux alpha checks
 
-Integrate provider/auth/model controls, sessions and streaming chat, structured desktop questions, curated skills, managed file/command tools, permissions, checkpoints, review, and undo. Keep the permission/mutation services in place before exposing agent writes.
+Connect visible-preview tools and human/agent ownership. Run the real design workflows, finish failure/abort and cleanup/recovery tests, and review minimal UI behavior against `/apple-design`. Complete AC-01 through AC-21 on the tested Linux/project scope. Fix measured responsiveness problems rather than prebuilding infrastructure for hypothetical load.
 
-### G4 — Visible verification and alpha hardening
-
-Connect preview tools and the ownership UI to agent requests. Validate real design workflows, error/abort paths, browser isolation, source precision, packaging, performance, and cleanup/recovery. Complete AC-01 through AC-20 for the certified scope.
-
-G2 and parts of G3 can be developed independently once shared contracts are settled. G4 depends on both. Issue estimates and parallelization should follow G0 evidence, not optimistic assumptions about iframe/source behavior.
+Prefer a few end-to-end slices over separate infrastructure projects. These milestones organize the work; they do not imply five independent frameworks or a requirement to estimate every future edge case before the first proof.
 
 ## 12. Basis for the later issue breakdown
 
 After spec review:
 
-1. Resolve release-blocking scope choices in section 13 and approve the baseline.
-2. Create G0 investigation issues first, each with a concrete deliverable and go/no-go criterion.
-3. Break G1–G4 into vertical, testable slices referencing requirement and acceptance IDs.
-4. Give every implementation issue explicit dependencies, out-of-scope boundaries, and automated/manual evidence expectations.
-5. Keep source-selection accuracy, cleanup, permissions, and crash recovery as first-class work, not generic “polish later” tickets.
+1. Resolve choices that block the next slice, using the proposed defaults elsewhere; approve the baseline.
+2. Start with a small G0 proof issue with a concrete result and go/no-go criterion.
+3. Break the remaining work into a few vertical, testable features referencing requirement and acceptance IDs—not a ticket for each layer, service, or paragraph.
+4. Give issues their actual dependencies, scope boundaries, and expected evidence. Do not add cross-platform work or speculative abstraction tickets.
+5. Keep source accuracy, cleanup, approvals, and recovery covered alongside the features that need them. Apply `/apple-design` during UI work, not through a separate design-system project.
 
 No GitHub issues should be created merely by treating every paragraph in this document as a separate ticket. Do not start the full implementation until the spec is reviewed.
 
@@ -492,13 +468,13 @@ No GitHub issues should be created merely by treating every paragraph in this do
 
 | ID | Open item | Recommended/default resolution | When needed |
 | --- | --- | --- | --- |
-| O-01 | Final desktop/canvas/preview stack | Approve Electron + React + TypeScript as the leading stack; keep iframe embedding and React Grab adoption conditional on G0 evidence. | Before/at G0. |
+| O-01 | Concrete desktop/preview choices | Simple layering is agreed. Use Electron + React + TypeScript as the leading Linux stack, with pi in the host; confirm iframe/React Grab behavior in the small G0 proof. | Before/at G0. |
 | O-02 | Exact framework compatibility matrix, including Next.js routers/bundlers | Start the proof with modern pinned React/Vite and Next App Router/default-bundler fixtures. Decide Pages Router/alternative-bundler scope explicitly before claiming general Next support. | G0 and before implementation issue estimates. |
 | O-03 | Real acceptance projects | Nominate a representative Vite project and a Next.js project with non-production test data/accounts; keep private project contents out of public fixtures. | Before alpha acceptance testing. |
 | O-04 | Initial skill pack and import support | Founder selects a small reviewed pack for design polish, responsive UI, animation, and verification. Audit licenses, automatic discoverability, and desktop tool compatibility. | Before G3 completion. |
-| O-05 | Linux certification and artifact format | Begin with x86-64 on the founder's Linux environment and a documented comparable distro; test display-server/GPU behavior. Prefer a simple distributable artifact first, without an auto-update service. | Early G1 packaging work. |
-| O-06 | Recovery, retention, and numeric resource limits | Approve conflict-safe cleanup/undo over destructive restoration; set bounded artifact/log/checkpoint budgets using measured fixture workloads. Never evict active recovery data. | G0 safety proof / before G4. |
-| O-07 | Final visual design | Use the sketch's canvas-plus-bottom-chat composition, then define the visual system and interaction details separately. Do not treat the wireframe as final styling. | Before UI polish. |
+| O-05 | First Linux artifact format | Choose one simple artifact for the founder and actual alpha testers. No broad certification effort, other-OS packaging, or auto-update service. | Early G1 packaging work. |
+| O-06 | Recovery storage limits | Use small file-backed journals and snapshots, with conservative size limits. Preserve user edits and active recovery data; tune limits from actual use rather than building a retention framework. | Before G4. |
+| O-07 | Visual direction — resolved | Use `/apple-design`, a minimal shell, and the sketch's canvas-plus-bottom-chat composition. Fine styling values can be chosen while building the UI; no additional visual-system planning phase is required. | Closed by D-22; applied throughout UI work. |
 
 No delivery deadline, team size, product license, or public-release commitment has been established. These are not grounds for inventing estimates or silently widening the alpha scope.
 
@@ -509,8 +485,8 @@ Repository inspection found an empty Mauxi repository. Relevant sources were rea
 - **Pi SDK:** [SDK documentation](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/sdk.md), [examples](https://github.com/earendil-works/pi-mono/tree/main/packages/coding-agent/examples/sdk). The locally inspected installed SDK is `0.85.1`; this is research context, not a chosen Mauxi dependency pin.
 - **Pi extensibility:** [Extensions](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md), [skills](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/skills.md), [packages](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/packages.md), [security](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/security.md). The SDK exposes useful integration points, but Mauxi still owns its desktop UI, approval semantics, and resource compatibility policy.
 - **Electron:** [Web embeds](https://www.electronjs.org/docs/latest/tutorial/web-embeds), [WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view), [offscreen rendering](https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering), [security](https://www.electronjs.org/docs/latest/tutorial/security). Native views and DOM frames have materially different canvas behavior.
-- **Tauri:** [Webview versions](https://v2.tauri.app/reference/webview-versions/). Linux uses WebKitGTK rather than Electron's bundled Chromium.
 - **React Grab:** [README](https://github.com/aidenybai/react-grab/blob/ea4bbec9e80f4802e8ae19ad18431edb9ddbb670/README.md), [inspected primitives](https://github.com/aidenybai/react-grab/blob/ea4bbec9e80f4802e8ae19ad18431edb9ddbb670/packages/react-grab/src/primitives.ts), [package manifest](https://github.com/aidenybai/react-grab/blob/ea4bbec9e80f4802e8ae19ad18431edb9ddbb670/packages/react-grab/package.json). MIT-licensed candidate; pin and validate a distributable build rather than assuming the current repository's exports are available in every published version.
+- **Visual direction:** `/apple-design` was read in full for this revision. Apply its clarity, direct manipulation, interruptibility, typography, and accessibility guidance within Mauxi's minimal Linux shell. The skill has not been vendored or automatically added to the shipped agent pack.
 - **Existing local pi web UI:** Useful reference for a React conversation surface and SDK adapter. It targets SDK `0.82.1`, older than the inspected installation, and is not a drop-in implementation or runtime dependency for Mauxi.
 - **Existing local browser extension:** Controls a separate headless browser. Its conceptual tool surface may inform Mauxi, but its browser instance/state model does not meet BRW-01.
 
