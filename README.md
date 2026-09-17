@@ -8,10 +8,13 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
-**Specification draft — no application implementation yet.**
+**G0 feasibility proof complete.** The repository now contains the smallest Electron/React slice used to validate live transformed previews, React Grab source selection, preview-only capture, HMR freshness, and reversible development instrumentation.
 
+- [G0 proof, tested matrix, steps, and limitations](docs/G0-PROOF.md)
 - [Product and technical specification](SPEC.md)
 - [Original workspace concept](docs/assets/workspace-concept.png)
+
+Run the automated checks with `npm run check` and, on Linux with a display available, `npm run test:e2e`. The proof is not the full alpha application.
 
 ## Direction
 

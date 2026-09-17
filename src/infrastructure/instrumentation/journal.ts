@@ -1,0 +1,58 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+export type TransactionState = "planned" | "applying" | "applied" | "cleaning" | "clean" | "conflicted";
+
+export interface PatchRecord {
+  path: string;
+  originalHash: string;
+  appliedHash: string | null;
+  ownedText: string;
+  anchor: string;
+  applied: boolean;
+}
+
+export interface ArtifactRecord {
+  path: string;
+  hash: string;
+  created: boolean;
+}
+
+export interface InstrumentationJournal {
+  version: 1;
+  transactionId: string;
+  workspaceRoot: string;
+  framework: "vite" | "next";
+  state: TransactionState;
+  createdAt: string;
+  updatedAt: string;
+  patches: PatchRecord[];
+  artifacts: ArtifactRecord[];
+  conflicts: string[];
+}
+
+export function sha256(content: string | Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+export class JournalStore {
+  constructor(readonly directory: string) {}
+
+  pathFor(transactionId: string): string {
+    return path.join(this.directory, `${transactionId}.json`);
+  }
+
+  async write(journal: InstrumentationJournal): Promise<void> {
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    const finalPath = this.pathFor(journal.transactionId);
+    const temporaryPath = `${finalPath}.${process.pid}.tmp`;
+    const next = { ...journal, updatedAt: new Date().toISOString() };
+    await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporaryPath, finalPath);
+  }
+
+  async read(transactionId: string): Promise<InstrumentationJournal> {
+    return JSON.parse(await readFile(this.pathFor(transactionId), "utf8")) as InstrumentationJournal;
+  }
+}

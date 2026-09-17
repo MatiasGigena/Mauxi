@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-electron/
+playwright-report/
+test-results/
+fixtures/*/.next/
+fixtures/*/dist/
+fixtures/*/.mauxi/
+.mauxi-proof-state/
+evidence/captures/*.png
+!evidence/captures/vite-desktop-70.png
+!evidence/captures/next-desktop-70.png
+*.log
