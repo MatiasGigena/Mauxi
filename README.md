@@ -8,13 +8,17 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
-**G2 minimal workspace is complete.** Two live previews support independent positioning, canvas pan and 25–200% zoom, fit/reset, focus without remounting, explicit viewport sizing and bounded route linking with unlink/copy controls. Chat stays anchored and resizable; secondary tools live in Actions. Layout persists through the existing workspace record.
+**G2 source-linked multi-selection is complete.** The real picker works across camera zoom and pan, nested scrolling, overlapping targets, SVG, portals, sticky/fixed UI, and child-frame boundaries without activating the page underneath. Keyboard refinement distinguishes DOM ancestry from React ownership. Desktop and mobile picks accumulate as inspectable, removable chat attachments with bounded/redacted context, verified JSX provenance and file fingerprints, correctly clipped screenshot crops, and explicit ambiguous, library, stale, or unsupported states.
 
-The P2 review findings are addressed: native form submissions are not mirrored, independent route linking resumes afterward, and SPA navigation invalidates that preview’s selection attachments. Regression coverage passes alongside the original preview and lifecycle tests. Chat remains a labelled local demo; the full selector, model integration and checked external opening are not yet implemented.
+Selections retain rendered-instance identity across safe list reorders and become stale after remounts, HMR/source changes, navigation, or document replacement. The local fake send revalidates every attachment before use; pi model integration and checked external opening remain future work.
+
+**G2 minimal workspace is complete.** Two live previews support independent positioning, canvas pan and 25–200% zoom, fit/reset, focus without remounting, explicit viewport sizing and bounded route linking with unlink/copy controls. Chat stays anchored and resizable; secondary tools live in Actions. Layout persists through the existing workspace record.
 
 **G1 project lifecycle is complete.** The Linux app can statically inspect a local project, show a launch and temporary-integration plan for confirmation, own or explicitly attach to a development server, connect the two proven previews, and perform journaled conflict-safe cleanup and next-launch recovery. The supported matrix covers React + Vite and Next.js 15.3+ with Webpack or Turbopack.
 
-- [G2 acceptance issue](https://github.com/MatiasGigena/Mauxi/issues/3)
+- [G2 source-linked selection issue and acceptance criteria](https://github.com/MatiasGigena/Mauxi/issues/4)
+- [G2 selection behavior, provenance, crops and freshness](docs/G2-SELECTIONS.md)
+- [G2 workspace acceptance issue](https://github.com/MatiasGigena/Mauxi/issues/3)
 - [G2 controls, route boundaries, Linux walkthrough and test evidence](docs/G2-WORKSPACE.md)
 - [G1 acceptance issue and evidence](https://github.com/MatiasGigena/Mauxi/issues/2)
 - [G1 launch, cleanup, recovery, and AppImage flow](docs/G1-PROJECT-LIFECYCLE.md)
@@ -22,7 +26,7 @@ The P2 review findings are addressed: native form submissions are not mirrored, 
 - [Product and technical specification](SPEC.md)
 - [Original workspace concept](docs/assets/workspace-concept.png)
 
-Verified: TypeScript, **43 unit tests**, **13 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build and production bridge-exclusion checks.
+Verified: TypeScript, **48 unit tests**, **14 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build and production bridge-exclusion checks.
 
 Run `npm run check`, `npm run build`, `npm run test:e2e`, `npm run test:lifecycle-e2e`, `npm run test:turbopack-e2e`, and `npm run verify:production`. Build the Linux private-alpha artifact with `npm run dist:linux`.
 
