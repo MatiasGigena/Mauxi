@@ -10,10 +10,12 @@ export interface StoredSelection {
 }
 
 export function fingerprintsMatch(original: ElementFingerprint, current: ElementFingerprint): boolean {
-  if (original.tag !== current.tag) return false;
-  if (original.sourceKey && current.sourceKey && original.sourceKey !== current.sourceKey) return false;
-  if (original.testId && current.testId) return original.testId === current.testId && original.text === current.text;
-  return original.selector === current.selector && original.text === current.text;
+  if (original.instanceKey !== current.instanceKey || original.tag !== current.tag) return false;
+  if (original.sourceKey !== current.sourceKey) return false;
+  if (original.testId || current.testId) return original.testId === current.testId && original.text === current.text;
+  // A selector is supporting evidence, not permanent identity. The instance key
+  // permits an unambiguously retained node to move when a list is reordered.
+  return original.text === current.text;
 }
 
 export function markSelectionsAfterRouteChange(
@@ -32,7 +34,7 @@ export function markSelectionsAfterDocumentChange(
 ): StoredSelection[] {
   return selections.map((selection) =>
     selection.capture.previewId === previewId && selection.capture.documentGeneration !== newGeneration
-      ? { ...selection, status: "stale", staleReason: "The preview document changed; revalidate or pick again." }
+      ? { ...selection, status: "stale", requiresRepick: true, staleReason: "The preview document changed; pick this target again." }
       : selection,
   );
 }

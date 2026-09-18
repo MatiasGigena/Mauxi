@@ -75,6 +75,8 @@ describe("route-only linking", () => {
   it("validates new bridge commands and rejects malformed picker commands", () => {
     const envelope = { protocol: BRIDGE_PROTOCOL, session: "s", generation: "g" };
     expect(isShellMessage({ ...envelope, kind: "selection-mode", enabled: "yes" })).toBe(false);
+    expect(isShellMessage({ ...envelope, kind: "picker-refine", action: "parent" })).toBe(true);
+    expect(isShellMessage({ ...envelope, kind: "picker-refine", action: "arbitrary" })).toBe(false);
     expect(isShellMessage({ ...envelope, kind: "revalidate", selectionId: "id" })).toBe(false);
     expect(isShellMessage({ ...envelope, kind: "navigate", route: "/a", navigationId: "n" })).toBe(true);
     expect(isBridgeMessage({ ...envelope, kind: "route", url: "/a", navigationId: null, safe: true })).toBe(true);

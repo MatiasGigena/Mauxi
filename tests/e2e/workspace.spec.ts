@@ -103,6 +103,122 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
   expect(await board.boundingBox()).toEqual(cancelled);
 });
 
+test("picker refinement, scaled targets, instance identity, overlap and redaction", async () => {
+  const target = desktop().getByTestId("known-icon");
+  await button("Select in Desktop").click();
+  for (const zoom of ["0.25", "0.5", "1", "2"]) {
+    await page.getByLabel("Camera zoom").fill(zoom);
+    const targetBounds = await target.boundingBox();
+    const canvasBounds = await page.getByTestId("canvas").boundingBox();
+    if (!targetBounds || !canvasBounds) throw new Error("Target geometry unavailable");
+    await page.getByTestId("canvas").dispatchEvent("wheel", {
+      deltaX: targetBounds.x + targetBounds.width / 2 - (canvasBounds.x + canvasBounds.width / 2),
+      deltaY: targetBounds.y + targetBounds.height / 2 - (canvasBounds.y + canvasBounds.height / 2),
+    });
+    await target.click();
+    await expect(desktop().getByTestId("click-count")).toContainText("0");
+    await expect(page.locator(".selection-chip")).toHaveCount(1);
+    await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+  }
+  await page.getByLabel("Camera zoom").fill("0.5");
+  await button("Select in Desktop").click();
+
+  await button("Fit both").click();
+  await button("Select in Desktop").click();
+  await target.hover();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  const refinedChip = page.locator(".selection-chip").first();
+  await expect(refinedChip).toContainText("Increment proof counter");
+  await refinedChip.getByRole("button", { name: "Inspect" }).click();
+  await expect(page.getByLabel(/Selection details/)).toContainText("DOM ancestry");
+  await expect(page.getByLabel(/Selection details/)).toContainText("<button>");
+  await expect(page.getByLabel(/Selection details/)).toContainText("React ownership");
+  await expect(page.getByLabel(/Selection details/)).toContainText("component-owner: ProofCard");
+  await expect(page.getByLabel(/Selection details/)).not.toContainText("component-owner: path");
+  await expect(desktop().getByTestId("click-count")).toContainText("0");
+  await button("Select in Desktop").click();
+  await refinedChip.getByRole("button", { name: /Remove selection/ }).click();
+
+  await button("Select in Desktop").click();
+  await desktop().getByTestId("overlap-front").hover();
+  await page.keyboard.press("]");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".selection-chip").first()).toContainText("Back layer");
+  await button("Select in Desktop").click();
+  await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+
+  for (const fixtureTarget of ["scrolled-target", "viewport", "portal-target"] as const) {
+    await button("Select in Desktop").click();
+    await desktop().getByTestId(fixtureTarget).click();
+    await expect(page.locator(".selection-chip")).toHaveCount(1);
+    await button("Select in Desktop").click();
+    await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+  }
+  await button("Select in Desktop").click();
+  await desktop().getByTestId("unsupported-canvas").click();
+  await expect(page.locator(".selection-chip").first()).toContainText("Unsupported source");
+  await page.locator(".selection-chip").first().getByRole("button", { name: "Inspect" }).click();
+  await expect(page.getByLabel(/Selection details/)).toContainText("Canvas/WebGL pixels");
+  await button("Select in Desktop").click();
+  await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+
+  await desktop().getByTestId("same-origin-frame").scrollIntoViewIfNeeded();
+  await button("Select in Desktop").click();
+  await expect(desktop().locator('[data-mauxi-frame-target="same-origin-frame"]')).toBeVisible();
+  const childFrame = await desktop().getByTestId("same-origin-frame").boundingBox();
+  if (!childFrame) throw new Error("Child-frame geometry unavailable");
+  await page.mouse.click(childFrame.x + childFrame.width / 2, childFrame.y + childFrame.height / 2);
+  await expect(page.locator(".selection-chip").first()).toContainText("Same-origin child frame fixture");
+  expect(await desktop().locator("body").getAttribute("data-child-clicks")).toBeNull();
+  await button("Select in Desktop").click();
+  await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+
+  await button("Select in Desktop").click();
+  await desktop().getByTestId("identity-alpha").click();
+  await button("Select in Desktop").click();
+  await desktop().getByRole("button", { name: "Reorder retained items" }).click();
+  await page.locator(".selection-chip").first().getByRole("button", { name: "Revalidate" }).click();
+  await expect(page.locator(".selection-chip").first()).toHaveClass(/current/);
+  await desktop().getByRole("button", { name: "Remount identical items" }).click();
+  await page.locator(".selection-chip").first().getByRole("button", { name: "Revalidate" }).click();
+  await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
+  await page.getByLabel("Message", { exact: true }).fill("Do not send stale context");
+  await button("Send demo").click();
+  await expect(page.getByRole("log")).toContainText("stale");
+  await expect(page.getByRole("log")).not.toContainText("You: Do not send stale context");
+  await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
+
+  const secret = "never-serialize-this-value";
+  await desktop().getByLabel("Persistent note").fill(secret);
+  await desktop().getByTestId("editable-secret").fill(secret);
+  await desktop().getByLabel("Private textarea").fill(secret);
+  await button("Select in Desktop").click();
+  await desktop().getByLabel("Persistent note").click();
+  let chip = page.locator(".selection-chip").first();
+  await chip.getByRole("button", { name: "Inspect" }).click();
+  await expect(page.getByLabel(/Selection details/)).toContainText(/Screenshot crop/);
+  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
+  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+  await chip.getByRole("button", { name: /Remove selection/ }).click();
+
+  await desktop().getByTestId("editable-secret").click();
+  chip = page.locator(".selection-chip").first();
+  await chip.getByRole("button", { name: "Inspect" }).click();
+  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
+  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+  await chip.getByRole("button", { name: /Remove selection/ }).click();
+
+  await desktop().getByTestId("sensitive-parent-label").hover();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  chip = page.locator(".selection-chip").first();
+  await chip.getByRole("button", { name: "Inspect" }).click();
+  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
+  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+});
+
 test("linked client/document routes arrive once; unlink/copy, POST and auth isolation", async () => {
   const navigations: string[] = [];
   const peerFrame = page.frames().find((frame) => frame.url().includes("mauxiPreview=mobile"));

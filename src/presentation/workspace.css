@@ -36,7 +36,12 @@
 .composer button { min-height: 2.5rem; background: #5c46b6; color: white; white-space: nowrap; }
 .selection-list { display: flex; flex: 0 0 auto; gap: .5rem; overflow-x: auto; padding: .2rem; }
 .selection-chip { flex: 0 0 auto; max-width: 38rem; display: flex; align-items: center; gap: .4rem; padding: .3rem .5rem; border: 1px solid #c7c0d6; border-radius: .5rem; background: white; font-size: .75rem; }
-.selection-chip.stale { border-color: #b28631; background: #fff6e5; }.selection-chip strong, .selection-chip code { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.preview-pill { color: #5134a6; }
+.selection-chip.stale { border-color: #b28631; background: #fff6e5; }.selection-chip strong, .selection-chip code { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.preview-pill { color: #5134a6; text-transform: capitalize; }.unsupported { color: #8b3d2f; font-weight: 650; }
+.selection-inspector { flex: 0 0 auto; padding: .7rem .8rem; border: 1px solid #c7c0d6; border-radius: .6rem; background: #f5f2fa; font-size: .75rem; }
+.selection-inspector header { display: flex; justify-content: space-between; gap: 1rem; }.selection-inspector header span { color: #6b6172; }
+.selection-inspector dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .7rem; margin: .5rem 0; }.selection-inspector dt { font-weight: 650; }.selection-inspector dd { margin: 0; overflow-wrap: anywhere; }
+.selection-inspector details { margin-top: .5rem; }.selection-inspector summary { cursor: pointer; }.selection-inspector pre { max-height: 8rem; margin: .35rem 0; padding: .4rem; overflow: auto; background: white; white-space: pre-wrap; }
+.selection-warning, .send-error { color: #8b3d2f; font-weight: 600; }
 .preview-tools { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid #aaa3b6; border-radius: .85rem; padding: 1.25rem; background: #fafaf9; color: #29252e; box-shadow: 0 20px 70px #15102030; font-size: .875rem; }
 .preview-tools::backdrop { background: #211a3033; }
 .preview-tools header { display: flex; align-items: center; justify-content: space-between; }.preview-tools h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }.current-route { overflow-wrap: anywhere; color: #645b6d; }

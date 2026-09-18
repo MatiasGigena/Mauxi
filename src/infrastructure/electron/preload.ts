@@ -12,11 +12,11 @@ contextBridge.exposeInMainWorld("mauxi", {
   bridgeReady(input: { workspaceId: string; previewId: "desktop" | "mobile"; generation: string; url: string }) {
     return ipcRenderer.invoke("mauxi:bridge-ready", input);
   },
-  resolveSource(input: { workspaceId: string; hint: string }) { return ipcRenderer.invoke("mauxi:resolve-source", input); },
-  resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string }) {
+  resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }) { return ipcRenderer.invoke("mauxi:resolve-source", input); },
+  resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }) {
     return ipcRenderer.invoke("mauxi:resolve-fixture-source", input);
   },
-  capturePreview(input: { workspaceId?: string; previewId: string; x: number; y: number; width: number; height: number }) {
+  capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
   },
   onWorkspaceEvent(callback: (event: WorkspaceEvent) => void) {

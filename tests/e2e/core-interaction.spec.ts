@@ -23,8 +23,11 @@ async function waitForBridge() {
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
 }
 
-async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string) {
+async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, mappingMethod: "react-grab" | "jsx-attribute" = "react-grab") {
   await waitForBridge();
+  // Let the canvas ResizeObserver complete its one-time initial fit before the
+  // test applies an explicit camera and starts pointer geometry assertions.
+  await page.waitForTimeout(250);
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   const mobile = page.frameLocator('[data-testid="mobile-preview"]');
 
@@ -54,7 +57,7 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string) {
   await expect(desktop.locator('[data-testid="click-count"]')).toContainText("0");
   const selection = page.locator(".selection-chip").first();
   await expect(selection).toContainText(sourceName, { timeout: 15_000 });
-  await expect(selection).toContainText("react-grab");
+  await expect(selection).toContainText(`${mappingMethod} · verified JSX`);
 
   await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
   await mobile.locator('[data-testid="known-target"]').click();
@@ -101,7 +104,7 @@ test("Vite local cookies are shared by the two same-workspace previews", async (
 
 test("Next App Router/Webpack: server-client fixture has precise source picking", async () => {
   await page.getByRole("button", { name: "Next.js" }).click();
-  await proveFixture("Next.js", "components/ProofCard.tsx");
+  await proveFixture("Next.js", "components/ProofCard.tsx", "jsx-attribute");
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   await desktop.getByText("Use local test account").click();
   await expect(desktop.locator('[data-testid="auth-state"]')).toHaveText("Authenticated on server");

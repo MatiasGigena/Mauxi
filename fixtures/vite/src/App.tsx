@@ -6,6 +6,8 @@ export function App() {
   const [clicks, setClicks] = useState(0);
   const [authenticated, setAuthenticated] = useState(document.cookie.includes("mauxi-proof-auth=1"));
   const [submissions, setSubmissions] = useState(0);
+  const [items, setItems] = useState(["Alpha", "Beta"]);
+  const [listGeneration, setListGeneration] = useState(0);
   function signIn() {
     document.cookie = "mauxi-proof-auth=1; Path=/; SameSite=Lax";
     setAuthenticated(true);
@@ -28,9 +30,20 @@ export function App() {
         </article>
       </section>
       <div className="scroll-box"><div className="scroll-inner"><strong>Nested scroll target</strong><button data-testid="scrolled-target">Inspect inside scroller</button></div></div>
+      <section aria-label="Selection identity fixture">
+        <h2>Rendered instance identity</h2>
+        <div className="identity-list">{items.map((item) => <button key={`${listGeneration}-${item}`} data-testid={`identity-${item.toLowerCase()}`}>{item}</button>)}</div>
+        <button type="button" onClick={() => setItems((current) => [...current].reverse())}>Reorder retained items</button>{" "}
+        <button type="button" onClick={() => setListGeneration((value) => value + 1)}>Remount identical items</button>
+        <div className="overlap-fixture" aria-label="Overlapping targets"><button data-testid="overlap-back">Back layer</button><button data-testid="overlap-front">Front layer</button></div>
+        <canvas data-testid="unsupported-canvas" width="180" height="50" aria-label="Canvas pixel fixture" />
+        <iframe data-testid="same-origin-frame" aria-label="Same-origin child frame fixture" srcDoc={'<button onclick="parent.document.body.dataset.childClicks = String(Number(parent.document.body.dataset.childClicks || 0) + 1)">Child action</button>'} />
+      </section>
       <section aria-label="Workspace interaction fixture">
         <h2>Navigation and input</h2>
         <label>Persistent note <input aria-label="Persistent note" defaultValue="" /></label>
+        <div contentEditable="plaintext-only" data-testid="editable-secret" aria-label="Editable private note" suppressContentEditableWarning>Editable private value</div>
+        <div data-testid="sensitive-parent"><span data-testid="sensitive-parent-label">Private container</span><textarea aria-label="Private textarea" defaultValue="Server private value" /></div>
         <nav aria-label="Fixture routes">
           <a href="/details?view=wide#overview" onClick={(event) => { event.preventDefault(); history.pushState({ private: "never mirror me" }, "", event.currentTarget.href); }}>Client route</a>{" · "}
           <a href="/document">Document route</a>{" · "}

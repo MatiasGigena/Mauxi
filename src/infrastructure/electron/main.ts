@@ -33,10 +33,21 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is { workspaceId?: string; previewId: string; x: number; y: number; width: number; height: number } {
+function sourceLocator(value: Record<string, unknown>): { tag: string; testIds: string[] } | undefined {
+  if (value.locator === undefined) return undefined;
+  if (!value.locator || typeof value.locator !== "object") throw new Error("Invalid source locator");
+  const locator = value.locator as Record<string, unknown>;
+  if (typeof locator.tag !== "string" || !/^[a-z][\w:-]{0,63}$/i.test(locator.tag)
+    || !Array.isArray(locator.testIds) || locator.testIds.length > 12
+    || !locator.testIds.every((item) => typeof item === "string" && item.length > 0 && item.length <= 512)) throw new Error("Invalid source locator");
+  return { tag: locator.tag, testIds: locator.testIds as string[] };
+}
+
+function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number } {
   if (!value || typeof value !== "object") throw new Error("Invalid capture request");
   const input = value as Record<string, unknown>;
   if (!/^(desktop|mobile)$/.test(String(input.previewId))) throw new Error("Invalid preview ID");
+  if (input.selectionId !== undefined && (typeof input.selectionId !== "string" || !/^[\w-]{1,128}$/.test(input.selectionId))) throw new Error("Invalid selection ID");
   for (const key of ["x", "y", "width", "height"] as const) {
     if (typeof input[key] !== "number" || !Number.isFinite(input[key])) throw new Error(`Invalid ${key}`);
   }
@@ -182,7 +193,9 @@ function registerIpc(): void {
     if (!active || !input || typeof input !== "object") throw new Error("No active workspace");
     const value = input as Record<string, unknown>;
     if (value.workspaceId !== active.workspaceId || typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid source request");
-    return resolveWorkspaceSource(active.appRoot, value.hint);
+    if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
+    if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
+    return resolveWorkspaceSource(active.appRoot, value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
   });
 
   // G0 proof compatibility is isolated from the project lifecycle APIs.
@@ -190,8 +203,10 @@ function registerIpc(): void {
     assertTrustedSender(event);
     if (process.env.MAUXI_PROOF !== "1" || !input || typeof input !== "object") throw new Error("Proof API disabled");
     const value = input as Record<string, unknown>;
-    if ((value.fixture !== "vite" && value.fixture !== "next") || typeof value.hint !== "string") throw new Error("Invalid fixture source request");
-    return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint);
+    if ((value.fixture !== "vite" && value.fixture !== "next") || typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid fixture source request");
+    if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
+    if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
+    return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
   });
 
   ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
@@ -205,7 +220,8 @@ function registerIpc(): void {
     const image = await mainWindow.webContents.capturePage(rect);
     const outputDirectory = process.env.MAUXI_EVIDENCE_DIR ?? path.join(app.getPath("userData"), "captures");
     await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
-    const outputPath = path.join(outputDirectory, `${input.previewId}-${Date.now()}.png`);
+    const suffix = input.selectionId ? `-selection-${input.selectionId}` : "";
+    const outputPath = path.join(outputDirectory, `${input.previewId}${suffix}-${Date.now()}.png`);
     await writeFile(outputPath, image.toPNG(), { mode: 0o600 });
     const size = image.getSize();
     return { path: outputPath, width: size.width, height: size.height };

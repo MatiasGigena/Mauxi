@@ -21,5 +21,10 @@ h2 { margin: 14px 0 6px; letter-spacing: -.025em; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #53b47b; box-shadow: 0 0 0 5px #e7f5ec; display: block; }
 .scroll-box { margin-top: 20px; height: 160px; overflow: auto; border-radius: 20px; background: #e5e1d9; }
 .scroll-inner { height: 420px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; }
+.identity-list { display: flex; gap: 8px; margin-bottom: 8px; }
+.overlap-fixture { position: relative; width: 180px; height: 70px; margin-top: 16px; }.overlap-fixture button { position: absolute; width: 130px; height: 44px; }.overlap-fixture button:first-child { left: 0; top: 0; }.overlap-fixture button:last-child { left: 28px; top: 18px; z-index: 1; }
+[data-testid="unsupported-canvas"] { display: block; margin-top: 8px; border: 1px dashed #817a70; background: linear-gradient(135deg, #ddd 25%, #eee 25% 50%, #ddd 50% 75%, #eee 75%); }
+[data-testid="same-origin-frame"] { display: block; width: 220px; height: 70px; margin-top: 8px; border: 1px solid #817a70; }
+[data-testid="editable-secret"], [data-testid="sensitive-parent"] { margin-top: 8px; padding: 6px; border: 1px solid #b9b3a9; }
 .portal-note { position: fixed; right: 14px; bottom: 14px; padding: 10px 14px; border-radius: 999px; color: white; background: rgba(35,35,40,.88); font-size: 12px; }
 @media (max-width: 600px) { main { padding-inline: 18px; } .grid { grid-template-columns: 1fr; } .hero { padding-top: 40px; } .auth-card { min-height: 190px; } }

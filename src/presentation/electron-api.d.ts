@@ -20,9 +20,9 @@ declare global {
       closeProject(): Promise<WorkspaceEvent>;
       saveCanvas(input: { workspaceId: string; canvas: CanvasState }): Promise<void>;
       bridgeReady(input: { workspaceId: string; previewId: "desktop" | "mobile"; generation: string; url: string }): Promise<void>;
-      resolveSource(input: { workspaceId: string; hint: string }): Promise<{ filePath: string; fileFingerprint: string } | null>;
-      resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string }): Promise<{ filePath: string; fileFingerprint: string } | null>;
-      capturePreview(input: { workspaceId?: string; previewId: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
+      resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
+      resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
+      capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
       onWorkspaceEvent(callback: (event: WorkspaceEvent) => void): () => void;
     };
   }

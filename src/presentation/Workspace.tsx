@@ -3,6 +3,7 @@ import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture
 import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, HEADER_WIDTH, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, type StoredSelection } from "../application/selection-state";
+import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
 import { PreviewTools } from "./PreviewTools";
@@ -31,6 +32,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [runtimes, setRuntimes] = useState(emptyRuntimes);
   const runtimeRef = useRef(runtimes);
   const [selections, setSelections] = useState<StoredSelection[]>([]);
+  const selectionsRef = useRef(selections); selectionsRef.current = selections;
+  const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
   const [bridgeDetail, setBridgeDetail] = useState("Preparing instrumented previews…");
   const [dragging, setDragging] = useState(false);
@@ -113,18 +116,58 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         return;
       }
       if (message.kind === "selection") {
-        const capture: SelectionCapture = { ...message.capture, previewId: id };
+        const libraryPath = /(^|[\\/])(?:node_modules|next[\\/]dist|react-dom)([\\/]|$)/i.test(message.capture.source.filePath);
+        const capture: SelectionCapture = {
+          ...message.capture,
+          workspaceId: active?.workspaceId ?? `proof:${fixture}:${session}`,
+          previewId: id,
+          source: {
+            ...message.capture.source,
+            fileFingerprint: null,
+            ownership: libraryPath ? "library" : "unknown",
+            verification: libraryPath ? "library" : message.capture.source.filePath ? "unverified" : "missing-or-ambiguous",
+            role: "unknown",
+          },
+          componentOwners: message.capture.componentOwners.map((owner) => ({
+            ...owner,
+            ownership: owner.filePath && /(^|[\\/])(?:node_modules|next[\\/]dist|react-dom)([\\/]|$)/i.test(owner.filePath) ? "library" : "unknown",
+          })),
+          screenshot: { status: "pending", crop: message.capture.screenshot.crop },
+        };
         if (capture.documentGeneration !== message.generation || projectRoute(capture.url, origin) !== runtimeRef.current[id].route) return;
         setSelections((items) => [{ capture, status: "current" as const }, ...items].slice(0, 8));
-        if (capture.source.filePath && window.mauxi) {
-          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, hint: capture.source.filePath }) : window.mauxi.resolveFixtureSource({ fixture, hint: capture.source.filePath });
+        if (capture.source.filePath && capture.source.ownership !== "library" && window.mauxi) {
+          const input = {
+            hint: capture.source.filePath, lineNumber: capture.source.lineNumber, columnNumber: capture.source.columnNumber,
+            locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
+          };
+          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : window.mauxi.resolveFixtureSource({ fixture, ...input });
           void resolution.then((resolved) => {
-            if (resolved) setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, ...resolved } } } : item));
-          }).catch((error) => setNotice(`Source unavailable: ${String(error)}`));
+            setSelections((items) => items.map((item) => {
+              if (item.capture.selectionId !== capture.selectionId) return item;
+              const source = resolved
+                ? { ...item.capture.source, ...resolved, ownership: "application" as const, verification: "verified" as const, role: "jsx-element" as const }
+                : { ...item.capture.source, fileFingerprint: null, verification: "missing-or-ambiguous" as const };
+              const fingerprint = resolved ? { ...item.capture.fingerprint, sourceKey: `${resolved.filePath}:${source.lineNumber ?? "?"}:${source.columnNumber ?? "?"}` } : item.capture.fingerprint;
+              return { ...item, capture: { ...item.capture, source, fingerprint } };
+            }));
+          }).catch((error) => {
+            setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
+              ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, verification: "missing-or-ambiguous" as const } } }
+              : item));
+            setNotice(`Source unavailable: ${String(error)}`);
+          });
+        } else if (capture.source.verification === "unverified") {
+          setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
+            ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, verification: "missing-or-ambiguous" as const } } }
+            : item));
         }
-        setNotice("Target attached · no page action replayed");
+        void captureSelectionScreenshot(capture);
+        setNotice(capture.support.status === "unsupported" ? capture.support.reason ?? "Unsupported selection attached" : "Target attached · no page action replayed");
       } else if (message.kind === "revalidation") {
         setSelections((items) => items.map((item) => item.capture.selectionId === message.selectionId && item.capture.previewId === id && !item.requiresRepick ? { ...item, status: message.status === "valid" ? "current" : "stale", staleReason: message.reason } : item));
+        pendingRevalidations.current.get(message.selectionId)?.(message.status);
+        pendingRevalidations.current.delete(message.selectionId);
       }
     }
     window.addEventListener("message", onMessage);
@@ -132,6 +175,20 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, [active, fixture, origin, session, routes, navigate]);
 
   useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "selection-mode", enabled: selecting === id && !hand }); }, [selecting, hand, runtimes, send]);
+  useEffect(() => {
+    if (!selecting || hand) return;
+    const onPickerKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable)) return;
+      const action = event.key === "ArrowUp" ? "parent" : event.key === "ArrowDown" ? "child"
+        : event.key === "]" ? "overlap-next" : event.key === "[" ? "overlap-previous" : event.key === "Enter" ? "attach" : null;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSelecting(null); return; }
+      if (!action) return;
+      event.preventDefault(); event.stopPropagation(); send(selecting, { kind: "picker-refine", action });
+    };
+    window.addEventListener("keydown", onPickerKey, true);
+    return () => window.removeEventListener("keydown", onPickerKey, true);
+  }, [selecting, hand, send]);
 
   function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
     setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }; });
@@ -188,6 +245,87 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const frame = frames.current[id]?.getBoundingClientRect(); const area = canvas.current?.getBoundingClientRect();
     return !!frame && !!area && frame.x >= area.x && frame.y >= area.y && frame.right <= area.right + .5 && frame.bottom <= area.bottom + .5;
   }
+  async function captureSelectionScreenshot(capture: SelectionCapture) {
+    const finish = (screenshot: SelectionCapture["screenshot"]) => setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
+      ? { ...item, capture: { ...item.capture, screenshot } }
+      : item));
+    const frame = frames.current[capture.previewId];
+    const area = canvas.current;
+    if (!frame || !area || !window.mauxi) {
+      finish({ ...capture.screenshot, status: "unavailable", reason: "Selection crops require the trusted Electron capture host." });
+      return;
+    }
+    send(capture.previewId, { kind: "picker-visibility", hidden: true });
+    try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      if (runtimeRef.current[capture.previewId].generation !== capture.documentGeneration) throw new Error("The document changed before its crop was captured.");
+      const frameRect = frame.getBoundingClientRect();
+      const canvasRect = area.getBoundingClientRect();
+      const converted = selectionCropToShell(capture.screenshot.crop, capture.viewport, frameRect, canvasRect, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
+      if (!converted) throw new Error("The selected region is outside the visible canvas.");
+      const result = await window.mauxi.capturePreview({
+        workspaceId: active?.workspaceId, previewId: capture.previewId, selectionId: capture.selectionId,
+        ...converted.shell,
+      });
+      finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
+    } catch (error) {
+      finish({ ...capture.screenshot, status: "unavailable", reason: String(error) });
+    } finally {
+      send(capture.previewId, { kind: "picker-visibility", hidden: false });
+    }
+  }
+  async function revalidateSelection(item: StoredSelection): Promise<boolean> {
+    const capture = item.capture;
+    const runtime = runtimeRef.current[capture.previewId];
+    if (item.requiresRepick || !runtime.ready || runtime.generation !== capture.documentGeneration || runtime.route !== projectRoute(capture.url, origin)) {
+      setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId
+        ? { ...candidate, status: "stale", requiresRepick: true, staleReason: "The preview route or document changed; pick this target again." }
+        : candidate));
+      return false;
+    }
+    if (capture.source.verification === "verified" && capture.source.fileFingerprint && window.mauxi) {
+      try {
+        const input = {
+          hint: capture.source.filePath, lineNumber: capture.source.lineNumber, columnNumber: capture.source.columnNumber,
+          locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
+        };
+        const resolved = active ? await window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : await window.mauxi.resolveFixtureSource({ fixture, ...input });
+        if (!resolved || resolved.filePath !== capture.source.filePath || resolved.fileFingerprint !== capture.source.fileFingerprint) {
+          setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId
+            ? { ...candidate, status: "stale", staleReason: "The verified source file changed since this capture." }
+            : candidate));
+          return false;
+        }
+      } catch {
+        setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId
+          ? { ...candidate, status: "stale", staleReason: "The source fingerprint could not be verified." }
+          : candidate));
+        return false;
+      }
+    }
+    return new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => {
+        pendingRevalidations.current.delete(capture.selectionId);
+        setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId
+          ? { ...candidate, status: "stale", staleReason: "The live preview did not confirm this target." }
+          : candidate));
+        resolve(false);
+      }, 2_500);
+      pendingRevalidations.current.set(capture.selectionId, (status) => { window.clearTimeout(timer); resolve(status === "valid"); });
+      send(capture.previewId, { kind: "revalidate", selectionId: capture.selectionId, fingerprint: capture.fingerprint });
+    });
+  }
+  async function revalidateDraft(): Promise<{ ok: boolean; message?: string }> {
+    const attached = selectionsRef.current;
+    if (!attached.length) return { ok: true };
+    if (attached.some((item) => item.capture.source.verification === "unverified" || item.capture.screenshot.status === "pending")) {
+      return { ok: false, message: "Selection provenance or screenshot capture is still being verified. Try again in a moment." };
+    }
+    const results = await Promise.all(attached.map(revalidateSelection));
+    return results.every(Boolean)
+      ? { ok: true }
+      : { ok: false, message: "One or more selections are stale. Remove them or pick the live target again before sending." };
+  }
   async function capture(id: PreviewId) {
     setTools(null); setSelecting(null); setActivePreview(id);
     // Let the dialog/selection overlay leave the compositor before capture.
@@ -226,7 +364,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
           <header className="artboard-header" onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(id, event); }}>
             <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
             <div className="artboard-actions">
-              <button aria-label={`Select in ${LABELS[id]}`} title="Basic element picker" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { setSelecting(selecting === id ? null : id); setHand(false); }}>↖</button>
+              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { setSelecting(selecting === id ? null : id); setHand(false); }}>↖</button>
               <button aria-label={`${layout.focus?.previewId === id ? "Unfocus" : "Focus"} ${LABELS[id]}`} aria-pressed={layout.focus?.previewId === id} onClick={() => focus(id)}>⛶</button>
               <button aria-label={`${LABELS[id]} actions`} aria-haspopup="dialog" onClick={() => { setTools(id); setActivePreview(id); }}>•••</button>
             </div>
@@ -238,7 +376,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { if (!item.requiresRepick) send(item.capture.previewId, { kind: "revalidate", selectionId: item.capture.selectionId, fingerprint: item.capture.fingerprint }); }} />
+    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { void revalidateSelection(item); }} onBeforeSend={revalidateDraft} />
     {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
   </div>;
 }
