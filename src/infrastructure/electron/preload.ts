@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
+import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
 
 contextBridge.exposeInMainWorld("mauxi", {
   getBootstrap() { return ipcRenderer.invoke("mauxi:get-bootstrap"); },
@@ -18,6 +19,24 @@ contextBridge.exposeInMainWorld("mauxi", {
   },
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
+  },
+  agentBootstrap(): Promise<AgentSnapshot> { return ipcRenderer.invoke("mauxi:agent-bootstrap"); },
+  agentLogin(input: AgentLoginRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-login", input); },
+  agentLogout(input: { workspaceId: string; providerId: string }): Promise<void> { return ipcRenderer.invoke("mauxi:agent-logout", input); },
+  agentRefreshCatalog(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-refresh-catalog", workspaceId); },
+  agentSelectModel(input: AgentModelRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-select-model", input); },
+  agentSetThinking(input: AgentThinkingRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-set-thinking", input); },
+  agentSend(input: AgentSendRequest): Promise<{ accepted: boolean }> { return ipcRenderer.invoke("mauxi:agent-send", input); },
+  agentStop(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-stop", workspaceId); },
+  agentNewSession(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-new-session", workspaceId); },
+  agentResumeSession(input: AgentSessionRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-resume-session", input); },
+  agentRenameSession(input: AgentRenameRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-rename-session", input); },
+  agentDialogResponse(input: AgentDialogResponse): Promise<void> { return ipcRenderer.invoke("mauxi:agent-dialog-response", input); },
+  openAuthUrl(url: string): Promise<void> { return ipcRenderer.invoke("mauxi:open-auth-url", url); },
+  onAgentEvent(callback: (event: AgentEvent) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: AgentEvent) => callback(value);
+    ipcRenderer.on("mauxi:agent-event", listener);
+    return () => ipcRenderer.removeListener("mauxi:agent-event", listener);
   },
   onWorkspaceEvent(callback: (event: WorkspaceEvent) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: WorkspaceEvent) => callback(value);

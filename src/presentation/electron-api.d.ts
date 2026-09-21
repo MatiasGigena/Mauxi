@@ -7,6 +7,7 @@ import type {
 } from "../application/project-contract";
 
 import type { CanvasState } from "../application/canvas-state";
+import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest } from "../application/agent-contract";
 
 export {};
 
@@ -23,6 +24,20 @@ declare global {
       resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
+      agentBootstrap(): Promise<AgentSnapshot>;
+      agentLogin(input: AgentLoginRequest): Promise<void>;
+      agentLogout(input: { workspaceId: string; providerId: string }): Promise<void>;
+      agentRefreshCatalog(workspaceId: string): Promise<void>;
+      agentSelectModel(input: AgentModelRequest): Promise<void>;
+      agentSetThinking(input: AgentThinkingRequest): Promise<void>;
+      agentSend(input: AgentSendRequest): Promise<{ accepted: boolean }>;
+      agentStop(workspaceId: string): Promise<void>;
+      agentNewSession(workspaceId: string): Promise<void>;
+      agentResumeSession(input: AgentSessionRequest): Promise<void>;
+      agentRenameSession(input: AgentRenameRequest): Promise<void>;
+      agentDialogResponse(input: AgentDialogResponse): Promise<void>;
+      openAuthUrl(url: string): Promise<void>;
+      onAgentEvent(callback: (event: AgentEvent) => void): () => void;
       onWorkspaceEvent(callback: (event: WorkspaceEvent) => void): () => void;
     };
   }

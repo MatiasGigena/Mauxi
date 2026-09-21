@@ -315,15 +315,15 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       send(capture.previewId, { kind: "revalidate", selectionId: capture.selectionId, fingerprint: capture.fingerprint });
     });
   }
-  async function revalidateDraft(): Promise<{ ok: boolean; message?: string }> {
+  async function revalidateDraft(): Promise<{ ok: boolean; message?: string; selections?: StoredSelection[] }> {
     const attached = selectionsRef.current;
-    if (!attached.length) return { ok: true };
+    if (!attached.length) return { ok: true, selections: [] };
     if (attached.some((item) => item.capture.source.verification === "unverified" || item.capture.screenshot.status === "pending")) {
       return { ok: false, message: "Selection provenance or screenshot capture is still being verified. Try again in a moment." };
     }
     const results = await Promise.all(attached.map(revalidateSelection));
     return results.every(Boolean)
-      ? { ok: true }
+      ? { ok: true, selections: attached }
       : { ok: false, message: "One or more selections are stale. Remove them or pick the live target again before sending." };
   }
   async function capture(id: PreviewId) {
@@ -376,7 +376,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { void revalidateSelection(item); }} onBeforeSend={revalidateDraft} />
+    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} workspaceId={active?.workspaceId} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { void revalidateSelection(item); }} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
     {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
   </div>;
 }

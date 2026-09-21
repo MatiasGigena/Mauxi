@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type Rectangle } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, type Rectangle } from "electron";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
+import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentRenameRequest, type AgentSendRequest, type AgentSessionRequest, type AgentThinkingRequest } from "../../application/agent-contract";
+import { PiAgentHost } from "../agent/pi-agent-host";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { resolveWorkspaceSource } from "../project/source-resolver";
@@ -16,6 +18,10 @@ let currentWorkspaceRoot: string | null = null;
 let manager: WorkspaceManager;
 let quittingAfterCleanup = false;
 let cleanupInProgress = false;
+let agentHost: PiAgentHost | null = null;
+let agentCreation: Promise<PiAgentHost> | null = null;
+let unsubscribeAgent: (() => void) | null = null;
+const approvedAuthUrls = new Set<string>();
 
 app.setName("Mauxi");
 if (!app.requestSingleInstanceLock()) app.exit(0);
@@ -55,6 +61,42 @@ function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is 
   const width = Number(input.width); const height = Number(input.height);
   if (width < 1 || height < 1 || width > bounds.width || height > bounds.height) throw new Error("Capture dimensions exceed the shell");
   if (x < 0 || y < 0 || x + width > bounds.width + 1 || y + height > bounds.height + 1) throw new Error("Capture rectangle is outside the shell");
+}
+
+async function activeAgent(): Promise<PiAgentHost> {
+  const active = manager.snapshot().active;
+  if (!active) throw new Error("No active workspace");
+  if (agentHost?.workspaceId === active.workspaceId) return agentHost;
+  if (agentCreation) {
+    const pending = await agentCreation;
+    if (pending.workspaceId !== active.workspaceId) throw new Error("Agent workspace changed during startup");
+    return pending;
+  }
+  agentCreation = (async () => {
+    unsubscribeAgent?.(); unsubscribeAgent = null;
+    const previous = agentHost; agentHost = null;
+    await previous?.dispose();
+    const userData = app.getPath("userData");
+    const captureRoot = process.env.MAUXI_EVIDENCE_DIR ?? path.join(userData, "captures");
+    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot);
+    agentHost = created;
+    unsubscribeAgent = created.subscribe((agentEvent) => {
+      if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) approvedAuthUrls.add(link.url);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:agent-event", agentEvent);
+    });
+    await created.initialize();
+    return created;
+  })();
+  try { return await agentCreation; }
+  finally { agentCreation = null; }
+}
+
+async function disposeAgent(): Promise<void> {
+  if (agentCreation) { try { await agentCreation; } catch { /* dispose the partially-created host below */ } }
+  unsubscribeAgent?.(); unsubscribeAgent = null;
+  const current = agentHost; agentHost = null;
+  approvedAuthUrls.clear();
+  await current?.dispose();
 }
 
 function rendererLocation(): { kind: "url" | "file"; value: string } {
@@ -174,6 +216,7 @@ function registerIpc(): void {
 
   ipcMain.handle("mauxi:close-project", async (event) => {
     assertTrustedSender(event);
+    await disposeAgent();
     const result = await manager.close();
     setTimeout(() => { void createWindow(); }, 100);
     return result;
@@ -207,6 +250,105 @@ function registerIpc(): void {
     if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
     if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
     return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
+  });
+
+  ipcMain.handle("mauxi:agent-bootstrap", async (event) => {
+    assertTrustedSender(event);
+    return (await activeAgent()).snapshot();
+  });
+
+  ipcMain.handle("mauxi:agent-login", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid provider setup request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.providerId, "provider ID", 200);
+    if (value.type !== "api_key" && value.type !== "oauth") throw new Error("Invalid authentication type");
+    await (await activeAgent()).login(value as unknown as AgentLoginRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-logout", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid provider logout request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.providerId, "provider ID", 200);
+    await (await activeAgent()).logout(value.workspaceId, value.providerId);
+  });
+
+  ipcMain.handle("mauxi:agent-refresh-catalog", async (event, workspaceId: unknown) => {
+    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+    await (await activeAgent()).refreshCatalog(workspaceId);
+  });
+
+  ipcMain.handle("mauxi:agent-select-model", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid model request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.modelKey, "model key", 500);
+    await (await activeAgent()).selectModel(value as unknown as AgentModelRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-set-thinking", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid thinking request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128);
+    if (!isThinkingLevel(value.level)) throw new Error("Invalid thinking level");
+    await (await activeAgent()).setThinking(value as unknown as AgentThinkingRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-send", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid agent request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.text, "message", 100_000);
+    if (value.behavior !== "prompt" && value.behavior !== "steer" && value.behavior !== "followUp") throw new Error("Invalid message behavior");
+    if (!Array.isArray(value.selections) || value.selections.length > 8) throw new Error("Invalid selections");
+    let selectionSize = 0; try { selectionSize = JSON.stringify(value.selections).length; } catch { throw new Error("Invalid selections"); }
+    if (selectionSize > 256_000) throw new Error("Attached context is too large");
+    return (await activeAgent()).send(value as unknown as AgentSendRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-stop", async (event, workspaceId: unknown) => {
+    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+    await (await activeAgent()).stop(workspaceId);
+  });
+
+  ipcMain.handle("mauxi:agent-new-session", async (event, workspaceId: unknown) => {
+    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+    await (await activeAgent()).newSession(workspaceId);
+  });
+
+  ipcMain.handle("mauxi:agent-resume-session", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid resume request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.sessionId, "session ID", 200);
+    await (await activeAgent()).resume(value as unknown as AgentSessionRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-rename-session", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid rename request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.name, "conversation name", 120);
+    await (await activeAgent()).rename(value as unknown as AgentRenameRequest);
+  });
+
+  ipcMain.handle("mauxi:agent-dialog-response", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid dialog response");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.dialogId, "dialog ID", 128);
+    if (value.value !== undefined) assertShortString(value.value, "dialog value", 8_000);
+    if (value.cancelled !== undefined && typeof value.cancelled !== "boolean") throw new Error("Invalid dialog response");
+    (await activeAgent()).respondToDialog(value as unknown as AgentDialogResponse);
+  });
+
+  ipcMain.handle("mauxi:open-auth-url", async (event, target: unknown) => {
+    assertTrustedSender(event); assertShortString(target, "authentication URL", 4_096);
+    const url = new URL(target);
+    if (url.protocol !== "https:" || !approvedAuthUrls.has(url.toString())) throw new Error("Unapproved authentication URL");
+    await shell.openExternal(url.toString());
   });
 
   ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
@@ -250,7 +392,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (cleanupInProgress) return;
   cleanupInProgress = true;
-  void manager.close().then(() => {
+  void disposeAgent().then(() => manager.close()).then(() => {
     quittingAfterCleanup = true;
     app.quit();
   }).catch(async (error) => {

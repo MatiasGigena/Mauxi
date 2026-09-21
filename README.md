@@ -8,14 +8,18 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
+**G3 resumable pi conversation is complete.** Mauxi bundles the pinned pi SDK, keeps provider credentials and pi-native sessions in an app-owned profile, exposes provider-owned setup/re-auth/logout and capability-aware model/thinking controls, and streams conversation and expandable tool activity without a terminal or separately installed CLI. New/resume/rename, Stop, steering, queued follow-up, structured questions, explicit auth/catalog/rate-limit/capability errors, and checked authentication links stay behind the anchored chat and temporary dialogs. Only project-confined, non-mutating inspection tools are enabled in this slice.
+
 **G2 source-linked multi-selection is complete.** The real picker works across camera zoom and pan, nested scrolling, overlapping targets, SVG, portals, sticky/fixed UI, and child-frame boundaries without activating the page underneath. Keyboard refinement distinguishes DOM ancestry from React ownership. Desktop and mobile picks accumulate as inspectable, removable chat attachments with bounded/redacted context, verified JSX provenance and file fingerprints, correctly clipped screenshot crops, and explicit ambiguous, library, stale, or unsupported states.
 
-Selections retain rendered-instance identity across safe list reorders and become stale after remounts, HMR/source changes, navigation, or document replacement. The local fake send revalidates every attachment before use; pi model integration and checked external opening remain future work.
+Selections retain rendered-instance identity across safe list reorders and become stale after remounts, HMR/source changes, navigation, or document replacement. Every send revalidates and snapshots its attachments before the pi request; failed preflight keeps the draft and attachments, and text-only models explicitly reject captured image context.
 
 **G2 minimal workspace is complete.** Two live previews support independent positioning, canvas pan and 25–200% zoom, fit/reset, focus without remounting, explicit viewport sizing and bounded route linking with unlink/copy controls. Chat stays anchored and resizable; secondary tools live in Actions. Layout persists through the existing workspace record.
 
 **G1 project lifecycle is complete.** The Linux app can statically inspect a local project, show a launch and temporary-integration plan for confirmation, own or explicitly attach to a development server, connect the two proven previews, and perform journaled conflict-safe cleanup and next-launch recovery. The supported matrix covers React + Vite and Next.js 15.3+ with Webpack or Turbopack.
 
+- [G3 pi authentication and resumable chat issue](https://github.com/MatiasGigena/Mauxi/issues/5)
+- [G3 architecture, boundaries, and deterministic evidence](docs/G3-PI-CONVERSATION.md)
 - [G2 source-linked selection issue and acceptance criteria](https://github.com/MatiasGigena/Mauxi/issues/4)
 - [G2 selection behavior, provenance, crops and freshness](docs/G2-SELECTIONS.md)
 - [G2 workspace acceptance issue](https://github.com/MatiasGigena/Mauxi/issues/3)
@@ -26,7 +30,7 @@ Selections retain rendered-instance identity across safe list reorders and becom
 - [Product and technical specification](SPEC.md)
 - [Original workspace concept](docs/assets/workspace-concept.png)
 
-Verified: TypeScript, **48 unit tests**, **14 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build and production bridge-exclusion checks.
+Verified: TypeScript, **51 unit tests** (including a no-cost local fake provider), **14 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build, AppImage packaging, and production bridge-exclusion checks. Live provider smoke testing remains opt-in and is not claimed from fake-provider evidence.
 
 Run `npm run check`, `npm run build`, `npm run test:e2e`, `npm run test:lifecycle-e2e`, `npm run test:turbopack-e2e`, and `npm run verify:production`. Build the Linux private-alpha artifact with `npm run dist:linux`.
 
