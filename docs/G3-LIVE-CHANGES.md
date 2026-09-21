@@ -1,0 +1,120 @@
+# G3 live changes, approval, review, and undo
+
+Implementation record for [issue #6](https://github.com/MatiasGigena/Mauxi/issues/6).
+
+## Boundary
+
+Mauxi now gives the bundled pi runtime only host-defined project tools:
+
+- `workspace_edit`, `workspace_write`, and `workspace_delete` pass through one serialized `ChangeCoordinator`.
+- `workspace_command` uses an executable and argument array with `shell: false`. Every invocation requires a visible, one-time approval bound to the workspace, canonical working directory and its open-directory device/inode identity, exact executable/arguments, purpose, and package/lock configuration fingerprint. The descriptor is opened before approval and held through child exit; Linux spawn uses `/proc/<host-pid>/fd/<fd>` so a last-moment pathname swap cannot redirect cwd. Identity and configuration are rechecked after checkpoint creation.
+- Project reads remain bounded and project-confined. Managed writes additionally reject absolute and escaping paths, symlinks, missing parent directories, Git internals, Mauxi integration artifacts, credential-like files, binary files, and files over 2 MiB. On Linux, mutations stay anchored to a validated open parent-directory descriptor so a concurrent parent swap cannot redirect the operation.
+- No third-party pi extensions are loaded. Executable extensions would be trusted Node code, not an OS sandbox.
+
+A denied, cancelled, timed-out, disconnected, or configuration-invalidated approval fails closed. Package operations receive an additional lifecycle-script warning. Commands receive SIGTERM at two minutes and SIGKILL no later than a further two-second grace period; completion has the same 122-second overall deadline (while the host event loop is responsive). Output retains at most 120,000 bytes, decoded after collection to preserve split UTF-8 chunks. Linux runs each command in its own process group, terminates ordinary package-script descendants as well as the direct child, and cleans up background descendants even when their leader exits early. Normal direct-child exit codes and drained output are retained. Completion does not depend on descendant-held pipes: after the cleanup grace the host destroys its read ends. Signals are termination requests, not proof that every kernel operation has completed; permission errors are reported rather than claiming successful cleanup. Deliberately detached/new-session descendants can escape this group and remain running, though they cannot keep the tool waiting on inherited pipes. This is process lifecycle management, **not an OS sandbox**.
+
+## Request checkpoints
+
+Before a prompt can mutate source, Mauxi atomically persists a request change set and a bounded hash baseline outside the target repository. Steering remains in that active set. A queued follow-up receives a separately persisted prepared set and becomes active when its user turn starts; if the preceding request settles during checkpoint creation, it starts as a normal new request.
+
+The coordinator:
+
+- records original and resulting text, hashes, supported Linux metadata, installed device/inode identity and nanosecond modification/change timestamps, create/modify/delete semantics, and managed-versus-command attribution;
+- serializes writes, command coverage, finalization, and undo;
+- revalidates request baselines and expected current hashes before mutation, and fails closed for paths omitted from an incomplete bounded baseline;
+- durably records write intent before Linux no-clobber replacement (details below);
+- blocks further managed writes if checkpoint persistence/finalization fails;
+- bounds files to 2 MiB, change sets to 10 MiB, scans to 2,000 files/20 MiB, and retained records to 64;
+- excludes Git internals, Mauxi integration, dependencies, build output, and known generated directories from source coverage.
+
+Records use stable project identity, so an interrupted active set is labeled failed on the next open. Completed managed changes remain reviewable/undoable; interrupted command observations remain reviewable but never automatically undoable. Mauxi never commits, stashes, resets, or changes the Git index.
+
+### Race-safe mutation and durable recovery
+
+Managed write, delete, and undo share a descriptor-anchored mutation protocol. The host fsyncs a private entry in the app-owned `checkpoints/recovery/` vault **outside the project and its repository**, containing `intent.json` and any staged `replacement`, then persists its absolute location in the checkpoint before touching the project name. Each manifest identifies the workspace root, source path, change-set ID, and expected/result hashes; entries remain independently reviewable. Existing targets are renamed into the private directory as `displaced`; the actual displaced inode, metadata, and bounded content are compared with the expected snapshot. Replacement is installed with `link(2)`, which fails with `EEXIST` rather than overwriting a concurrent arrival. The displaced inode is checked again after installation. Deletion uses the same displacement protocol, not an unchecked unlink.
+
+On conflict, restoration only links the displaced inode into an **empty** project name; it never overwrites a competing version. On interruption, the next open exposes a conflict and recovery location without automatically replacing any project data. Both displaced and staged data remain available. Unlike rename-over-target, this protocol can briefly leave the project name absent.
+
+New external vault and entry directories are created with mode 0700. **No new recovery artifacts are created in the repository**, including when writes fail. Before staging or displacement, the host checks that the open target parent and vault are on the same filesystem. A different-filesystem project fails closed with an explicit explanation: atomic rename/link recovery is unavailable there. There is no in-repository fallback or automatic relocation; use a project on the app profile's filesystem or relocate the app-owned profile while the app is stopped.
+
+### Linux metadata policy
+
+Replacement inodes originate in the external vault, so their creation metadata must never silently replace project metadata. The supported policy is deliberately conservative:
+
+- Existing regular files retain exact uid, gid, and all permission/special mode bits, independent of umask. Ownership is applied before chmod, and both are read back and verified before displacement. If ownership cannot be reproduced (including a file owned by another effective user or an unavailable group), the operation fails before project mutation. Delete first uses an anonymous vault inode to verify that the original ownership/mode can be recreated for undo. Undo restores captured access/modification timestamps at nanosecond precision as well as content/ownership/mode; ordinary edits retain captured access time and receive a new modification time. Reading files can naturally update their access times, so access time is not an undo conflict invariant.
+- Every existing file and anchored target parent is inspected for **caller-visible** extended attributes. Any visible xattr causes refusal, including POSIX access/default ACLs, capabilities, and security labels. Mauxi does not attempt partial copying or silently discard an unfamiliar attribute. Staged inodes are inspected before and after metadata application; original/displaced inodes and parent metadata are revalidated around installation.
+- `FS_IOC_GETFLAGS` and `FS_IOC_FSGETXATTR` must work. Unknown/policy flags, project IDs, extent-size hints, and CoW allocation policies cause refusal. Only filesystem-maintained extent allocation and directory-index flags are allowed; those describe inode layout, not transferable permissions/policy. Unsupported filesystems fail closed rather than treating failed enumeration as an empty result.
+- New files use an **unnamed, empty `O_TMPFILE` probe in the target directory** to obtain real `0666`-under-umask creation semantics, including setgid and mount-specific group inheritance. Its ownership/mode are applied and verified on the external staged replacement. Visible parent/default metadata is refused before probing. A filesystem without the needed anonymous-file/metadata operations is unsupported; no named project temporary or fallback is created. Deletion's ownership probe is similarly anonymous and lives in the vault. These empty probes are closed immediately and are not recovery artifacts.
+- Inspection/application uses only the fixed root-owned `/usr/bin/python3` interpreter resolved within `/usr/bin`, with root-owned, non-group/world-writable executable/ancestors, `-I -S`, a scrubbed environment, cwd `/`, and an inherited already-open inode descriptor. Only fixed host-authored code and the trusted system standard library run; no project modules, extensions, executables, or import hooks are consulted. Each helper has a five-second deadline and 8 KiB output limit. Responses are shape-validated and, for retained descriptors, independently compared with Node's bigint inode stat. Missing/untrusted Python, failed enumeration, malformed results, and unverified application fail closed. Requires 64-bit Linux with trusted system Python/stdlib and the supported filesystem operations.
+
+**Kernel visibility limitation:** unprivileged Linux callers cannot enumerate hidden `trusted.*` xattrs. Mauxi neither requires `CAP_SYS_ADMIN` nor claims to prove those attributes absent or preserve invisible metadata on replacement. This limitation is also shown in managed-change review warnings. Projects relying on hidden privileged metadata must not use managed replacement; use a privileged metadata-aware workflow instead. This is an explicitly caller-visible metadata contract, not complete privileged metadata introspection.
+
+Replacement necessarily creates a new inode: inode number, birth/change time, hardlink topology, and physical allocation are not copied. Existing/exposed inode links are deliberately retained by the recovery protocol. No app-level check excludes malicious same-user races or privileged mount/security-policy changes; stop external writers for recovery/manual cleanup.
+
+### Recovery limits, pruning, and manual cleanup
+
+- The vault is shared across workspaces using the same checkpoint storage and admits at most **128 entries / 128 MiB**. Admission is serialized across coordinators in the single Electron instance. Before **every** mutation, it counts actual retained entries and file sizes/allocated blocks (including orphaned/interrupted entries and later external growth), and reserves space for staging, metadata overhead, and a full 2 MiB displaced target. Unexpected/unreadable retained data also blocks new mutations for manual review.
+- These are **admission limits, not filesystem quotas**. External processes holding displaced or replacement inodes open can grow those files later; an unexpectedly enlarged/replaced target can also race displacement. Mauxi never truncates or deletes such data to enforce a number. The next mutation refuses if retained usage is over budget. A physical hard disk cap requires an OS filesystem quota, outside this app-level contract.
+- Successful operations retain exposed/displaced inodes because a late writer may still reference them. Only staging that is known never to have been exposed to a project mutation is automatically removed on a failed operation. A crash's unfinished or uncertain entry is retained, not guessed safe to delete.
+- Checkpoint pruning cannot hide or discard recovery data: any record with a retained entry is pinned, including settled/undone records. The 64-record limit may therefore refuse new requests before the vault limit. After a user explicitly removes a reviewed **retained** entry, the next prepare releases its pin and normal completed-record pruning can proceed. Unfinished/conflicted records still require manual resolution; removing their files alone does not silently declare them resolved. Vault accounting scans disk independently of checkpoint references, so orphaned entries still consume capacity.
+- To reclaim space, first stop Mauxi and external editors/watchers/commands that might hold affected files open. Read each entry's `intent.json`, compare the current project with `displaced` and `replacement`, and save any versions you need. Only then remove an individually resolved entry. Never bulk-delete the vault or overwrite the project blindly to restore a backup. There is no automatic expiry or cleanup UI. Historical in-project `.mauxi-recovery-*` artifacts from the earlier implementation are also preserved for reviewed manual cleanup. A specific recovery warning identifies them; they pin their records but are not counted in the new external vault quota. New operations never create them.
+
+A refusal before mutation rolls back the attempted file record so retry remains safe after resolving capacity/filesystem placement. Undo remains eligible if it changed no files; if capacity becomes unavailable after some files were restored, it reports the restored count and becomes conflicted, retaining all versions. This is app-level safety for trusted projects, not protection against malicious same-user filesystem manipulation.
+
+## Commands and honest coverage
+
+A command can declare up to 50 expected source/config paths. Their before state and explicit pending-command status are persisted before process start. After states are bounded observations, including when the command fails; they are **not proof of command provenance**. External edits during execution cannot be distinguished from command output, even on declared paths or paths previously edited by managed tools. Any set with covered command files is therefore ineligible for automatic undo. Review labels these files as unattributed command observations.
+
+Finalization and crash recovery both enforce the 2 MiB per-file and 10 MiB aggregate text limits. If an after state exceeds available aggregate space, its hash is retained but its text is omitted with an explicit incomplete-coverage warning; oversized, binary, symlink, or unreadable results are also reported without persisting their content. Recovery observes current covered files as reviewable partial results, not ambiguous managed writes. It cannot reconstruct when a command stopped or separate later external activity. A bounded whole-project hash comparison after normal command completion identifies undeclared changed paths as unattributable rather than agent-owned.
+
+The approval UI states the unavoidable limit: caches, databases, remote APIs, generated artifacts, package-manager effects, and external activity are not fully undoable. Reaching a scan bound is retained as an explicit coverage warning.
+
+## Review and undo
+
+The anchored chat shows the latest change-set state, changed files, attribution, bounded line diffs, coverage warnings, unexpected command paths, and partial-failure errors. Diffs summarize inputs above a combined 100,000-byte budget before line splitting, including a 2 MiB single line. Inline output checks byte capacity before appending each whole line and never exceeds 120,000 bytes. Review snapshots/UI receive the summary, not the original checkpoint text. Undo is available only while idle and selects the latest backend-eligible set. When a newer undone, failed-empty, conflicted, or command-observation record is displayed, an additional labeled undo-target review shows the actual eligible set and its files. The button submits that explicit ID, and the backend still rejects stale or non-latest IDs.
+
+Before changing anything, undo verifies every affected path's content hash **and durably recorded installed device/inode, mode, uid/gid, nanosecond mtime and ctime**, and repeats the check immediately before each restore. A same-content atomic replacement, chmod/chown (even a mode changed back), new visible xattrs/flags, changed/deleted result, or symlink conflicts safely. Recorded deletions require the path still to be absent. Displacement necessarily changes ctime, so displacement validation compares the remaining identity/metadata plus content; installed ctime is captured after linking, not inferred from a matching hash. Compatible files are restored in reverse order with their original contents and supported metadata. When undo itself recreates an earlier managed result, only a predecessor whose installed identity exactly matches the saved before-snapshot receives the newly restored identity; matching text alone never transfers provenance. This keeps successive managed undo working without accepting external same-content replacements.
+
+Legacy hash-only records remain reviewable but are not automatically undoable. A crash before the installed identity is durably finalized is conservatively review-only/conflicted; recovery never blesses an arbitrary same-content inode as the agent result. Successfully finalized identities survive restart and remain undoable when unchanged. Prepared recovery manifests continue to pin retained data and surface interrupted-mutation conflicts. A late conflict can leave the installed replacement in place as well as retained displaced data; no attempted restoration overwrites an occupied name. Instrumentation cleanup remains in the existing ownership journal and is never implemented as source-change undo.
+
+## Deterministic evidence
+
+`tests/unit/change-coordinator.test.ts` covers:
+
+- pre-existing dirty/untracked content and focused diff/undo;
+- serialized parallel writes and stale-write rejection;
+- traversal, protected-path, target/parent symlink escapes;
+- edits after the request baseline and paths omitted by bounded coverage;
+- overlapping external edits during undo and explicit latest-change-set targeting;
+- write/delete checkpoint size enforcement and rejected-write record rollback;
+- declared command coverage, undeclared changes, and covered-file overlap;
+- bounded-record pruning without evicting unfinished/conflicted recovery;
+- interrupted-run recovery under stable project identity;
+- concurrent covered command edits (including previously managed paths) never becoming undoable;
+- aggregate command after-content limits during normal finalization and crash recovery;
+- interrupted commands retaining partial diffs and explicit oversized/binary coverage limitations;
+- deterministic post-revalidation edits, same-content inode swaps, installation arrivals, late displaced-inode writes, and interrupted displacement recovery;
+- no repository recovery artifacts after successful write/undo, including nested-workspace storage checks;
+- shared-vault entry admission, orphan/late-writer byte accounting, and explicit cross-filesystem refusal for write/delete/undo;
+- staging-only cleanup, retry-state rollback, honest partial undo, and recovery-aware checkpoint pruning/manual cleanup;
+- exact special modes/ownership under restrictive umask, timestamp-preserving undo, and target-directory setgid creation semantics;
+- real Linux user xattrs, access/default ACLs, and unsupported flags refused before displacement, and metadata added after installation conflicting on undo;
+- same-content replacements and chmod/change-back conflicts across restart, with legacy/pending hash-only checkpoints never upgraded to automatic undo;
+- 2 MiB single-line and multibyte diffs plus bounded serialized review snapshots.
+
+`tests/unit/command-approval.test.ts` drives the real bundled pi host with a local fake provider. It proves denial does not execute, changed root or nested-working-directory `package.json` meaning invalidates an approval, a replacement cwd inode invalidates approval even with identical configuration, and only an approved exact command runs and is reported as unattributable when it writes outside declared coverage. Real child-process regressions also cover the approved cwd pathname being swapped for an outside symlink, SIGTERM-resistant descendant writers, early leader exit with both inherited and closed pipes, escaped-session pipes not holding completion open, normal/nonzero/signalled/spawn-error exits, and bounded noisy output. Descendant tests verify termination and absence of later writes, not merely promise resolution.
+
+`tests/unit/linux-file-metadata.test.ts` exercises isolation from project Python modules/import environment hooks, ownership read-back validation, and unprivileged ownership refusal (the last case is skipped when tests run as root).
+
+`tests/unit/change-review.test.tsx` renders the actual chat review component and invokes its button handlers to verify older eligible labels/files/IDs remain accessible behind newer undone, failed-empty, and conflicted records, with no undo while busy or for command observations. A 2 MiB single-line result is rendered as a bounded summary rather than passed through to the DOM. The fake-agent queue test also covers repeated identical follow-ups receiving distinct request checkpoints.
+
+Validation: **123 unit tests** across nine files.
+
+```text
+npm run typecheck
+npm test
+npm run build
+git diff --check
+```
+
+No fake-provider test is evidence of model quality, and no app-level tool wrapper is represented as an OS sandbox.

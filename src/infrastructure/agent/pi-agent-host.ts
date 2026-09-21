@@ -1,5 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { mkdir, open, readFile, readdir, realpath, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import {
   createAgentSessionFromServices,
@@ -34,7 +36,9 @@ import {
   type AgentThinkingLevel,
   type AgentThinkingRequest,
   type AgentToolActivityView,
+  type AgentUndoRequest,
 } from "../../application/agent-contract";
+import { ChangeCoordinator } from "./change-coordinator";
 
 type AgentDialogInput = AgentDialog extends infer Dialog ? Dialog extends AgentDialog ? Omit<Dialog, "id"> : never : never;
 
@@ -86,6 +90,74 @@ function supportedThinking(model: { reasoning: boolean; thinkingLevelMap?: Parti
   });
 }
 
+export async function executeCommand(executable: string, args: string[], directory: FileHandle, limits = { timeoutMs: 120_000, killGraceMs: 2_000 }, signal?: AbortSignal): Promise<{ output: string; exitCode: number }> {
+  signal?.throwIfAborted();
+  if (process.platform !== "linux") throw new Error("Managed command process groups require Linux.");
+  if (![limits.timeoutMs, limits.killGraceMs].every((value) => Number.isFinite(value) && value > 0)) throw new Error("Invalid command deadline.");
+  // detached creates a new Linux session/process group, not a background job.
+  // Ordinary package-script descendants inherit it; deliberate setsid escapes
+  // are outside this app-level contract (this is not an OS sandbox).
+  const cwd = `/proc/${process.pid}/fd/${directory.fd}`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { cwd, detached: true, shell: false, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    let output = Buffer.alloc(0); let finished = false; let timedOut = false; let cancelled = false; let groupGone = false;
+    let cleanupError: Error | undefined;
+    let exitCode: number | null = null; let exitSignal: NodeJS.Signals | null = null;
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    const signalGroup = (signal: NodeJS.Signals | 0): boolean => {
+      if (!child.pid || groupGone) return false;
+      try { process.kill(-child.pid, signal); return true; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") { groupGone = true; return false; }
+        cleanupError = new Error(`Command process-group cleanup could not be confirmed: ${error instanceof Error ? error.message : String(error)}`);
+        return true;
+      }
+    };
+    const finish = (error?: Error) => {
+      if (finished) return; finished = true;
+      clearTimeout(timer); clearTimeout(hardDeadline); clearTimeout(cleanupTimer);
+      signal?.removeEventListener("abort", onAbort);
+      // Never wait for close: even an escaped descendant can hold these pipes.
+      child.stdout.destroy(); child.stderr.destroy();
+      // Decode only after collecting bytes, so split UTF-8 chunks stay intact.
+      // A truncated tail may start mid-codepoint; skip continuation bytes.
+      let start = 0; while (start < output.length && (output[start] & 0xc0) === 0x80) start++;
+      const text = output.subarray(start).toString("utf8");
+      if (error || cleanupError) reject(error ?? cleanupError);
+      else if (cancelled) reject(new Error(`Command cancelled; process-group termination requested.\n${text}`));
+      else if (timedOut) reject(new Error(`Command timed out; process-group termination requested.\n${text}`));
+      else if (exitSignal) reject(new Error(`Command ended with ${exitSignal}.\n${text}`));
+      else resolve({ output: text, exitCode: exitCode ?? 1 });
+    };
+    const cleanup = () => {
+      if (cleanupTimer || finished) return;
+      signalGroup("SIGTERM");
+      cleanupTimer = setTimeout(() => { signalGroup("SIGKILL"); finish(); }, limits.killGraceMs);
+    };
+    const onAbort = () => { cancelled = true; cleanup(); };
+    const append = (chunk: Buffer) => { output = Buffer.concat([output, chunk]).subarray(-120_000); };
+    child.stdout.on("data", append); child.stderr.on("data", append);
+    const timer = setTimeout(() => { timedOut = true; cleanup(); }, limits.timeoutMs);
+    const hardDeadline = setTimeout(() => { timedOut = true; signalGroup("SIGKILL"); finish(); }, limits.timeoutMs + limits.killGraceMs);
+    child.once("error", (error) => { signalGroup("SIGKILL"); finish(error); });
+    child.once("exit", (code, signal) => {
+      if (finished) return;
+      exitCode = code; exitSignal = signal;
+      // Also stop background writers when the package-script leader exits early.
+      // If pipes are held by an escaped group, the same grace bounds draining.
+      if (signalGroup(0)) cleanup();
+      else if (!cleanupTimer) cleanupTimer = setTimeout(() => finish(), limits.killGraceMs);
+    });
+    child.once("close", () => {
+      if (finished) return;
+      if (!signalGroup(0)) finish(); // normal exit: drain all buffered output
+      else cleanup();
+    });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 /** Owns the single pi SDK writer for one open Mauxi workspace. */
 export class PiAgentHost {
   private runtime?: AgentSessionRuntime;
@@ -103,6 +175,11 @@ export class PiAgentHost {
   private publishQueued = false;
   private readonly sessionDir: string;
   private readonly captureRoot: string;
+  private changes?: ChangeCoordinator;
+  private readonly queuedChangeSets: Array<{ prompt: string; checkpointId: string }> = [];
+  private dequeuedBehavior?: "steer" | "followUp";
+  private checkpointFailure?: string;
+  private runHadFailure = false;
 
   constructor(
     readonly workspaceId: string,
@@ -128,6 +205,7 @@ export class PiAgentHost {
   private async initializeOnce(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true, mode: 0o700 });
     await mkdir(this.sessionDir, { recursive: true, mode: 0o700 });
+    this.changes = await ChangeCoordinator.create(this.workspaceId, this.cwd, path.join(this.profileDir, "checkpoints"));
     this.modelRuntime = await ModelRuntime.create({
       authPath: path.join(this.profileDir, "auth.json"),
       modelsPath: path.join(this.profileDir, "models.json"),
@@ -220,6 +298,79 @@ export class PiAgentHost {
       },
     });
 
+    const workspaceWrite = defineTool({
+      name: "workspace_write",
+      label: "Write project file",
+      description: "Create or replace a bounded text file inside the trusted project. The host checkpoints and validates every write.",
+      parameters: Type.Object({ path: Type.String({ maxLength: 4_096 }), content: Type.String({ maxLength: 2 * 1024 * 1024 }) }),
+      execute: async (_id, input) => {
+        const result = await this.changes!.write(input.path, input.content);
+        return { content: [{ type: "text", text: `${result.kind === "create" ? "Created" : "Updated"} ${result.path} (${result.bytes} bytes).` }], details: result };
+      },
+    });
+    const workspaceEdit = defineTool({
+      name: "workspace_edit",
+      label: "Edit project file",
+      description: "Replace one exact, unique text region in a project file. The host rejects stale, escaping, protected, symlink, binary, or uncheckpointed writes.",
+      parameters: Type.Object({ path: Type.String({ maxLength: 4_096 }), oldText: Type.String({ minLength: 1, maxLength: 2 * 1024 * 1024 }), newText: Type.String({ maxLength: 2 * 1024 * 1024 }) }),
+      execute: async (_id, input) => {
+        const result = await this.changes!.edit(input.path, input.oldText, input.newText);
+        return { content: [{ type: "text", text: `Updated ${result.path}.` }], details: result };
+      },
+    });
+    const workspaceDelete = defineTool({
+      name: "workspace_delete",
+      label: "Delete project file",
+      description: "Delete a bounded project text file through the conflict-aware checkpoint coordinator.",
+      parameters: Type.Object({ path: Type.String({ maxLength: 4_096 }) }),
+      execute: async (_id, input) => {
+        const result = await this.changes!.delete(input.path);
+        return { content: [{ type: "text", text: `Deleted ${result.path}.` }], details: result };
+      },
+    });
+    const workspaceCommand = defineTool({
+      name: "workspace_command",
+      label: "Run approved command",
+      description: "Request explicit approval, then run one exact executable and argument list without a shell. Declare source/config paths expected to change so they can be checkpointed.",
+      parameters: Type.Object({
+        executable: Type.String({ minLength: 1, maxLength: 4_096 }),
+        args: Type.Array(Type.String({ maxLength: 16_384 }), { maxItems: 200 }),
+        cwd: Type.Optional(Type.String({ maxLength: 4_096 })),
+        coveredPaths: Type.Optional(Type.Array(Type.String({ maxLength: 4_096 }), { maxItems: 50 })),
+        purpose: Type.String({ minLength: 1, maxLength: 500 }),
+      }),
+      execute: async (_id, input, signal) => {
+        signal?.throwIfAborted();
+        if (input.executable.includes("\0") || input.args.some((arg) => arg.includes("\0"))) throw new Error("Invalid command operation.");
+        const cwd = await this.resolveCommandDirectory(input.cwd ?? ".");
+        const directory = await open(cwd, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        try {
+          if (await realpath(`/proc/self/fd/${directory.fd}`) !== cwd) throw new Error("Command directory changed before approval.");
+          const identity = await directory.stat();
+          const operation = { workspaceId: this.workspaceId, executable: input.executable, args: [...input.args], cwd, cwdIdentity: `${identity.dev}:${identity.ino}`, purpose: input.purpose };
+          const fingerprint = await this.commandConfigurationFingerprint(operation);
+          const install = /(?:^|\/)(?:npm|pnpm|yarn|bun)$/.test(input.executable) && input.args.some((arg) => /^(?:i|install|add|remove|uninstall|update|up)$/.test(arg));
+          await this.requestCommandApproval(operation, fingerprint, install, signal);
+          signal?.throwIfAborted();
+          const checkpoint = await this.changes!.checkpointCommand(input.coveredPaths ?? []);
+          let result: { output: string; exitCode: number } | undefined; let failure: unknown;
+          try {
+            signal?.throwIfAborted();
+            const currentIdentity = await stat(cwd).catch(() => undefined);
+            if (!currentIdentity || `${currentIdentity.dev}:${currentIdentity.ino}` !== operation.cwdIdentity || await this.commandConfigurationFingerprint(operation) !== fingerprint) {
+              throw new Error("Command approval expired because the working directory identity, project scripts, or lock configuration changed during checkpoint creation.");
+            }
+            result = await executeCommand(input.executable, [...input.args], directory, undefined, signal);
+          } catch (error) { failure = error; }
+          // Even cancellation must observe partial changes before the SDK settles.
+          await this.changes!.finishCommand(checkpoint, failure instanceof Error ? failure.message : failure ? String(failure) : result?.exitCode ? `Command exited with code ${result.exitCode}.` : undefined);
+          if (failure) throw failure;
+          if (result!.exitCode !== 0) throw new Error(`Command exited with code ${result!.exitCode}.\n${result!.output}`);
+          return { content: [{ type: "text", text: result!.output || "Command completed without output." }], details: { exitCode: result!.exitCode, cwd, coverage: input.coveredPaths ?? [] } };
+        } finally { await directory.close(); }
+      },
+    });
+
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       const services = await createAgentSessionServices({
         cwd,
@@ -231,7 +382,7 @@ export class PiAgentHost {
           noPromptTemplates: true,
           noThemes: true,
           appendSystemPrompt: [
-            "You are embedded in Mauxi's read-only inspection phase. Inspect and explain the open project, but do not modify files, execute commands, install packages, or claim that changes were applied. Use ask_question when a user decision is required.",
+            "You are embedded in Mauxi's trusted live workspace. Use only workspace_edit/workspace_write/workspace_delete for source mutations; these are host-checkpointed. Use workspace_command for commands and installs; it always requires exact user approval and must include expected source/config paths in coveredPaths. Never evade a denial by retrying through another tool. Explain that commands cannot fully undo caches, databases, remote APIs, or untracked external effects. Ask whether the user means one instance or a shared component when scope is materially ambiguous. Third-party executable extensions are trusted code, not an OS sandbox; none are loaded by default. Use ask_question for missing design decisions.",
           ],
         },
       });
@@ -240,8 +391,8 @@ export class PiAgentHost {
           services,
           sessionManager,
           sessionStartEvent,
-          tools: ["workspace_read", "workspace_list", "workspace_search", "ask_question"],
-          customTools: [workspaceRead, workspaceList, workspaceSearch, askQuestion],
+          tools: ["workspace_read", "workspace_list", "workspace_search", "workspace_edit", "workspace_write", "workspace_delete", "workspace_command", "ask_question"],
+          customTools: [workspaceRead, workspaceList, workspaceSearch, workspaceEdit, workspaceWrite, workspaceDelete, workspaceCommand, askQuestion],
         })),
         services,
         diagnostics: services.diagnostics,
@@ -260,23 +411,120 @@ export class PiAgentHost {
     await this.publish();
   }
 
+  private async resolveCommandDirectory(input: string): Promise<string> {
+    if (!input || input.includes("\0") || path.isAbsolute(input)) throw new Error("Command cwd must be a relative project directory.");
+    const root = await realpath(this.cwd);
+    const candidate = await realpath(path.resolve(root, input));
+    const relative = path.relative(root, candidate);
+    if (relative.startsWith("..") || path.isAbsolute(relative) || !(await stat(candidate)).isDirectory()) throw new Error("Command cwd escapes the open project.");
+    return candidate;
+  }
+
+  private async commandConfigurationFingerprint(operation: { executable: string; args: string[]; cwd: string }): Promise<string> {
+    const digest = createHash("sha256"); const seen = new Set<string>();
+    const configurationNames = ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", ".npmrc"];
+    const canonicalRoot = await realpath(this.cwd);
+    const configurationDirectories: string[] = [];
+    for (let directory = operation.cwd; ; directory = path.dirname(directory)) {
+      configurationDirectories.push(directory);
+      if (directory === canonicalRoot) break;
+      const parent = path.dirname(directory);
+      if (parent === directory || !directory.startsWith(`${canonicalRoot}${path.sep}`)) break;
+    }
+    const candidates = [
+      ...configurationDirectories.flatMap((directory) => configurationNames.map((name) => path.join(directory, name))),
+      ...[operation.executable, ...operation.args].filter((item) => item && !item.startsWith("-")).map((item) => path.resolve(operation.cwd, item)),
+    ];
+    for (const target of candidates) {
+      let canonical: string;
+      try { canonical = await realpath(target); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") continue; throw error; }
+      const relative = path.relative(canonicalRoot, canonical);
+      if (relative.startsWith("..") || path.isAbsolute(relative) || seen.has(canonical)) continue;
+      seen.add(canonical);
+      const info = await stat(canonical);
+      if (!info.isFile()) continue;
+      if (info.size > 50 * 1024 * 1024) throw new Error(`Unsupported command approval input: ${relative}`);
+      digest.update(relative).update("\0").update(await readFile(canonical)).update("\0");
+    }
+    return digest.digest("hex");
+  }
+
+  private async requestCommandApproval(
+    operation: { workspaceId: string; executable: string; args: string[]; cwd: string; purpose: string },
+    configurationFingerprint: string,
+    install: boolean,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!this.listeners.size) throw new Error("Command denied because no approval UI is connected.");
+    const exact = JSON.stringify({ ...operation, configurationFingerprint }, null, 2);
+    const warnings = [
+      "Commands may change caches, databases, remote APIs, generated files, or activity outside checkpoint coverage. Those effects are not fully undoable.",
+      "Approval applies only to this exact executable, arguments, working directory identity, workspace, and configuration fingerprint.",
+      "Covered file results cannot be distinguished from concurrent external edits. They are reviewable observations, not automatically undoable changes.",
+      // Executables and wrappers can delegate to arbitrary package managers;
+      // warn conservatively rather than treating classification as a boundary.
+      "Any command, including wrappers, may install or alter dependencies and execute package lifecycle scripts.",
+    ];
+    let response: string;
+    try {
+      response = await this.requestDialog({ kind: "approval", title: install ? "Approve dependency operation" : "Approve command", message: operation.purpose, operation: exact, cwd: operation.cwd, warnings }, AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])]));
+    } catch { throw new Error("Command denied, timed out, or lost its approval UI. It was not executed."); }
+    if (response !== "approve") throw new Error("Command denied. It was not executed.");
+  }
+
   private async bindSession(session: AgentSession): Promise<void> {
     this.unsubscribe?.();
     this.activities.clear();
+    this.queuedChangeSets.splice(0); this.dequeuedBehavior = undefined;
     this.queued = { steering: 0, followUp: 0 };
     this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
   }
 
   private onSessionEvent(event: AgentSessionEvent): void {
     switch (event.type) {
-      case "agent_start": this.runState = "working"; this.status = "Working…"; this.lastError = undefined; break;
+      case "agent_start": this.runState = "working"; this.status = "Working…"; this.lastError = undefined; this.runHadFailure = false; break;
       case "agent_end": if (event.willRetry) { this.runState = "retrying"; this.status = "Retrying…"; } break;
-      case "agent_settled": this.runState = "idle"; this.status = "Ready"; break;
+      case "agent_settled": {
+        const partial = this.runState === "stopping" || this.runState === "error" || this.runHadFailure;
+        this.runState = "idle"; this.runHadFailure = false; this.status = partial ? "Stopped or failed with partial changes retained for review." : "Ready";
+        void this.changes?.settle(partial, partial ? "Execution stopped or failed; partial changes were retained." : undefined)
+          .catch((error) => { this.checkpointFailure = error instanceof Error ? error.message : String(error); })
+          .finally(() => this.schedulePublish());
+        for (const queued of this.queuedChangeSets.splice(0)) {
+          void this.changes?.abandonPrepared(queued.checkpointId, "Queued follow-up did not run.").finally(() => this.schedulePublish());
+        }
+        break;
+      }
       case "compaction_start": this.runState = "compacting"; this.status = "Compacting conversation…"; break;
       case "compaction_end": if (!event.willRetry) this.runState = event.errorMessage ? "error" : "working"; break;
       case "auto_retry_start": this.runState = "retrying"; this.status = `Retrying (${event.attempt}/${event.maxAttempts})…`; break;
       case "auto_retry_end": if (!event.success && event.finalError) { this.runState = "error"; this.lastError = classifyError(event.finalError); } break;
-      case "queue_update": this.queued = { steering: event.steering.length, followUp: event.followUp.length }; break;
+      case "queue_update":
+        if (event.steering.length < this.queued.steering) this.dequeuedBehavior = "steer";
+        else if (event.followUp.length < this.queued.followUp) this.dequeuedBehavior = "followUp";
+        this.queued = { steering: event.steering.length, followUp: event.followUp.length };
+        break;
+      case "message_start": {
+        const value = event.message as unknown as { role?: string };
+        if (value.role === "user") {
+          const behavior = this.dequeuedBehavior; this.dequeuedBehavior = undefined;
+          if (behavior === "followUp") {
+            const text = messageText(event.message);
+            const index = this.queuedChangeSets.findIndex((item) => item.prompt === text);
+            const queued = index >= 0 ? this.queuedChangeSets.splice(index, 1)[0] : undefined;
+            if (queued) {
+              // switchToPrepared synchronously enqueues on the coordinator tail.
+              // Later managed mutations/checkpoints queue behind it, even though
+              // this synchronous SDK event callback cannot await activation.
+              void this.changes?.switchToPrepared(queued.checkpointId)
+                .catch((error) => { this.checkpointFailure = error instanceof Error ? error.message : String(error); })
+                .finally(() => this.schedulePublish());
+            }
+          }
+        }
+        break;
+      }
       case "tool_execution_start":
         this.activities.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, status: "running", input: boundedJson(event.args) });
         break;
@@ -286,6 +534,7 @@ export class PiAgentHost {
         break;
       }
       case "tool_execution_end": {
+        if (event.isError) this.runHadFailure = true;
         const current = this.activities.get(event.toolCallId);
         this.activities.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, input: current?.input, output: boundedJson(event.result), status: event.isError ? "error" : "done" });
         break;
@@ -293,7 +542,7 @@ export class PiAgentHost {
       case "message_end": {
         const value = event.message as unknown as { role?: string; stopReason?: string; errorMessage?: string };
         if (value.role === "assistant" && value.stopReason === "error") {
-          this.runState = "error";
+          this.runState = "error"; this.runHadFailure = true;
           const failure = classifyError(value.errorMessage ?? "Provider request failed");
           this.lastError = failure;
           this.status = failure.message;
@@ -363,7 +612,8 @@ export class PiAgentHost {
   }
 
   private async sessionViews(): Promise<AgentSessionView[]> {
-    if (!this.runtime) return [];
+    const activeSessionId = this.runtime?.session.sessionId;
+    if (!activeSessionId) return [];
     const sessions = await SessionManager.list(this.cwd, this.sessionDir);
     return sessions.map((item) => ({
       id: item.id,
@@ -371,7 +621,7 @@ export class PiAgentHost {
       createdAt: item.created.toISOString(),
       updatedAt: item.modified.toISOString(),
       firstMessage: item.firstMessage.slice(0, 160),
-      active: item.id === this.runtime!.session.sessionId,
+      active: item.id === activeSessionId,
     }));
   }
 
@@ -392,10 +642,11 @@ export class PiAgentHost {
       sessions: await this.sessionViews(),
       messages: this.messageViews(),
       tools: [...this.activities.values()],
+      changeSets: this.changes?.views() ?? [],
       runState: this.runState,
       queued: this.queued,
       status: this.status,
-      error: this.lastError,
+      error: this.checkpointFailure ? { kind: "runtime", message: `Checkpoint error: ${this.checkpointFailure}` } : this.lastError,
     };
   }
 
@@ -410,13 +661,16 @@ export class PiAgentHost {
   }
 
   private requestDialog(dialog: AgentDialogInput, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) return Promise.reject(new Error("Dialog cancelled"));
     const id = randomUUID();
     const agentWasRunning = !!this.runtime?.session.isStreaming;
     if (agentWasRunning) { this.runState = "waiting"; this.status = "Waiting for your response…"; this.schedulePublish(); }
     return new Promise((resolve, reject) => {
+      const onAbort = () => this.pendingDialogs.get(id)?.reject(new Error("Dialog cancelled"));
       const cleanup = () => {
+        signal?.removeEventListener("abort", onAbort);
         this.pendingDialogs.delete(id);
-        if (agentWasRunning) { this.runState = "working"; this.status = "Working…"; this.schedulePublish(); }
+        if (agentWasRunning && this.runState === "waiting") { this.runState = "working"; this.status = "Working…"; this.schedulePublish(); }
         for (const listener of this.listeners) listener({ type: "dialog-dismissed", id });
       };
       this.pendingDialogs.set(id, {
@@ -425,7 +679,7 @@ export class PiAgentHost {
       });
       if (signal) {
         if (signal.aborted) { this.pendingDialogs.get(id)?.reject(new Error("Dialog cancelled")); return; }
-        signal.addEventListener("abort", () => this.pendingDialogs.get(id)?.reject(new Error("Dialog cancelled")), { once: true });
+        signal.addEventListener("abort", onAbort, { once: true });
       }
       for (const listener of this.listeners) listener({ type: "dialog", dialog: { ...dialog, id } as AgentDialog });
     });
@@ -555,15 +809,47 @@ export class PiAgentHost {
     if (request.selections.length > 8 || request.selections.some((item) => item.status !== "current" || item.capture.workspaceId !== this.workspaceId)) throw new Error("Attached context is stale or belongs to another workspace.");
     const images = await this.imageInputs(request);
     const prompt = `${text}${selectionContext(request.selections)}`;
-    this.lastError = undefined;
+    this.lastError = undefined; this.checkpointFailure = undefined;
     if (request.behavior === "steer") { await this.runtime!.session.steer(prompt, images); return { accepted: true }; }
-    if (request.behavior === "followUp") { await this.runtime!.session.followUp(prompt, images); return { accepted: true }; }
+    if (request.behavior === "followUp") {
+      const checkpointId = await this.changes!.prepare(text);
+      if (this.runtime!.session.isStreaming) {
+        this.queuedChangeSets.push({ prompt, checkpointId });
+        try { await this.runtime!.session.followUp(prompt, images); }
+        catch (error) {
+          const index = this.queuedChangeSets.findIndex((item) => item.checkpointId === checkpointId);
+          if (index >= 0) this.queuedChangeSets.splice(index, 1);
+          await this.changes!.abandonPrepared(checkpointId, "Follow-up was not accepted."); throw error;
+        }
+        await this.publish();
+        return { accepted: true };
+      }
+      // The prior request may settle while its follow-up checkpoint is being
+      // persisted. Start it as a normal request rather than leaving it queued
+      // with no active agent run.
+      await this.changes!.activate(checkpointId);
+      let settleAcceptance!: (accepted: boolean) => void;
+      const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
+      void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
+        const failure = classifyError(error); this.lastError = failure; this.runState = "error"; this.status = failure.message; settleAcceptance(false);
+        void this.changes?.settle(true, failure.message).finally(() => this.publish());
+      });
+      const result = await accepted;
+      if (!result) await this.changes!.settle(true, "The provider did not accept this follow-up.");
+      await this.publish();
+      return { accepted: result };
+    }
+    const checkpointId = await this.changes!.prepare(text);
+    await this.changes!.activate(checkpointId);
     let settleAcceptance!: (accepted: boolean) => void;
     const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
     void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
-      const failure = classifyError(error); this.lastError = failure; this.runState = "error"; this.status = failure.message; settleAcceptance(false); void this.publish();
+      const failure = classifyError(error); this.lastError = failure; this.runState = "error"; this.status = failure.message; settleAcceptance(false);
+      void this.changes?.settle(true, failure.message).finally(() => this.publish());
     });
     const result = await accepted;
+    if (!result) await this.changes!.settle(true, "The provider did not accept this request.");
+    await this.publish();
     return { accepted: result };
   }
 
@@ -598,6 +884,14 @@ export class PiAgentHost {
     const name = request.name.trim();
     if (!name || name.length > 120) throw new Error("Conversation name must be 1–120 characters.");
     this.runtime!.session.setSessionName(name);
+    await this.publish();
+  }
+
+  async undo(request: AgentUndoRequest): Promise<void> {
+    this.assertWorkspace(request.workspaceId);
+    if (!this.runtime || this.runState !== "idle" || this.runtime.session.isStreaming) throw new Error("Undo is available only while the agent is idle.");
+    await this.changes!.undo(request.changeSetId);
+    this.status = "Latest compatible change set was undone."; this.lastError = undefined; this.checkpointFailure = undefined;
     await this.publish();
   }
 

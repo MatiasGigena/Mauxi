@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
-import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
+import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest, AgentUndoRequest } from "../../application/agent-contract";
 
 contextBridge.exposeInMainWorld("mauxi", {
   getBootstrap() { return ipcRenderer.invoke("mauxi:get-bootstrap"); },
@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("mauxi", {
   agentSetThinking(input: AgentThinkingRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-set-thinking", input); },
   agentSend(input: AgentSendRequest): Promise<{ accepted: boolean }> { return ipcRenderer.invoke("mauxi:agent-send", input); },
   agentStop(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-stop", workspaceId); },
+  agentUndo(input: AgentUndoRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-undo", input); },
   agentNewSession(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-new-session", workspaceId); },
   agentResumeSession(input: AgentSessionRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-resume-session", input); },
   agentRenameSession(input: AgentRenameRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-rename-session", input); },

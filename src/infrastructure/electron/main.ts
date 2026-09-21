@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
-import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentRenameRequest, type AgentSendRequest, type AgentSessionRequest, type AgentThinkingRequest } from "../../application/agent-contract";
+import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentRenameRequest, type AgentSendRequest, type AgentSessionRequest, type AgentThinkingRequest, type AgentUndoRequest } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
@@ -311,6 +311,14 @@ function registerIpc(): void {
   ipcMain.handle("mauxi:agent-stop", async (event, workspaceId: unknown) => {
     assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
     await (await activeAgent()).stop(workspaceId);
+  });
+
+  ipcMain.handle("mauxi:agent-undo", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid undo request");
+    const value = input as Record<string, unknown>;
+    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.changeSetId, "change-set ID", 128);
+    await (await activeAgent()).undo(value as unknown as AgentUndoRequest);
   });
 
   ipcMain.handle("mauxi:agent-new-session", async (event, workspaceId: unknown) => {

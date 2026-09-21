@@ -7,7 +7,7 @@ import type {
 } from "../application/project-contract";
 
 import type { CanvasState } from "../application/canvas-state";
-import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest } from "../application/agent-contract";
+import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest, AgentUndoRequest } from "../application/agent-contract";
 
 export {};
 
@@ -32,6 +32,7 @@ declare global {
       agentSetThinking(input: AgentThinkingRequest): Promise<void>;
       agentSend(input: AgentSendRequest): Promise<{ accepted: boolean }>;
       agentStop(workspaceId: string): Promise<void>;
+      agentUndo(input: AgentUndoRequest): Promise<void>;
       agentNewSession(workspaceId: string): Promise<void>;
       agentResumeSession(input: AgentSessionRequest): Promise<void>;
       agentRenameSession(input: AgentRenameRequest): Promise<void>;

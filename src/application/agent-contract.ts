@@ -46,6 +46,25 @@ export interface AgentToolActivityView {
   output?: string;
 }
 
+export interface AgentChangeFileView {
+  path: string;
+  kind: "create" | "modify" | "delete";
+  attribution: "managed" | "unattributed";
+  diff: string;
+}
+
+export interface AgentChangeSetView {
+  id: string;
+  label: string;
+  state: "prepared" | "active" | "settled" | "failed" | "undoing" | "undone" | "conflicted";
+  createdAt: string;
+  undoEligible: boolean;
+  files: AgentChangeFileView[];
+  unexpectedPaths: string[];
+  coverageWarnings: string[];
+  errors: string[];
+}
+
 export type AgentRunState = "idle" | "working" | "waiting" | "retrying" | "compacting" | "stopping" | "error";
 
 export interface AgentSnapshot {
@@ -60,6 +79,7 @@ export interface AgentSnapshot {
   sessions: AgentSessionView[];
   messages: AgentMessageView[];
   tools: AgentToolActivityView[];
+  changeSets: AgentChangeSetView[];
   runState: AgentRunState;
   queued: { steering: number; followUp: number };
   status: string;
@@ -69,6 +89,7 @@ export interface AgentSnapshot {
 export type AgentDialog =
   | { id: string; kind: "text" | "secret" | "manual_code"; title: string; message: string; placeholder?: string }
   | { id: string; kind: "select"; title: string; message: string; options: Array<{ id: string; label: string; description?: string }> }
+  | { id: string; kind: "approval"; title: string; message: string; operation: string; cwd: string; warnings: string[] }
   | { id: string; kind: "info" | "progress"; title: string; message: string; links?: Array<{ url: string; label?: string }>; cancellable?: boolean };
 
 export type AgentEvent =
@@ -107,6 +128,11 @@ export interface AgentSessionRequest {
 export interface AgentRenameRequest {
   workspaceId: string;
   name: string;
+}
+
+export interface AgentUndoRequest {
+  workspaceId: string;
+  changeSetId: string;
 }
 
 export interface AgentDialogResponse {

@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function waitFor(predicate: () => boolean, timeout = 4_000): Promise<void> {
+async function waitFor(predicate: () => boolean, timeout = 6_000): Promise<void> {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started > timeout) throw new Error("Timed out waiting for fake provider state");
@@ -137,7 +137,12 @@ describe("bundled pi host", () => {
     expect(await host.send({ workspaceId: "workspace-1", text: "queue work", behavior: "prompt", selections: [] })).toEqual({ accepted: true });
     await host.send({ workspaceId: "workspace-1", text: "steering note", behavior: "steer", selections: [] });
     await host.send({ workspaceId: "workspace-1", text: "follow-up note", behavior: "followUp", selections: [] });
-    await waitFor(() => latest.runState === "idle" && latest.messages.filter((message) => message.role === "user").length >= 4);
+    await host.send({ workspaceId: "workspace-1", text: "follow-up note", behavior: "followUp", selections: [] });
+    await waitFor(() => latest.runState === "idle" && latest.messages.filter((message) => message.role === "user").length >= 5
+      && latest.changeSets.filter((set) => set.label === "follow-up note").every((set) => set.state !== "prepared"));
+    const duplicateFollowUps = latest.changeSets.filter((set) => set.label === "follow-up note");
+    expect(duplicateFollowUps).toHaveLength(2);
+    expect(duplicateFollowUps.every((set) => set.state !== "prepared")).toBe(true);
 
     const oldSession = latest.sessionId!;
     await host.rename({ workspaceId: "workspace-1", name: "Fake conversation" });

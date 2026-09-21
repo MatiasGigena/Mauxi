@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentDialog, AgentSnapshot } from "../application/agent-contract";
+import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 const EMPTY_AGENT: AgentSnapshot = {
-  ready: false, workspaceId: "", providers: [], models: [], sessions: [], messages: [], tools: [],
+  ready: false, workspaceId: "", providers: [], models: [], sessions: [], messages: [], tools: [], changeSets: [],
   thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Connecting to bundled pi SDK…",
 };
 
 function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: string; dialog: AgentDialog; onClose: () => void }) {
   const [value, setValue] = useState("");
-  const blocking = dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code" || dialog.kind === "select" || ((dialog.kind === "info" || dialog.kind === "progress") && !!dialog.cancellable);
-  async function answer(cancelled: boolean) {
-    if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : value, cancelled });
+  const blocking = dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code" || dialog.kind === "select" || dialog.kind === "approval" || ((dialog.kind === "info" || dialog.kind === "progress") && !!dialog.cancellable);
+  async function answer(cancelled: boolean, responseValue = value) {
+    if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
     onClose();
   }
   return <div className="agent-dialog-backdrop" role="presentation">
@@ -22,8 +22,9 @@ function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: stri
       <p>{dialog.message}</p>
       {dialog.kind === "select" && <div className="dialog-options">{dialog.options.map((option) => <button key={option.id} onClick={() => setValue(option.id)} aria-pressed={value === option.id}><strong>{option.label}</strong>{option.description && <span>{option.description}</span>}</button>)}</div>}
       {(dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code") && <input autoFocus type={dialog.kind === "secret" ? "password" : "text"} autoComplete="off" placeholder={dialog.placeholder} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && value) void answer(false); }} />}
+      {dialog.kind === "approval" && <section className="approval-detail"><strong>Exact operation</strong><pre>{dialog.operation}</pre>{dialog.warnings.map((warning) => <p key={warning}>⚠ {warning}</p>)}</section>}
       {"links" in dialog && dialog.links?.map((link) => <button className="auth-link" key={link.url} onClick={() => void window.mauxi?.openAuthUrl(link.url)}>{link.label ?? "Open in browser"}</button>)}
-      {blocking && <footer><button onClick={() => void answer(true)}>Cancel</button>{dialog.kind !== "info" && dialog.kind !== "progress" && <button className="primary" disabled={!value} onClick={() => void answer(false)}>Continue</button>}</footer>}
+      {dialog.kind === "approval" ? <footer><button onClick={() => void answer(true)}>Deny</button><button className="primary" onClick={() => void answer(false, "approve")}>Approve once</button></footer> : blocking && <footer><button onClick={() => void answer(true)}>Cancel</button>{dialog.kind !== "info" && dialog.kind !== "progress" && <button className="primary" disabled={!value} onClick={() => void answer(false)}>Continue</button>}</footer>}
     </section>
   </div>;
 }
@@ -57,6 +58,21 @@ function AgentSettings({ agent, workspaceId, busy, run, onClose }: {
       <p className="privacy-note">Provider credentials stay in Mauxi’s private pi profile. They are never returned to this window or stored in chat.</p>
     </section>
   </div>;
+}
+
+export function ChangeReview({ changeSets, idle, onUndo }: { changeSets: AgentChangeSetView[]; idle: boolean; onUndo: (id: string) => void }) {
+  const latest = changeSets.find((set) => set.files.length || set.unexpectedPaths.length || set.errors.length || set.coverageWarnings.length);
+  const eligible = changeSets.find((set) => set.undoEligible);
+  // Keep the latest review visible, but expose the actual backend-eligible target
+  // separately (including its files), rather than mislabeling the newest record.
+  const displayed = latest ? [latest, ...(eligible && eligible.id !== latest.id ? [eligible] : [])] : [];
+  return <>{displayed.map((set) => <details className={`change-review ${set.state}`} key={set.id}>
+    <summary><span><strong>{set === latest ? "Changes" : "Undo target"} · {set.label}</strong><small>{set.files.length} file{set.files.length === 1 ? "" : "s"} · {set.state}</small></span>{idle && eligible?.id === set.id && <button type="button" onClick={(event) => { event.preventDefault(); onUndo(set.id); }}>Undo · {set.label}</button>}</summary>
+    {set.coverageWarnings.map((warning) => <p className="coverage-warning" key={warning}>{warning}</p>)}
+    {set.files.map((file) => <details className="changed-file" key={file.path}><summary><span className={`change-kind ${file.kind === "create" ? "create" : "modify"}`}>{file.kind}</span><code>{file.path}</code><small>{file.attribution === "unattributed" ? "unattributed command observation" : "agent edit"}</small></summary><pre>{file.diff}</pre></details>)}
+    {set.unexpectedPaths.length > 0 && <details><summary>Unattributable command changes · {set.unexpectedPaths.length}</summary><ul>{set.unexpectedPaths.map((item) => <li key={item}><code>{item}</code></li>)}</ul></details>}
+    {set.errors.map((error) => <p className="send-error" key={error}>{error}</p>)}
+  </details>)}</>;
 }
 
 export function ChatDock({ height, onResize, workspaceId, selections, onRemove, onRevalidate, onBeforeSend, onSelectionsSent }: {
@@ -129,6 +145,7 @@ export function ChatDock({ height, onResize, workspaceId, selections, onRemove, 
         return <article className={`selection-chip ${item.status}`} key={item.capture.selectionId}><span className="preview-pill">{item.capture.previewId}</span><strong>{item.capture.element.label}</strong><code title={source.verification === "verified" ? source.filePath : undefined}>{sourceLabel}</code><span>{item.status === "stale" ? "Stale" : source.verification === "verified" ? `${source.method} · verified JSX` : source.verification}</span>{item.capture.support.status === "unsupported" && <span className="unsupported">Unsupported source</span>}<button aria-expanded={inspected === item.capture.selectionId} onClick={() => setInspected(inspected === item.capture.selectionId ? null : item.capture.selectionId)}>Inspect</button><button disabled={item.requiresRepick} title={item.staleReason} onClick={() => onRevalidate(item)}>{item.requiresRepick ? "Pick again" : "Revalidate"}</button><button aria-label={`Remove selection ${item.capture.element.label}`} onClick={() => { onRemove(item.capture.selectionId); if (inspected === item.capture.selectionId) setInspected(null); }}>×</button></article>;
       })}</div>}
       {inspectedItem && <section className="selection-inspector" aria-label={`Selection details for ${inspectedItem.capture.element.label}`}><header><strong>{inspectedItem.capture.element.label}</strong><span>{inspectedItem.status === "current" ? "Live capture" : "Historical · stale"}</span></header>{inspectedItem.capture.support.reason && <p className="selection-warning">{inspectedItem.capture.support.reason}</p>}<dl><dt>Workspace / preview</dt><dd>{inspectedItem.capture.workspaceId} · {inspectedItem.capture.previewId}</dd><dt>Route</dt><dd>{inspectedItem.capture.url}</dd><dt>Captured</dt><dd>{inspectedItem.capture.capturedAt} · generation {inspectedItem.capture.documentGeneration.slice(0, 8)}</dd><dt>Viewport / bounds</dt><dd>{inspectedItem.capture.viewport.width}×{inspectedItem.capture.viewport.height} CSS px · {Math.round(inspectedItem.capture.bounds.x)},{Math.round(inspectedItem.capture.bounds.y)} {Math.round(inspectedItem.capture.bounds.width)}×{Math.round(inspectedItem.capture.bounds.height)}</dd><dt>Bounded text</dt><dd>{inspectedItem.capture.element.text || "None"}</dd><dt>JSX provenance</dt><dd>{inspectedItem.capture.source.verification === "verified" ? `${inspectedItem.capture.source.filePath}:${inspectedItem.capture.source.lineNumber ?? "?"}:${inspectedItem.capture.source.columnNumber ?? "?"} · SHA-256 ${inspectedItem.capture.source.fileFingerprint}` : `${inspectedItem.capture.source.verification} · ${inspectedItem.capture.source.filePath || "No source location"}`}</dd><dt>Screenshot crop</dt><dd>{inspectedItem.capture.screenshot.status === "captured" ? `${inspectedItem.capture.screenshot.width}×${inspectedItem.capture.screenshot.height} px · attached to the next request` : inspectedItem.capture.screenshot.status === "pending" ? "Capturing…" : `Unavailable · ${inspectedItem.capture.screenshot.reason ?? "unknown reason"}`}</dd></dl><details><summary>Bounded DOM and styles</summary><pre>{inspectedItem.capture.element.html}</pre><pre>{JSON.stringify(inspectedItem.capture.computedStyles, null, 2)}</pre></details><small>Screenshot pixels may contain visible private information. Inspect or remove this attachment before sending.</small></section>}
+      <ChangeReview changeSets={agent.changeSets} idle={agent.runState === "idle" && !busy && !!workspaceId} onUndo={(changeSetId) => run(() => window.mauxi!.agentUndo({ workspaceId: workspaceId!, changeSetId }))} />
       <div className="conversation" role="log" aria-label="Conversation" aria-live="polite">{!agent.messages.length && <p className="empty-conversation">Explore both previews, attach precise targets, then describe what you want to understand.</p>}{agent.messages.map((message) => <article className={`chat-message ${message.role} ${message.error ? "error" : ""}`} key={message.id}><strong>{message.role === "user" ? "You" : "Mauxi"}</strong><p>{message.text}</p></article>)}{agent.tools.length > 0 && <details className="tool-activity" open={agent.tools.some((tool) => tool.status === "running")}><summary>Tool activity · {agent.tools.filter((tool) => tool.status === "running").length ? "working" : `${agent.tools.length} completed`}</summary>{agent.tools.map((tool) => <details key={tool.id}><summary><span className={`tool-status ${tool.status}`} />{tool.name}</summary>{tool.input && <><small>Input</small><pre>{tool.input}</pre></>}{tool.output && <><small>Output</small><pre>{tool.output}</pre></>}</details>)}</details>}{agent.queued.steering + agent.queued.followUp > 0 && <p className="queue-status">Queued · {agent.queued.steering} steering · {agent.queued.followUp} follow-up</p>}{(sendError || agent.error) && <p className="send-error" role="alert">{sendError || agent.error?.message}</p>}</div>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}><label className="sr-only" htmlFor="chat-message">Message</label><textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} /><div className="send-actions">{running && <button type="button" disabled={!draft.trim() || busy} title="Deliver after the current tool turn" onClick={() => void submit("steer")}>Steer</button>}<button type="submit" disabled={!workspaceId || !draft.trim() || busy || !agent.selectedModel}>{busy ? "Checking…" : running ? "Follow up" : "Send"}</button></div></form>
     </div>
