@@ -8,6 +8,8 @@ This repository is Linux-only. The macOS and Windows products use different stac
 
 ## Project status
 
+**G4 visible-preview verification is implemented ([issue #8](https://github.com/MatiasGigena/Mauxi/issues/8)).** Host-owned, revocable browser control operates on the existing visible frames, with exact action approval, stale-target protection, bounded verification and actual screenshot/check evidence. Route linking pauses during agent control to prevent side-effect replay. Deterministic Vite/Next.js tests are covered; real-model design quality and human acceptance remain unverified. See [G4 boundaries and evidence](docs/G4-VISIBLE-VERIFICATION.md).
+
 **G3 live changes are complete ([issue #6](https://github.com/MatiasGigena/Mauxi/issues/6)).** Trusted projects now expose host-checked edit/write/delete tools and exact, one-time command approval. Request checkpoints preserve the actual dirty baseline outside Git, serialize mutations, retain partial failures, show attributable changed files and diffs, report bounded command observations without claiming provenance or automatic undo, and provide idle-only conflict-safe undo for eligible managed changes without touching unrelated work or the Git index. Linux mutations use a bounded, app-owned recovery vault outside the repository rather than clobber concurrent arrivals. Cross-filesystem mutations fail closed, retained recovery pins its review records, and cleanup requires manual review; see the live-change documentation. Instrumentation cleanup remains separate from design undo.
 
 **G3 resumable pi conversation is complete ([issue #5](https://github.com/MatiasGigena/Mauxi/issues/5)).** Mauxi bundles the pinned pi SDK, keeps provider credentials and pi-native sessions in an app-owned profile, exposes provider-owned setup/re-auth/logout and capability-aware model/thinking controls, and streams conversation and expandable tool activity without a terminal or separately installed CLI. New/resume/rename, Stop, steering, queued follow-up, structured questions, explicit auth/catalog/rate-limit/capability errors, and checked authentication links stay behind the anchored chat and temporary dialogs.
@@ -34,9 +36,9 @@ Selections retain rendered-instance identity across safe list reorders and becom
 - [Product and technical specification](SPEC.md)
 - [Original workspace concept](docs/assets/workspace-concept.png)
 
-Verified: TypeScript, **123 unit tests** (including no-cost local fake providers), **14 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build, AppImage packaging, and production bridge-exclusion checks. Live provider smoke testing remains opt-in and is not claimed from fake-provider evidence.
+Verified: TypeScript, **173 unit tests** (including no-cost local fake providers), **14 Linux Electron workspace tests**, lifecycle close/reopen, Turbopack bridge, application build, AppImage packaging, and production bridge-exclusion checks. Live provider smoke testing remains opt-in and is not claimed from fake-provider evidence.
 
-Run `npm run check`, `npm run build`, `npm run test:e2e`, `npm run test:lifecycle-e2e`, `npm run test:turbopack-e2e`, and `npm run verify:production`. Build the Linux private-alpha artifact with `npm run dist:linux`.
+Run `npm run check`, `npm run build`, `npm run test:e2e`, `npm run test:browser-e2e`, `npm run test:lifecycle-e2e`, `npm run test:turbopack-e2e`, and `npm run verify:production`. Build the Linux private-alpha artifact with `npm run dist:linux`.
 
 ## Direction
 
