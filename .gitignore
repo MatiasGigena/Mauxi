@@ -4,14 +4,12 @@ dist-electron/
 release/
 playwright-report/
 test-results/
-evidence/issue-8/electron-results/
+# Generated test artifacts belong in test-results/, not source control.
+evidence/
 fixtures/*/.next/
 fixtures/*/dist/
 fixtures/*/.mauxi/
 .mauxi-proof-state/
 .mauxi-turbopack-state/
 .mauxi-package-smoke-state/
-evidence/captures/*.png
-!evidence/captures/vite-desktop-70.png
-!evidence/captures/next-desktop-70.png
 *.log
