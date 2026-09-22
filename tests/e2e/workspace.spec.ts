@@ -27,8 +27,9 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
   await button("Focus Desktop").click();
   await expect(page.getByTestId("mobile-preview")).not.toBeVisible();
   await page.getByLabel("Message", { exact: true }).fill("Focus leaves chat reachable.");
-  await button("Send demo").click();
-  await expect(page.getByRole("log")).toContainText("No project files were changed");
+  // Proof mode has no project/model and must never simulate a completed agent request.
+  await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Focus leaves chat reachable.");
+  await expect(button("Send")).toBeDisabled();
   await button("Unfocus Desktop").click();
   expect(await page.locator('[data-preview-id="desktop"]').boundingBox()).toEqual(before);
   await expect(desktop().getByLabel("Persistent note")).toHaveValue("Do not remount this form");
@@ -185,9 +186,9 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await page.locator(".selection-chip").first().getByRole("button", { name: "Revalidate" }).click();
   await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
   await page.getByLabel("Message", { exact: true }).fill("Do not send stale context");
-  await button("Send demo").click();
-  await expect(page.getByRole("log")).toContainText("stale");
-  await expect(page.getByRole("log")).not.toContainText("You: Do not send stale context");
+  await expect(button("Send")).toBeDisabled();
+  await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
+  await expect(page.getByRole("log")).not.toContainText("Do not send stale context");
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
   const secret = "never-serialize-this-value";
@@ -248,7 +249,7 @@ test("linked client/document routes arrive once; unlink/copy, POST and auth isol
   await actions(); await expect(button("Copy route to mobile")).toBeDisabled(); await button("Close actions").click();
   await desktop().getByRole("link", { name: "External route", exact: true }).click();
   expect(await route("desktop")).toBe("/auth/callback?code=private");
-  await expect(page.getByRole("status")).toContainText("External navigation blocked");
+  await expect(page.locator(".connection [role=status]")).toContainText("External navigation blocked");
   await desktop().getByRole("link", { name: "Document route", exact: true }).click();
   await desktop().getByRole("link", { name: "Client route", exact: true }).click();
   await expect.poll(() => route("mobile")).toBe("/details?view=wide#overview");

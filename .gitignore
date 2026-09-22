@@ -4,6 +4,7 @@ dist-electron/
 release/
 playwright-report/
 test-results/
+evidence/issue-8/electron-results/
 fixtures/*/.next/
 fixtures/*/dist/
 fixtures/*/.mauxi/
