@@ -108,10 +108,11 @@ describe("bundled pi host", () => {
     } } }));
     const host = new PiAgentHost("workspace-1", process.cwd(), profile, path.join(root, "captures"));
     let latest = await host.initialize().then(() => host.snapshot());
-    let sawPartial = false; let sawQuestion = false; let authResponse: "cancel" | "success" | null = null;
+    let sawPartial = false; let sawWorking = false; let sawQuestion = false; let authResponse: "cancel" | "success" | null = null;
     const off = host.subscribe((event) => {
       if (event.type === "snapshot") {
         latest = event.snapshot;
+        sawWorking ||= event.snapshot.runState === "working";
         sawPartial ||= event.snapshot.messages.some((message) => message.pending && message.role === "assistant" && message.text.length > 0);
       }
       if (event.type === "dialog" && event.dialog.kind === "select") {
@@ -131,7 +132,10 @@ describe("bundled pi host", () => {
     await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/fake" });
     expect(await host.send({ workspaceId: "workspace-1", text: "Run a structured question", behavior: "prompt", selections: [] })).toEqual({ accepted: true });
     await waitFor(() => latest.runState === "idle" && latest.messages.some((message) => message.text.includes("You chose blue")));
-    expect(sawPartial).toBe(true);
+    // SDK still streams internally; the quiet shell shows only a working status
+    // until final text is available, not thinking or tool-loading commentary.
+    expect(sawWorking).toBe(true);
+    expect(sawPartial).toBe(false);
     expect(sawQuestion).toBe(true);
 
     expect(await host.send({ workspaceId: "workspace-1", text: "queue work", behavior: "prompt", selections: [] })).toEqual({ accepted: true });

@@ -10,6 +10,7 @@ import {
   defineTool,
   ModelRuntime,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
@@ -39,6 +40,9 @@ import {
   type AgentUndoRequest,
 } from "../../application/agent-contract";
 import { ChangeCoordinator } from "./change-coordinator";
+import { DesignResources } from "./design-resources";
+import { DESIGN_WORKFLOW, visibleUserText, WORKING_MESSAGES, REQUEST_PREFIX } from "../../application/design-guidance";
+import type { ResourceImportRequest, ResourceToggleRequest } from "../../application/design-resource-contract";
 
 type AgentDialogInput = AgentDialog extends infer Dialog ? Dialog extends AgentDialog ? Omit<Dialog, "id"> : never : never;
 
@@ -55,8 +59,7 @@ function messageText(message: unknown): string {
   return content.flatMap((block) => {
     if (!block || typeof block !== "object") return [];
     const value = block as { type?: string; text?: unknown; name?: unknown };
-    if ((value.type === "text" || value.type === "thinking") && typeof value.text === "string") return [value.text];
-    if (value.type === "toolCall" && typeof value.name === "string") return [`Used ${value.name}`];
+    if (value.type === "text" && typeof value.text === "string") return [value.text];
     return [];
   }).join("\n");
 }
@@ -180,15 +183,21 @@ export class PiAgentHost {
   private dequeuedBehavior?: "steer" | "followUp";
   private checkpointFailure?: string;
   private runHadFailure = false;
+  private readonly resources: DesignResources;
+  private resourceBusy = false;
+  private designImagesRead = 0;
+  private workingMessage(): string { return WORKING_MESSAGES[Math.floor(Math.random() * WORKING_MESSAGES.length)]; }
 
   constructor(
     readonly workspaceId: string,
     readonly cwd: string,
     private readonly profileDir: string,
     captureRoot: string,
+    private readonly suppliedModelRuntime?: ModelRuntime,
   ) {
     this.sessionDir = path.join(profileDir, "sessions", workspaceId.replace(/[^a-zA-Z0-9_-]/g, "_"));
     this.captureRoot = path.resolve(captureRoot);
+    this.resources = new DesignResources(path.join(profileDir, "design-resources"));
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {
@@ -205,8 +214,9 @@ export class PiAgentHost {
   private async initializeOnce(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true, mode: 0o700 });
     await mkdir(this.sessionDir, { recursive: true, mode: 0o700 });
+    await this.resources.initialize();
     this.changes = await ChangeCoordinator.create(this.workspaceId, this.cwd, path.join(this.profileDir, "checkpoints"));
-    this.modelRuntime = await ModelRuntime.create({
+    this.modelRuntime = this.suppliedModelRuntime ?? await ModelRuntime.create({
       authPath: path.join(this.profileDir, "auth.json"),
       modelsPath: path.join(this.profileDir, "models.json"),
       modelsStorePath: path.join(this.profileDir, "models-store.json"),
@@ -371,17 +381,49 @@ export class PiAgentHost {
       },
     });
 
+    const designRead = defineTool({
+      name: "design_read", label: "Read guidance",
+      description: "Load complete enabled design guidance and reviewed Markdown dependencies. Use name apple-design (UI), mobile-native (mobile), emil-design-eng (motion/polish), prototype (variants). Relative file defaults to SKILL.md. No scripts or executable imports.",
+      parameters: Type.Object({ name: Type.String({ maxLength: 64 }), file: Type.Optional(Type.String({ maxLength: 200 })) }),
+      execute: async (_id, input) => ({ content: [{ type: "text", text: await this.resources.readSkill(input.name, input.file) }], details: {} }),
+    });
+    const designSearch = defineTool({
+      name: "design_search", label: "Find visual guidance",
+      description: "Find up to five reviewed local visual examples matching user intent, component family and style. Refine query if no match; do not invent a match. Text is metadata, not proof of visual inspection.",
+      parameters: Type.Object({ query: Type.String({ minLength: 1, maxLength: 1_000 }), viewport: Type.Optional(Type.Union([Type.Literal("desktop"), Type.Literal("mobile")])) }),
+      execute: async (_id, input) => {
+        const results = this.resources.search(input.query, input.viewport).map(({ id, family, tags, cue, pairEvidence, score }) => ({ id, family, tags, cue, pairEvidence, score }));
+        return { content: [{ type: "text", text: JSON.stringify(results) }], details: { count: results.length } };
+      },
+    });
+    const designImage = defineTool({
+      name: "design_image", label: "Inspect visual guidance",
+      description: "Read one verified local example image by search result ID and viewport. At most two images per agent run. Requires an image-capable model; never claim to see images on a text-only model.",
+      parameters: Type.Object({ id: Type.String({ maxLength: 160 }), viewport: Type.Union([Type.Literal("desktop"), Type.Literal("mobile")]) }),
+      execute: async (_id, input) => {
+        if (this.designImagesRead >= 2) throw new Error("Image inspection budget reached. Work with the inspected examples or ask for another request.");
+        this.designImagesRead++;
+        return { content: [await this.resources.image(input.id, input.viewport, !!this.runtime?.session.model?.input.includes("image"))], details: { id: input.id, viewport: input.viewport } };
+      },
+    });
+
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       const services = await createAgentSessionServices({
         cwd,
         agentDir: this.profileDir,
         modelRuntime: this.modelRuntime!,
+        // In-memory settings prevent ambient project/global package resolution,
+        // including installs that happen before noExtensions is applied.
+        settingsManager: SettingsManager.inMemory({ enableSkillCommands: false }),
         resourceLoaderOptions: {
           noExtensions: true,
           noSkills: true,
           noPromptTemplates: true,
           noThemes: true,
-          appendSystemPrompt: [
+          noContextFiles: true,
+          systemPrompt: "",
+          skillsOverride: () => ({ skills: this.resources.loadedSkills, diagnostics: [] }),
+          appendSystemPromptOverride: () => [DESIGN_WORKFLOW,
             "You are embedded in Mauxi's trusted live workspace. Use only workspace_edit/workspace_write/workspace_delete for source mutations; these are host-checkpointed. Use workspace_command for commands and installs; it always requires exact user approval and must include expected source/config paths in coveredPaths. Never evade a denial by retrying through another tool. Explain that commands cannot fully undo caches, databases, remote APIs, or untracked external effects. Ask whether the user means one instance or a shared component when scope is materially ambiguous. Third-party executable extensions are trusted code, not an OS sandbox; none are loaded by default. Use ask_question for missing design decisions.",
           ],
         },
@@ -391,8 +433,8 @@ export class PiAgentHost {
           services,
           sessionManager,
           sessionStartEvent,
-          tools: ["workspace_read", "workspace_list", "workspace_search", "workspace_edit", "workspace_write", "workspace_delete", "workspace_command", "ask_question"],
-          customTools: [workspaceRead, workspaceList, workspaceSearch, workspaceEdit, workspaceWrite, workspaceDelete, workspaceCommand, askQuestion],
+          tools: ["workspace_read", "workspace_list", "workspace_search", "workspace_edit", "workspace_write", "workspace_delete", "workspace_command", "ask_question", "design_read", "design_search", "design_image"],
+          customTools: [workspaceRead, workspaceList, workspaceSearch, workspaceEdit, workspaceWrite, workspaceDelete, workspaceCommand, askQuestion, designRead, designSearch, designImage],
         })),
         services,
         diagnostics: services.diagnostics,
@@ -483,7 +525,7 @@ export class PiAgentHost {
 
   private onSessionEvent(event: AgentSessionEvent): void {
     switch (event.type) {
-      case "agent_start": this.runState = "working"; this.status = "Working…"; this.lastError = undefined; this.runHadFailure = false; break;
+      case "agent_start": this.runState = "working"; this.status = this.workingMessage(); this.designImagesRead = 0; this.lastError = undefined; this.runHadFailure = false; break;
       case "agent_end": if (event.willRetry) { this.runState = "retrying"; this.status = "Retrying…"; } break;
       case "agent_settled": {
         const partial = this.runState === "stopping" || this.runState === "error" || this.runHadFailure;
@@ -534,7 +576,10 @@ export class PiAgentHost {
         break;
       }
       case "tool_execution_end": {
-        if (event.isError) this.runHadFailure = true;
+        if (event.isError) {
+          this.runHadFailure = true;
+          if (event.toolName.startsWith("design_")) this.lastError = { kind: "runtime", message: "Local guidance could not be loaded. Check enabled content and diagnostics in Agent settings; image inspection requires an image-capable model." };
+        }
         const current = this.activities.get(event.toolCallId);
         this.activities.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, input: current?.input, output: boundedJson(event.result), status: event.isError ? "error" : "done" });
         break;
@@ -597,10 +642,10 @@ export class PiAgentHost {
       if (value.role !== "user" && value.role !== "assistant") return [];
       const text = messageText(message);
       if (!text && !value.errorMessage && message !== streaming) return [];
-      const contextIndex = value.role === "user" ? text.indexOf("\n\n<selected_context>") : -1;
-      const visibleText = contextIndex >= 0
-        ? `${text.slice(0, contextIndex)}\n\nSelected preview context attached to this request.`
-        : text;
+      // Hide reasoning, resource loading and intermediate assistant commentary.
+      // Structured questions/errors still have their own visible desktop surfaces.
+      if (value.role === "assistant" && !value.errorMessage && (message === streaming || value.stopReason === "toolUse")) return [];
+      const visibleText = value.role === "user" ? visibleUserText(text) : text;
       return [{
         id: `${session.sessionId}:${message === streaming ? "streaming" : index}`,
         role: value.role,
@@ -620,7 +665,7 @@ export class PiAgentHost {
       name: item.name,
       createdAt: item.created.toISOString(),
       updatedAt: item.modified.toISOString(),
-      firstMessage: item.firstMessage.slice(0, 160),
+      firstMessage: visibleUserText(item.firstMessage).slice(0, 160),
       active: item.id === activeSessionId,
     }));
   }
@@ -641,7 +686,8 @@ export class PiAgentHost {
       thinkingLevel: session.thinkingLevel as AgentThinkingLevel,
       sessions: await this.sessionViews(),
       messages: this.messageViews(),
-      tools: [...this.activities.values()],
+      tools: [...this.activities.values()].filter((activity) => !activity.name.startsWith("design_")),
+      resources: this.resources.snapshot(),
       changeSets: this.changes?.views() ?? [],
       runState: this.runState,
       queued: this.queued,
@@ -662,6 +708,7 @@ export class PiAgentHost {
 
   private requestDialog(dialog: AgentDialogInput, signal?: AbortSignal): Promise<string> {
     if (signal?.aborted) return Promise.reject(new Error("Dialog cancelled"));
+    if (!this.listeners.size) return Promise.reject(new Error("No desktop dialog is connected. The operation was not approved."));
     const id = randomUUID();
     const agentWasRunning = !!this.runtime?.session.isStreaming;
     if (agentWasRunning) { this.runState = "waiting"; this.status = "Waiting for your response…"; this.schedulePublish(); }
@@ -670,7 +717,7 @@ export class PiAgentHost {
       const cleanup = () => {
         signal?.removeEventListener("abort", onAbort);
         this.pendingDialogs.delete(id);
-        if (agentWasRunning && this.runState === "waiting") { this.runState = "working"; this.status = "Working…"; this.schedulePublish(); }
+        if (agentWasRunning && this.runState === "waiting") { this.runState = "working"; this.status = this.workingMessage(); this.schedulePublish(); }
         for (const listener of this.listeners) listener({ type: "dialog-dismissed", id });
       };
       this.pendingDialogs.set(id, {
@@ -801,6 +848,7 @@ export class PiAgentHost {
   async send(request: AgentSendRequest): Promise<{ accepted: boolean }> {
     this.assertWorkspace(request.workspaceId);
     await this.initialize();
+    if (this.resourceBusy) throw new Error("Finish resource setup before sending a request.");
     const text = request.text.trim();
     if (!text || text.length > 100_000) throw new Error("Invalid message");
     const selectedModel = this.runtime!.session.model;
@@ -808,7 +856,9 @@ export class PiAgentHost {
     if (!selectedModel || !selectedAvailable) throw new Error("Choose an authenticated model before sending.");
     if (request.selections.length > 8 || request.selections.some((item) => item.status !== "current" || item.capture.workspaceId !== this.workspaceId)) throw new Error("Attached context is stale or belongs to another workspace.");
     const images = await this.imageInputs(request);
-    const prompt = `${text}${selectionContext(request.selections)}`;
+    const guidance = await this.resources.guidance(text, request.selections.some((item) => item.capture.previewId === "mobile"));
+    // Prefix the original request so SDK slash expansion cannot replace it.
+    const prompt = `${REQUEST_PREFIX}${text}${selectionContext(request.selections)}${guidance}`;
     this.lastError = undefined; this.checkpointFailure = undefined;
     if (request.behavior === "steer") { await this.runtime!.session.steer(prompt, images); return { accepted: true }; }
     if (request.behavior === "followUp") {
@@ -851,6 +901,37 @@ export class PiAgentHost {
     if (!result) await this.changes!.settle(true, "The provider did not accept this request.");
     await this.publish();
     return { accepted: result };
+  }
+
+  private assertResourceIdle(): void {
+    if (this.resourceBusy || this.runtime?.session.isStreaming || !["idle", "error"].includes(this.runState)) throw new Error("Resource settings are available only while idle.");
+  }
+
+  async importResource(request: ResourceImportRequest): Promise<void> {
+    this.assertWorkspace(request.workspaceId); await this.initialize(); this.assertResourceIdle();
+    this.resourceBusy = true;
+    try {
+      if (request.kind !== "skill" && request.kind !== "catalog") throw new Error("Unsupported resource import. Executable extensions and terminal UI are not compatible; nothing was executed.");
+      const prepared = request.kind === "skill" ? await this.resources.prepareSkill(request.path) : await this.resources.prepareCatalog(request.path);
+      const operation = JSON.stringify(prepared && "record" in prepared ? prepared.record : prepared, null, 2);
+      let answer: string;
+      try { answer = await this.requestDialog({ kind: "approval", title: "Approve local guidance", message: "Use this reviewed local content in Mauxi?", operation, cwd: this.cwd, warnings: [
+        "Read and trust the content before approving: Markdown can instruct the model. Only local Markdown and verified images are supported; executable extensions, terminal UI and package imports are not loaded.",
+        "Mauxi enables automatic invocation in its private copy. Original skills and terminal settings remain unchanged. No redistribution license is assumed.",
+        "Enabled content may be sent to your selected model provider. Commands and dependency installs still require separate approval.",
+      ] }, AbortSignal.timeout(60_000)); } catch { throw new Error("Resource import cancelled or approval unavailable. Nothing was enabled."); }
+      if (answer !== "approve") throw new Error("Resource import denied. Nothing was enabled.");
+      if ("record" in prepared) await this.resources.importSkill(prepared);
+      else await this.resources.importCatalog(prepared);
+      await this.runtime!.session.reload();
+    } finally { this.resourceBusy = false; await this.publish(); }
+  }
+
+  async toggleResource(request: ResourceToggleRequest): Promise<void> {
+    this.assertWorkspace(request.workspaceId); await this.initialize(); this.assertResourceIdle();
+    this.resourceBusy = true;
+    try { await this.resources.setEnabled(request.name, request.enabled); await this.runtime!.session.reload(); }
+    finally { this.resourceBusy = false; await this.publish(); }
   }
 
   async stop(workspaceId: string): Promise<void> {

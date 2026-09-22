@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
 
@@ -9,6 +9,29 @@ const EMPTY_AGENT: AgentSnapshot = {
   thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Connecting to bundled pi SDK…",
 };
 
+function useModalFocus(onClose: () => void) {
+  const ref = useRef<HTMLElement>(null);
+  const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const element = ref.current;
+    if (!element) return;
+    const focusable = () => [...element.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter((node) => node.getClientRects().length);
+    focusable()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close.current(); }
+      if (event.key !== "Tab") return;
+      const items = focusable(); const first = items[0]; const last = items.at(-1);
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || !element.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !element.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    };
+    element.addEventListener("keydown", keydown);
+    return () => { element.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, []);
+  return ref;
+}
+
 function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: string; dialog: AgentDialog; onClose: () => void }) {
   const [value, setValue] = useState("");
   const blocking = dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code" || dialog.kind === "select" || dialog.kind === "approval" || ((dialog.kind === "info" || dialog.kind === "progress") && !!dialog.cancellable);
@@ -16,8 +39,9 @@ function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: stri
     if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
     onClose();
   }
+  const focusRef = useModalFocus(() => void answer(true));
   return <div className="agent-dialog-backdrop" role="presentation">
-    <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby={`dialog-${dialog.id}`}>
+    <section ref={focusRef} className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby={`dialog-${dialog.id}`}>
       <header><h2 id={`dialog-${dialog.id}`}>{dialog.title}</h2>{!blocking && <button aria-label="Close" onClick={onClose}>×</button>}</header>
       <p>{dialog.message}</p>
       {dialog.kind === "select" && <div className="dialog-options">{dialog.options.map((option) => <button key={option.id} onClick={() => setValue(option.id)} aria-pressed={value === option.id}><strong>{option.label}</strong>{option.description && <span>{option.description}</span>}</button>)}</div>}
@@ -29,14 +53,17 @@ function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: stri
   </div>;
 }
 
-function AgentSettings({ agent, workspaceId, busy, run, onClose }: {
-  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; onClose: () => void;
+function AgentSettings({ agent, workspaceId, busy, run, onClose, onInvoke, error }: {
+  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; onClose: () => void; onInvoke: (name: string) => void; error?: string;
 }) {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
   const [rename, setRename] = useState(agent.sessionName ?? "");
+  const focusRef = useModalFocus(onClose);
+  const resourceBusy = busy || !["idle", "error"].includes(agent.runState);
   return <div className="agent-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="agent-settings" role="dialog" aria-modal="true" aria-label="Models and conversations">
-      <header><div><span className="eyebrow">BUNDLED PI SDK</span><h2>Models & conversations</h2></div><button aria-label="Close settings" onClick={onClose}>×</button></header>
+    <section ref={focusRef} className="agent-settings" role="dialog" aria-modal="true" aria-label="Agent settings">
+      <header><div><span className="eyebrow">MAUXI</span><h2>Agent settings</h2></div><button aria-label="Close settings" onClick={onClose}>×</button></header>
+      {error && <p className="send-error" role="alert">{error}</p>}
       <label><span>Model</span><select value={agent.selectedModel ?? ""} disabled={busy} onChange={(event) => run(() => window.mauxi!.agentSelectModel({ workspaceId, modelKey: event.target.value }))}>
         <option value="">Choose an authenticated model…</option>
         {agent.models.map((model) => <option key={model.key} value={model.key} disabled={!model.available}>{model.provider} · {model.name}{model.supportsImages ? " · images" : " · text only"}{model.available ? "" : " · sign in"}</option>)}
@@ -44,6 +71,15 @@ function AgentSettings({ agent, workspaceId, busy, run, onClose }: {
       <label><span>Thinking</span><select value={agent.thinkingLevel} disabled={!selected || busy} onChange={(event) => run(() => window.mauxi!.agentSetThinking({ workspaceId, level: event.target.value as AgentSnapshot["thinkingLevel"] }))}>
         {(selected?.thinkingLevels ?? ["off"]).map((level) => <option value={level} key={level}>{level}</option>)}
       </select></label>
+      <details className="resource-settings"><summary><strong>Design guidance</strong><span>{agent.resources?.skills.filter((skill) => skill.loaded).length ?? 0} enabled</span></summary>
+        <p>Local guidance, matched to your request. Your terminal setup stays untouched.</p>
+        <div className="resource-actions"><button disabled={resourceBusy} onClick={() => run(() => window.mauxi!.agentImportResource({ workspaceId, kind: "skill" }))}>Import skill…</button><button disabled={resourceBusy} onClick={() => run(() => window.mauxi!.agentImportResource({ workspaceId, kind: "catalog" }))}>Choose visual library…</button></div>
+        {!agent.resources?.skills.length && <p className="resource-hint">Choose SKILL.md for apple-design, mobile-native, emil-design-eng or prototype. Review local content before approving.</p>}
+        {agent.resources?.skills.map((skill) => <article className="resource-row" key={skill.name}><label><input type="checkbox" checked={skill.enabled} disabled={resourceBusy} onChange={(event) => run(() => window.mauxi!.agentToggleResource({ workspaceId, name: skill.name, enabled: event.target.checked }))} /><span><strong>{skill.name}</strong><small>{skill.error ? "Needs attention" : skill.loaded ? "Ready · automatic" : "Disabled"}</small></span></label><button disabled={resourceBusy || !skill.loaded} onClick={() => onInvoke(skill.name)}>Use once</button><details><summary>Local source & version</summary><code>{skill.source}</code><small>SHA-256 · {skill.digest}</small><p>{skill.description}</p><small>Local-only import · redistribution not approved</small></details>{skill.error && <p role="alert" className="send-error">{skill.error}</p>}</article>)}
+        {agent.resources?.catalog && <article className="resource-row"><label><input type="checkbox" checked={agent.resources.catalog.enabled} disabled={resourceBusy} onChange={(event) => run(() => window.mauxi!.agentToggleResource({ workspaceId, name: "catalog", enabled: event.target.checked }))} /><span><strong>Visual library</strong><small>{agent.resources.catalog.count} reviewed entries</small></span></label><code>{agent.resources.catalog.path}</code>{agent.resources.catalog.error && <p role="alert" className="send-error">{agent.resources.catalog.error}</p>}</article>}
+        {agent.resources?.diagnostics.map((message) => <p className="send-error" role="alert" key={message}>{message}</p>)}
+        <details className="resource-hint"><summary>Tools & limits</summary><p>Host-owned tools: {agent.resources?.tools.join(", ") || "No guidance tools connected"}. Project reads and checkpointed writes are host-owned; commands and installs always need approval.</p><p>Executable extensions, package imports and terminal-only UI are unsupported. No code is loaded by importing Markdown. Disabled guidance can remain in conversation history; start a new conversation to remove that context.</p></details>
+      </details>
       <section className="provider-list"><div className="section-heading"><strong>Providers</strong><button disabled={busy} onClick={() => run(() => window.mauxi!.agentRefreshCatalog(workspaceId))}>Refresh catalog</button></div>
         {agent.providers.map((provider) => <article key={provider.id}><div><strong>{provider.name}</strong><span>{provider.authenticated ? `Connected${provider.authSource ? ` · ${provider.authSource}` : ""}` : "Not connected"}</span></div><div>
           {provider.authenticated && <button disabled={busy} onClick={() => run(() => window.mauxi!.agentLogout({ workspaceId, providerId: provider.id }))}>Log out</button>}
@@ -138,7 +174,7 @@ export function ChatDock({ height, onResize, workspaceId, selections, onRemove, 
       onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}
       onKeyDown={(event) => { if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) { event.preventDefault(); onResize(event.key === "Home" ? 144 : event.key === "End" ? 600 : height + (event.key === "ArrowUp" ? 24 : -24)); } }}><span /></div>
     <div className="chat-content">
-      <div className="dock-heading"><div><strong>{agent.sessionName || "Conversation"}</strong><span className={`agent-state ${agent.runState}`}>{status}</span></div><div className="dock-controls">{running && <button className="stop-button" disabled={agent.runState === "stopping"} onClick={() => run(() => window.mauxi!.agentStop(workspaceId!))}>Stop</button>}<button disabled={!workspaceId} onClick={() => setSettings(true)}>{selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"}</button></div></div>
+      <div className="dock-heading"><div><strong>{agent.sessionName || "Conversation"}</strong><span role="status" className={`agent-state ${agent.runState}`}>{status}</span></div><div className="dock-controls">{running && <button className="stop-button" disabled={agent.runState === "stopping"} onClick={() => run(() => window.mauxi!.agentStop(workspaceId!))}>Stop</button>}<button disabled={!workspaceId} onClick={() => setSettings(true)}>{selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"}</button></div></div>
       {selections.length > 0 && <div className="selection-list" data-testid="selection-list">{selections.map((item) => {
         const source = item.capture.source;
         const sourceLabel = source.verification === "verified" ? `${source.filePath.split(/[\\/]/).slice(-2).join("/")}:${source.lineNumber ?? "?"}` : source.verification === "library" ? "Library source" : source.filePath ? `Source ambiguous (${source.filePath}:${source.lineNumber ?? "?"}:${source.columnNumber ?? "?"})` : "Source unresolved";
@@ -146,10 +182,10 @@ export function ChatDock({ height, onResize, workspaceId, selections, onRemove, 
       })}</div>}
       {inspectedItem && <section className="selection-inspector" aria-label={`Selection details for ${inspectedItem.capture.element.label}`}><header><strong>{inspectedItem.capture.element.label}</strong><span>{inspectedItem.status === "current" ? "Live capture" : "Historical · stale"}</span></header>{inspectedItem.capture.support.reason && <p className="selection-warning">{inspectedItem.capture.support.reason}</p>}<dl><dt>Workspace / preview</dt><dd>{inspectedItem.capture.workspaceId} · {inspectedItem.capture.previewId}</dd><dt>Route</dt><dd>{inspectedItem.capture.url}</dd><dt>Captured</dt><dd>{inspectedItem.capture.capturedAt} · generation {inspectedItem.capture.documentGeneration.slice(0, 8)}</dd><dt>Viewport / bounds</dt><dd>{inspectedItem.capture.viewport.width}×{inspectedItem.capture.viewport.height} CSS px · {Math.round(inspectedItem.capture.bounds.x)},{Math.round(inspectedItem.capture.bounds.y)} {Math.round(inspectedItem.capture.bounds.width)}×{Math.round(inspectedItem.capture.bounds.height)}</dd><dt>Bounded text</dt><dd>{inspectedItem.capture.element.text || "None"}</dd><dt>JSX provenance</dt><dd>{inspectedItem.capture.source.verification === "verified" ? `${inspectedItem.capture.source.filePath}:${inspectedItem.capture.source.lineNumber ?? "?"}:${inspectedItem.capture.source.columnNumber ?? "?"} · SHA-256 ${inspectedItem.capture.source.fileFingerprint}` : `${inspectedItem.capture.source.verification} · ${inspectedItem.capture.source.filePath || "No source location"}`}</dd><dt>Screenshot crop</dt><dd>{inspectedItem.capture.screenshot.status === "captured" ? `${inspectedItem.capture.screenshot.width}×${inspectedItem.capture.screenshot.height} px · attached to the next request` : inspectedItem.capture.screenshot.status === "pending" ? "Capturing…" : `Unavailable · ${inspectedItem.capture.screenshot.reason ?? "unknown reason"}`}</dd></dl><details><summary>Bounded DOM and styles</summary><pre>{inspectedItem.capture.element.html}</pre><pre>{JSON.stringify(inspectedItem.capture.computedStyles, null, 2)}</pre></details><small>Screenshot pixels may contain visible private information. Inspect or remove this attachment before sending.</small></section>}
       <ChangeReview changeSets={agent.changeSets} idle={agent.runState === "idle" && !busy && !!workspaceId} onUndo={(changeSetId) => run(() => window.mauxi!.agentUndo({ workspaceId: workspaceId!, changeSetId }))} />
-      <div className="conversation" role="log" aria-label="Conversation" aria-live="polite">{!agent.messages.length && <p className="empty-conversation">Explore both previews, attach precise targets, then describe what you want to understand.</p>}{agent.messages.map((message) => <article className={`chat-message ${message.role} ${message.error ? "error" : ""}`} key={message.id}><strong>{message.role === "user" ? "You" : "Mauxi"}</strong><p>{message.text}</p></article>)}{agent.tools.length > 0 && <details className="tool-activity" open={agent.tools.some((tool) => tool.status === "running")}><summary>Tool activity · {agent.tools.filter((tool) => tool.status === "running").length ? "working" : `${agent.tools.length} completed`}</summary>{agent.tools.map((tool) => <details key={tool.id}><summary><span className={`tool-status ${tool.status}`} />{tool.name}</summary>{tool.input && <><small>Input</small><pre>{tool.input}</pre></>}{tool.output && <><small>Output</small><pre>{tool.output}</pre></>}</details>)}</details>}{agent.queued.steering + agent.queued.followUp > 0 && <p className="queue-status">Queued · {agent.queued.steering} steering · {agent.queued.followUp} follow-up</p>}{(sendError || agent.error) && <p className="send-error" role="alert">{sendError || agent.error?.message}</p>}</div>
+      <div className="conversation" role="log" aria-label="Conversation" aria-live="polite">{!agent.messages.length && <p className="empty-conversation">Explore both previews, attach precise targets, then describe what you want to understand.</p>}{agent.messages.map((message) => <article className={`chat-message ${message.role} ${message.error ? "error" : ""}`} key={message.id}><strong>{message.role === "user" ? "You" : "Mauxi"}</strong><p>{message.text}</p></article>)}{agent.tools.some((tool) => tool.status === "error" && !tool.name.startsWith("design_")) && <details className="tool-activity"><summary>Operation needs attention</summary>{agent.tools.filter((tool) => tool.status === "error" && !tool.name.startsWith("design_")).map((tool) => <details key={tool.id}><summary><span className={`tool-status ${tool.status}`} />{tool.name}</summary>{tool.input && <><small>Input</small><pre>{tool.input}</pre></>}{tool.output && <><small>Output</small><pre>{tool.output}</pre></>}</details>)}</details>}{agent.queued.steering + agent.queued.followUp > 0 && <p className="queue-status">Queued · {agent.queued.steering} steering · {agent.queued.followUp} follow-up</p>}{(sendError || agent.error) && <p className="send-error" role="alert">{sendError || agent.error?.message}</p>}</div>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}><label className="sr-only" htmlFor="chat-message">Message</label><textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} /><div className="send-actions">{running && <button type="button" disabled={!draft.trim() || busy} title="Deliver after the current tool turn" onClick={() => void submit("steer")}>Steer</button>}<button type="submit" disabled={!workspaceId || !draft.trim() || busy || !agent.selectedModel}>{busy ? "Checking…" : running ? "Follow up" : "Send"}</button></div></form>
     </div>
-    {settings && workspaceId && <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} onClose={() => setSettings(false)} />}
-    {dialog && workspaceId && <AgentPromptDialog workspaceId={workspaceId} dialog={dialog} onClose={() => setDialog(null)} />}
+    {settings && workspaceId && <AgentSettings agent={agent} workspaceId={workspaceId} error={sendError} busy={busy} run={run} onClose={() => setSettings(false)} onInvoke={(name) => { setDraft((current) => `/skill:${name} ${current.replace(/^\/(?:skill:)?[a-z-]+\s*/, "")}`); setSettings(false); requestAnimationFrame(() => document.getElementById("chat-message")?.focus()); }} />}
+    {dialog && workspaceId && <AgentPromptDialog key={dialog.id} workspaceId={workspaceId} dialog={dialog} onClose={() => setDialog(null)} />}
   </footer>;
 }

@@ -1,4 +1,5 @@
 import type { StoredSelection } from "./selection-state";
+import type { ResourceView } from "./design-resource-contract";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type AgentThinkingLevel = typeof THINKING_LEVELS[number];
@@ -80,6 +81,7 @@ export interface AgentSnapshot {
   messages: AgentMessageView[];
   tools: AgentToolActivityView[];
   changeSets: AgentChangeSetView[];
+  resources?: ResourceView;
   runState: AgentRunState;
   queued: { steering: number; followUp: number };
   status: string;
