@@ -24,6 +24,7 @@
     "test:browser-e2e": "npm run build && playwright test --config playwright.browser.config.ts",
     "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
     "test:turbopack-e2e": "bash scripts/turbopack-e2e.sh",
+    "test:release-gates": "vitest run tests/release-gates",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "check": "npm run typecheck && npm test",
     "dist:linux": "npm run build && electron-builder --linux AppImage"
