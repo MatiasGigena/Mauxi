@@ -12,7 +12,7 @@ Open a local project, explore live desktop and mobile previews on a freeform can
 - Applies live edits with checkpoints, changed-file review, eligible undo, and one-time command approval.
 - Lets the agent inspect the same visible previews after an explicit handoff, with separate approvals for interactions and recorded checks.
 
-Mauxi is a **private alpha**, not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. Real-model design quality, human acceptance, and full authenticated packaged acceptance remain unverified. macOS and Windows are outside this repository's scope.
+Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) records known lifecycle/Next.js blockers and missing real-project/live-provider evidence. macOS and Windows are outside this repository's scope.
 
 ## Run locally
 
@@ -38,6 +38,8 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Workspace, project setup, and preview controls](docs/workspace.md)
 - [Agent conversations and local design guidance](docs/agent.md)
 - [Changes, command approval, undo, and recovery](docs/changes-and-recovery.md)
+- [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
+- [AC-01–AC-21 acceptance gate and blockers](docs/alpha-acceptance.md)
 - [Development and automated checks](docs/development.md)
 - [Original product requirements](SPEC.md) — planning reference, not current implementation status
 
