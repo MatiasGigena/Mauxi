@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/turbopack-e2e",
+  outputDir: "test-results/turbopack",
   timeout: 90_000,
   workers: 1,
   reporter: [["list"]],

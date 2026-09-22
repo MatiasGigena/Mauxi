@@ -4,9 +4,10 @@ import path from "node:path";
 
 let application: ElectronApplication;
 let page: Page;
-const evidenceDirectory = path.resolve("evidence/captures");
+let evidenceDirectory: string;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
+  evidenceDirectory = testInfo.outputPath("captures");
   await mkdir(evidenceDirectory, { recursive: true });
   application = await electron.launch({
     args: [path.resolve("dist-electron/main.js")],

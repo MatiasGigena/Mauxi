@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-test("native imports require approval, settings stay transient, toggles and explicit invocation work", async () => {
+test("native imports require approval, settings stay transient, toggles and explicit invocation work", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-resource-electron-"));
   const source = path.join(state, "skill", "SKILL.md"); await mkdir(path.dirname(source));
   const original = "---\nname: mobile-native\ndescription: Mobile guidance\ndisable-model-invocation: true\n---\nPreserve zoom. Use 16px inputs.\n";
@@ -12,7 +12,7 @@ test("native imports require approval, settings stay transient, toggles and expl
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", (chunk) => { stderr += String(chunk); });
   try {
-    await writeFile("evidence/issue-7/electron-startup.json", JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().length, userData: app.getPath("userData"), name: app.getName() })), null, 2));
+    await writeFile(testInfo.outputPath("electron-startup.json"), JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().length, userData: app.getPath("userData"), name: app.getName() })), null, 2));
     let page = await app.firstWindow();
     const discovery = await page.evaluate(async (root) => window.mauxi!.inspectProjectPath(root), path.resolve("."));
     const plan = discovery.plans.find((candidate) => candidate.appRoot.endsWith("/fixtures/vite"))!;
@@ -40,7 +40,7 @@ test("native imports require approval, settings stay transient, toggles and expl
     await page.locator(".resource-row").first().getByRole("checkbox").check();
     await expect(page.locator(".resource-row").first()).toContainText("Ready · automatic");
     await page.getByText("Local source & version", { exact: true }).click();
-    await page.screenshot({ path: "evidence/issue-7/electron-settings.png" });
+    await page.screenshot({ path: testInfo.outputPath("electron-settings.png") });
     await page.getByRole("button", { name: "Use once" }).click();
     await expect(page.getByLabel("Message", { exact: true })).toHaveValue("/skill:mobile-native ");
     await expect(page.getByLabel("Message", { exact: true })).toBeFocused();
@@ -51,9 +51,9 @@ test("native imports require approval, settings stay transient, toggles and expl
     await expect(page.getByRole("button", { name: "Models & providers", exact: true })).toBeFocused();
     await page.emulateMedia({ reducedMotion: "reduce" });
     expect(await page.locator(".conversation").evaluate(node => getComputedStyle(node).scrollBehavior)).toBe("auto");
-    await page.screenshot({ path: "evidence/issue-7/electron-workspace.png" });
+    await page.screenshot({ path: testInfo.outputPath("electron-workspace.png") });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
     page = await welcome;
     await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
-  } finally { await writeFile("evidence/issue-7/electron-stderr.log", stderr); await app.close(); await writeFile(config, before); await rm(state, {recursive:true,force:true}); }
+  } finally { await writeFile(testInfo.outputPath("electron-stderr.log"), stderr); await app.close(); await writeFile(config, before); await rm(state, {recursive:true,force:true}); }
 });

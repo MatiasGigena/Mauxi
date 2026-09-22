@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src/application/**/*.ts", "src/infrastructure/**/*.ts", "src/presentation/**/*.d.ts", "scripts/**/*.ts", "tests/unit/**/*.ts", "tests/e2e/**/*.ts", "tests/lifecycle-e2e/**/*.ts", "tests/turbopack-e2e/**/*.ts", "playwright.config.ts", "playwright.lifecycle.config.ts", "playwright.turbopack.config.ts"]
+  "include": ["src/application/**/*.ts", "src/infrastructure/**/*.ts", "src/presentation/**/*.d.ts", "scripts/**/*.ts", "tests/**/*.ts", "playwright*.config.ts"]
 }

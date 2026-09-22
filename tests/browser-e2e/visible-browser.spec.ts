@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserRequest, BrowserState, BrowserTarget, BrowserResult } from "../../src/application/browser-contract";
@@ -15,14 +15,13 @@ async function startAction(page: Page, request: BrowserRequest) {
 }
 async function result(page: Page) { await expect.poll(() => page.evaluate(() => (window as any).actionResult)).toBeTruthy(); return page.evaluate(() => (window as any).actionResult); }
 
-test("fake agent checks the visible state, approvals, stale targets, revocation, routing and forged messages", async () => {
-  await mkdir("evidence/issue-8", { recursive: true });
+test("fake agent checks the visible state, approvals, stale targets, revocation, routing and forged messages", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-browser-electron-"));
   const config = path.resolve("fixtures/vite/vite.config.ts"); const before = await readFile(config, "utf8");
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", chunk => { stderr += String(chunk); });
   try {
-    await writeFile("evidence/issue-8/electron-startup.json", JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().length, userData: app.getPath("userData") })), null, 2));
+    await writeFile(testInfo.outputPath("electron-startup.json"), JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().length, userData: app.getPath("userData") })), null, 2));
     let page = await app.firstWindow();
     const discovery = await page.evaluate(root => window.mauxi!.inspectProjectPath(root), path.resolve("."));
     const plan = discovery.plans.find(candidate => candidate.appRoot.endsWith("/fixtures/vite"))!;
@@ -50,10 +49,10 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const source = await run(page, request("source", { target: button.target }));
     expect(JSON.parse(source.text)).toMatchObject({ status: "static-match", filePath: "src/components/ProofCard.tsx" });
     const shot = await run(page, request("screenshot")); expect(shot.image).toBeTruthy();
-    await writeFile("evidence/issue-8/visible-desktop.png", Buffer.from(shot.image!, "base64"));
+    await writeFile(testInfo.outputPath("visible-desktop.png"), Buffer.from(shot.image!, "base64"));
     await run(page, { ...info.targets.find(t => t.previewId === "mobile")!, generation: info.state.generation, operation: "inspect" });
     const mobileShot = await run(page, { ...info.targets.find(t => t.previewId === "mobile")!, generation: info.state.generation, operation: "screenshot" });
-    await writeFile("evidence/issue-8/visible-mobile.png", Buffer.from(mobileShot.image!, "base64"));
+    await writeFile(testInfo.outputPath("visible-mobile.png"), Buffer.from(mobileShot.image!, "base64"));
     expect(await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(w => w.id))).toEqual(contentsBefore);
     // Both keyboard focus and pointer input are excluded, not just a cosmetic overlay.
     expect(await page.getByTestId("desktop-preview").evaluate((f: HTMLIFrameElement) => f.inert && f.tabIndex === -1)).toBe(true);
@@ -95,7 +94,7 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await expect(page.getByTestId("desktop-preview")).not.toHaveAttribute("inert");
     await page.getByText(/^Checks ·/).click();
     await expect(page.getByAltText("Actual desktop preview capture")).toBeVisible();
-    await page.screenshot({ path: "evidence/issue-8/recorded-checks.png" });
+    await page.screenshot({ path: testInfo.outputPath("recorded-checks.png") });
     await page.getByText(/^Checks ·/).click();
     // A side-effectful submit changes the source route but never replays its POST/GET in the peer.
     let submissions = 0;
@@ -117,8 +116,8 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await page.getByRole("button", { name: "Routes unlinked", exact: true }).click();
     await child.evaluate(() => history.pushState(null, "", "/ordinary-proof"));
     await expect.poll(() => page.frames().filter(f => { try { return new URL(f.url()).pathname === "/ordinary-proof"; } catch { return false; } }).length).toBe(2);
-    await page.screenshot({ path: "evidence/issue-8/returned-control.png" });
+    await page.screenshot({ path: testInfo.outputPath("returned-control.png") });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
     page = await welcome; await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
-  } finally { await writeFile("evidence/issue-8/electron-stderr.log", stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
+  } finally { await writeFile(testInfo.outputPath("electron-stderr.log"), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

@@ -1,11 +1,10 @@
 import { _electron as electron, expect, test } from "@playwright/test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { BrowserRequest, BrowserState, BrowserTarget, BrowserResult } from "../../src/application/browser-contract";
 
-for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scroll/logs, exact navigation and disconnect`, async () => {
-  await mkdir("evidence/issue-8", { recursive: true });
+for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scroll/logs, exact navigation and disconnect`, async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-operations-"));
   const config = path.resolve("fixtures/vite/vite.config.ts"), before = await readFile(config, "utf8");
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: fixture === "next" ? "" : "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
@@ -17,7 +16,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     const next = app.waitForEvent("window");
     await page.evaluate(request => window.mauxi!.confirmProject(request), { discoveryId: discovery.discoveryId, planId: plan.id, mode: "start" as const }); page = await next;
     await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 60_000 }).catch(async error => {
-      await writeFile(`evidence/issue-8/${fixture}-startup-debug.json`, JSON.stringify({ shell: await page.evaluate(() => ({ text: document.body.innerText, origin: location.origin })), frames: await Promise.all(page.frames().map(f => f.evaluate(() => ({ url: location.href, origin: location.origin, ready: document.readyState, name: window.name })).catch(() => null))), bootstrap: await page.evaluate(() => window.mauxi!.getBootstrap()), stderr }, null, 2));
+      await writeFile(testInfo.outputPath(`${fixture}-startup-debug.json`), JSON.stringify({ shell: await page.evaluate(() => ({ text: document.body.innerText, origin: location.origin })), frames: await Promise.all(page.frames().map(f => f.evaluate(() => ({ url: location.href, origin: location.origin, ready: document.readyState, name: window.name })).catch(() => null))), bootstrap: await page.evaluate(() => window.mauxi!.getBootstrap()), stderr }, null, 2));
       throw error;
     });
     const frame = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
@@ -33,7 +32,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     const grant = async () => {
       await page.getByRole("button", { name: "Give agent control", exact: true }).click();
       await expect(page.getByRole("button", { name: "Take back control", exact: true })).toBeVisible().catch(async error => {
-        await writeFile(`evidence/issue-8/${fixture}-target-debug.json`, JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger; return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
+        await writeFile(testInfo.outputPath(`${fixture}-target-debug.json`), JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger; return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
       });
       await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).owner)).toBe("agent");
       const info = await page.evaluate(() => window.mauxi!.browserTest("targets")) as { state: BrowserState; targets: BrowserTarget[] };
@@ -65,7 +64,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await expect.poll(async () => (await run({ ...target, operation: "console" })).text).toContain("visible-proof-error");
     expect((await run({ ...target, operation: "console" })).text).toContain("visible-proof-console");
     const capture = await run({ ...target, operation: "screenshot" });
-    await writeFile(`evidence/issue-8/${fixture}-operations.png`, Buffer.from(capture.image!, "base64"));
+    await writeFile(testInfo.outputPath(`${fixture}-operations.png`), Buffer.from(capture.image!, "base64"));
     await page.getByRole("button", { name: "Take back control", exact: true }).click();
     await expect(frame.locator("#hover-probe")).toHaveCSS("background-color", "rgb(200, 200, 200)");
     // Labels AND geometry shown in an approval must still match at dispatch.
@@ -110,8 +109,8 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await page.getByLabel("Message", { exact: true }).fill("Chat remains reachable after disconnect");
     await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Chat remains reachable after disconnect");
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.screenshot({ path: `evidence/issue-8/${fixture}-disconnect.png` });
+    await page.screenshot({ path: testInfo.outputPath(`${fixture}-disconnect.png`) });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click(); page = await welcome;
     await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
-  } finally { await writeFile(`evidence/issue-8/${fixture}-operations-stderr.log`, stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
+  } finally { await writeFile(testInfo.outputPath(`${fixture}-operations-stderr.log`), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

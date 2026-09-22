@@ -1,6 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
 
 let application: ElectronApplication;
 let page: Page;
@@ -322,7 +321,7 @@ test("SPA route changes invalidate only that preview's selections and require a 
   await expect(peerChip).toHaveClass(/current/);
 });
 
-test("readable text, reduced motion, immediate feedback and minimal resting composition", async () => {
+test("readable text, reduced motion, immediate feedback and minimal resting composition", async ({}, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
   await page.evaluate(() => document.documentElement.style.fontSize = "20px");
   await button("Fit both").click();
@@ -336,12 +335,11 @@ test("readable text, reduced motion, immediate feedback and minimal resting comp
   expect(await focus.evaluate((node) => ({ color: getComputedStyle(node).backgroundColor, active: node.matches(":active"), atPoint: document.elementFromPoint(node.getBoundingClientRect().x + 10, node.getBoundingClientRect().y + 10)?.outerHTML }))).toMatchObject({ active: true, color: expect.not.stringContaining(normal) });
   await page.mouse.up(); await button("Unfocus Desktop").click(); await button("Focus Desktop").click(); await button("Unfocus Desktop").click();
   await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Keyboard text stays in chat: + - 0 f h");
-  await mkdir("evidence/g2", { recursive: true });
-  await page.screenshot({ path: "evidence/g2/large-text-reduced-motion.png" });
+  await page.screenshot({ path: testInfo.outputPath("large-text-reduced-motion.png") });
   await page.evaluate(() => document.documentElement.style.fontSize = "16px");
   await page.emulateMedia({ reducedMotion: "no-preference", contrast: "no-preference" });
   await button("Fit both").click();
-  await page.screenshot({ path: "evidence/g2/workspace.png" });
+  await page.screenshot({ path: testInfo.outputPath("workspace.png") });
   await actions(); await page.getByText("Preview diagnostics", { exact: true }).click();
-  await page.screenshot({ path: "evidence/g2/actions.png" });
+  await page.screenshot({ path: testInfo.outputPath("actions.png") });
 });
