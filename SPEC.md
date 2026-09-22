@@ -1,6 +1,6 @@
 # Mauxi — private alpha specification
 
-**Status:** Draft for review. No application implementation or GitHub issues exist yet.
+**Status:** Original private-alpha requirements and planning reference, not a current implementation report. Historical milestones, open decisions, and validation statements below describe the planning stage. See [README.md](README.md) and the linked product guides for current behavior and limitations.
 
 **Product:** A local-first desktop workspace for polishing, building, and animating real web interfaces with a pi-powered coding agent.
 

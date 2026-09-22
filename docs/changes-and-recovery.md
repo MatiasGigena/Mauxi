@@ -1,10 +1,10 @@
-# G3 live changes, approval, review, and undo
+# Changes, approvals, and recovery
 
-Implementation record for [issue #6](https://github.com/MatiasGigena/Mauxi/issues/6).
+Safety and recovery reference for live edits to trusted local projects. For everyday use, see the [workspace guide](workspace.md).
 
 ## Boundary
 
-Mauxi now gives the bundled pi runtime only host-defined project tools:
+Mauxi gives the bundled agent runtime only host-defined project tools:
 
 - `workspace_edit`, `workspace_write`, and `workspace_delete` pass through one serialized `ChangeCoordinator`.
 - `workspace_command` uses an executable and argument array with `shell: false`. Every invocation requires a visible, one-time approval bound to the workspace, canonical working directory and its open-directory device/inode identity, exact executable/arguments, purpose, and package/lock configuration fingerprint. The descriptor is opened before approval and held through child exit; Linux spawn uses `/proc/<host-pid>/fd/<fd>` so a last-moment pathname swap cannot redirect cwd. Identity and configuration are rechecked after checkpoint creation.
@@ -76,45 +76,3 @@ The anchored chat shows the latest change-set state, changed files, attribution,
 Before changing anything, undo verifies every affected path's content hash **and durably recorded installed device/inode, mode, uid/gid, nanosecond mtime and ctime**, and repeats the check immediately before each restore. A same-content atomic replacement, chmod/chown (even a mode changed back), new visible xattrs/flags, changed/deleted result, or symlink conflicts safely. Recorded deletions require the path still to be absent. Displacement necessarily changes ctime, so displacement validation compares the remaining identity/metadata plus content; installed ctime is captured after linking, not inferred from a matching hash. Compatible files are restored in reverse order with their original contents and supported metadata. When undo itself recreates an earlier managed result, only a predecessor whose installed identity exactly matches the saved before-snapshot receives the newly restored identity; matching text alone never transfers provenance. This keeps successive managed undo working without accepting external same-content replacements.
 
 Legacy hash-only records remain reviewable but are not automatically undoable. A crash before the installed identity is durably finalized is conservatively review-only/conflicted; recovery never blesses an arbitrary same-content inode as the agent result. Successfully finalized identities survive restart and remain undoable when unchanged. Prepared recovery manifests continue to pin retained data and surface interrupted-mutation conflicts. A late conflict can leave the installed replacement in place as well as retained displaced data; no attempted restoration overwrites an occupied name. Instrumentation cleanup remains in the existing ownership journal and is never implemented as source-change undo.
-
-## Deterministic evidence
-
-`tests/unit/change-coordinator.test.ts` covers:
-
-- pre-existing dirty/untracked content and focused diff/undo;
-- serialized parallel writes and stale-write rejection;
-- traversal, protected-path, target/parent symlink escapes;
-- edits after the request baseline and paths omitted by bounded coverage;
-- overlapping external edits during undo and explicit latest-change-set targeting;
-- write/delete checkpoint size enforcement and rejected-write record rollback;
-- declared command coverage, undeclared changes, and covered-file overlap;
-- bounded-record pruning without evicting unfinished/conflicted recovery;
-- interrupted-run recovery under stable project identity;
-- concurrent covered command edits (including previously managed paths) never becoming undoable;
-- aggregate command after-content limits during normal finalization and crash recovery;
-- interrupted commands retaining partial diffs and explicit oversized/binary coverage limitations;
-- deterministic post-revalidation edits, same-content inode swaps, installation arrivals, late displaced-inode writes, and interrupted displacement recovery;
-- no repository recovery artifacts after successful write/undo, including nested-workspace storage checks;
-- shared-vault entry admission, orphan/late-writer byte accounting, and explicit cross-filesystem refusal for write/delete/undo;
-- staging-only cleanup, retry-state rollback, honest partial undo, and recovery-aware checkpoint pruning/manual cleanup;
-- exact special modes/ownership under restrictive umask, timestamp-preserving undo, and target-directory setgid creation semantics;
-- real Linux user xattrs, access/default ACLs, and unsupported flags refused before displacement, and metadata added after installation conflicting on undo;
-- same-content replacements and chmod/change-back conflicts across restart, with legacy/pending hash-only checkpoints never upgraded to automatic undo;
-- 2 MiB single-line and multibyte diffs plus bounded serialized review snapshots.
-
-`tests/unit/command-approval.test.ts` drives the real bundled pi host with a local fake provider. It proves denial does not execute, changed root or nested-working-directory `package.json` meaning invalidates an approval, a replacement cwd inode invalidates approval even with identical configuration, and only an approved exact command runs and is reported as unattributable when it writes outside declared coverage. Real child-process regressions also cover the approved cwd pathname being swapped for an outside symlink, SIGTERM-resistant descendant writers, early leader exit with both inherited and closed pipes, escaped-session pipes not holding completion open, normal/nonzero/signalled/spawn-error exits, and bounded noisy output. Descendant tests verify termination and absence of later writes, not merely promise resolution.
-
-`tests/unit/linux-file-metadata.test.ts` exercises isolation from project Python modules/import environment hooks, ownership read-back validation, and unprivileged ownership refusal (the last case is skipped when tests run as root).
-
-`tests/unit/change-review.test.tsx` renders the actual chat review component and invokes its button handlers to verify older eligible labels/files/IDs remain accessible behind newer undone, failed-empty, and conflicted records, with no undo while busy or for command observations. A 2 MiB single-line result is rendered as a bounded summary rather than passed through to the DOM. The fake-agent queue test also covers repeated identical follow-ups receiving distinct request checkpoints.
-
-Validation: **123 unit tests** across nine files.
-
-```text
-npm run typecheck
-npm test
-npm run build
-git diff --check
-```
-
-No fake-provider test is evidence of model quality, and no app-level tool wrapper is represented as an OS sandbox.
