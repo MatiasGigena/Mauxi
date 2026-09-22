@@ -299,7 +299,11 @@ function startPickerTracking() {
 }
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  if (event.source !== window.parent || event.origin !== expectedParent) return;
+  // Chromium serializes messages FROM a file:// shell with the opaque origin
+  // "null", even though location.origin in that shell is "file://". Window
+  // identity and the session/document checks remain mandatory below.
+  const parentOriginMatches = event.origin === expectedParent || (expectedParent === "file://" && event.origin === "null");
+  if (event.source !== window.parent || !parentOriginMatches) return;
   try { if (JSON.stringify(event.data).length > 65_536) return; } catch { return; }
   if (!isShellMessage(event.data)) return;
   const message = event.data;

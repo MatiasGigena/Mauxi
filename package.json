@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "vite build && npm run build:host",
-    "build:host": "esbuild src/infrastructure/electron/main.ts --bundle --platform=node --format=esm --external:electron --external:esbuild --outfile=dist-electron/main.js && esbuild src/infrastructure/electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs && esbuild src/infrastructure/preview/bridge.ts --bundle --platform=browser --format=esm --outfile=dist-electron/bridge-entry.js",
+    "build:host": "esbuild src/infrastructure/electron/main.ts --bundle --platform=node --format=esm --external:electron --external:esbuild --external:@earendil-works/pi-coding-agent --outfile=dist-electron/main.js && esbuild src/infrastructure/electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs && esbuild src/infrastructure/preview/bridge.ts --bundle --platform=browser --format=esm --outfile=dist-electron/bridge-entry.js",
     "dev": "npm run build:host && concurrently -k -s first \"vite --host 127.0.0.1 --port 44173\" \"wait-on http://127.0.0.1:44173 && cross-env MAUXI_RENDERER_URL=http://127.0.0.1:44173 electron dist-electron/main.js\"",
     "instrument:apply": "tsx scripts/instrument.ts apply",
     "instrument:clean": "tsx scripts/instrument.ts clean",
