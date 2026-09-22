@@ -9,6 +9,7 @@ import type {
 import type { CanvasState } from "../application/canvas-state";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest, AgentUndoRequest } from "../application/agent-contract";
 
+import type { BrowserOwner, BrowserState } from "../application/browser-contract";
 import type { ResourceToggleRequest } from "../application/design-resource-contract";
 
 export {};
@@ -16,6 +17,11 @@ export {};
 declare global {
   interface Window {
     mauxi?: {
+      browserState(): Promise<BrowserState>;
+      browserOwner(input: { workspaceId: string; owner: BrowserOwner }): Promise<BrowserState>;
+      browserHeartbeat(workspaceId: string): Promise<void>;
+      browserTest(input: unknown): Promise<unknown>;
+      onBrowserState(callback: (state: BrowserState) => void): () => void;
       getBootstrap(): Promise<WorkspaceBootstrap>;
       openProject(): Promise<ProjectDiscovery | null>;
       inspectProjectPath(selectedPath: string): Promise<ProjectDiscovery>;

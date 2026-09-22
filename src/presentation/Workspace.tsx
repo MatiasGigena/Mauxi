@@ -7,6 +7,7 @@ import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
 import { PreviewTools } from "./PreviewTools";
+import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
 type Fixture = keyof typeof URLS;
@@ -20,6 +21,8 @@ function previewUrl(base: string, id: PreviewId, session: string): string {
 }
 
 export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => void }) {
+  const browser = useBrowserControl(active?.workspaceId);
+  const browserLocked = useRef(false); browserLocked.current = browser.locked;
   const [fixture, setFixture] = useState<Fixture>("vite");
   // Changing projects/fixtures creates a fresh bridge capability, not on focus/zoom.
   const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
@@ -102,8 +105,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         return;
       }
       if (message.generation !== runtimeRef.current[id].generation) return;
-      if (message.kind === "selection-cancelled") { setSelecting(null); return; }
-      if (message.kind === "navigation-blocked") { setNotice("External navigation blocked. Previews stay within the approved project origin."); return; }
+      if (browserLocked.current && ["selection", "selection-cancelled", "revalidation"].includes(message.kind)) return;
+      if (message.kind === "selection-cancelled") { setSelecting(null); if (active) void browser.owner("human"); return; }
+      if (message.kind === "navigation-blocked") { if (active) void browser.owner("human"); setNotice("External navigation blocked. Browser control returned; previews stay within the approved project origin."); return; }
       if (message.kind === "route") {
         const route = projectRoute(message.url, origin);
         if (route === null) return;
@@ -112,7 +116,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         }
         runtimeRef.current = { ...runtimeRef.current, [id]: { ...runtimeRef.current[id], route, safe: message.safe } };
         setRuntimes(runtimeRef.current);
-        navigate(routes.observe(id, message.url, message.navigationId, layoutRef.current.linked && PREVIEW_IDS.every((id) => runtimeRef.current[id].ready), message.safe));
+        navigate(routes.observe(id, message.url, message.navigationId, !browserLocked.current && layoutRef.current.linked && PREVIEW_IDS.every((id) => runtimeRef.current[id].ready), message.safe));
         return;
       }
       if (message.kind === "selection") {
@@ -182,7 +186,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable)) return;
       const action = event.key === "ArrowUp" ? "parent" : event.key === "ArrowDown" ? "child"
         : event.key === "]" ? "overlap-next" : event.key === "[" ? "overlap-previous" : event.key === "Enter" ? "attach" : null;
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSelecting(null); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSelecting(null); if (active) void browser.owner("human"); return; }
       if (!action) return;
       event.preventDefault(); event.stopPropagation(); send(selecting, { kind: "picker-refine", action });
     };
@@ -209,6 +213,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!element) return;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
+      if (browserLocked.current) return;
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
       const rect = element.getBoundingClientRect();
       setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
@@ -218,7 +223,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, []);
 
   function startDrag(id: PreviewId | null, event: ReactPointerEvent) {
-    if (event.button !== 0 && event.button !== 1) return;
+    if (browserLocked.current || (event.button !== 0 && event.button !== 1)) return;
     event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { id, x: event.clientX, y: event.clientY, state: layoutRef.current };
@@ -328,6 +333,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
   async function capture(id: PreviewId) {
     setTools(null); setSelecting(null); setActivePreview(id);
+    if (active && selecting) void browser.owner("human");
     // Let the dialog/selection overlay leave the compositor before capture.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const frame = frames.current[id];
@@ -346,12 +352,19 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <header className="topbar">
       <div className="brand"><span className="brand-mark">M</span><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
       {!active && <div className="fixture-switch" aria-label="Fixture"><button aria-pressed={fixture === "vite"} onClick={() => switchFixture("vite")}>Vite</button><button aria-pressed={fixture === "next"} onClick={() => switchFixture("next")}>Next.js</button></div>}
-      <div className="canvas-actions" aria-label="Canvas controls">
-        <button aria-pressed={hand} onClick={() => { setHand(!hand); setSelecting(null); }}>{hand ? "Hand on" : "Hand"}</button>
+      <div className="canvas-actions" aria-label="Canvas controls" inert={browser.locked}>
+        <button aria-pressed={hand} onClick={() => { setHand(!hand); setSelecting(null); if (active && selecting) void browser.owner("human"); }}>{hand ? "Hand on" : "Hand"}</button>
         <button onClick={() => fit()}>Fit both</button><button onClick={() => { setLayout((current) => ({ ...unfocus(current), camera: { x: 24, y: 24, zoom: 1 } })); }}>Reset</button>
         <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
         <button aria-pressed={layout.linked} title="Link same-project routes, never clicks or forms. Unlink for custom action routes." onClick={() => setLayout((current) => ({ ...current, linked: !current.linked }))}>{layout.linked ? "Routes linked" : "Routes unlinked"}</button>
       </div>
+      {active && <BrowserControlBar control={browser} ready={allReady && !serverFailed} onGrant={() => {
+        setSelecting(null); setTools(null); setHand(false);
+        setLayout(current => ({ ...unfocus(current), linked: false, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+        setNotice("Route linking paused to avoid replaying side effects. Use test accounts; interactions require separate approval.");
+        // Focus remains in the trusted shell; inert removes existing iframe focus.
+        void browser.owner("agent");
+      }} />}
       <div className="connection"><span className={allReady && !serverFailed ? "online" : ""} aria-hidden="true">●</span><span className="status-text" role="status" title={`${active?.statusDetail ?? bridgeDetail}\n${notice}`}>{statusText}</span>{active && <button onClick={() => { void persist(layoutRef.current).then(onClose); }}>Close project</button>}</div>
     </header>
     <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
@@ -361,16 +374,17 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: `max(15rem, ${board.width * zoom}px)`, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
-          <header className="artboard-header" onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(id, event); }}>
+          <header className="artboard-header" inert={browser.locked} onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(id, event); }}>
             <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
             <div className="artboard-actions">
-              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { setSelecting(selecting === id ? null : id); setHand(false); }}>↖</button>
+              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { const next = selecting === id ? null : id; setSelecting(next); setHand(false); if (active) void browser.owner(next ? "picker" : "human"); }}>↖</button>
               <button aria-label={`${layout.focus?.previewId === id ? "Unfocus" : "Focus"} ${LABELS[id]}`} aria-pressed={layout.focus?.previewId === id} onClick={() => focus(id)}>⛶</button>
               <button aria-label={`${LABELS[id]} actions`} aria-haspopup="dialog" onClick={() => { setTools(id); setActivePreview(id); }}>•••</button>
             </div>
           </header>
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
-            <iframe ref={(node) => { frames.current[id] = node; }} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand ? -1 : 0} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            <iframe ref={(node) => { frames.current[id] = node; }} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand || browser.locked ? -1 : 0} inert={browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
             {(hand || dragging) && <div className="input-shield" aria-hidden="true" onPointerDown={(event) => startDrag(null, event)} />}
           </div>
         </section>;

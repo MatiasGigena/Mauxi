@@ -8,6 +8,9 @@ import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
 import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentRenameRequest, type AgentSendRequest, type AgentSessionRequest, type AgentThinkingRequest, type AgentUndoRequest } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
+import { BrowserControl } from "../../application/browser-control";
+import { ElectronVisibleBrowser } from "./visible-browser";
+import { assertBrowserRequest } from "../../application/browser-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { resolveWorkspaceSource } from "../project/source-resolver";
@@ -22,6 +25,28 @@ let agentHost: PiAgentHost | null = null;
 let agentCreation: Promise<PiAgentHost> | null = null;
 let unsubscribeAgent: (() => void) | null = null;
 const approvedAuthUrls = new Set<string>();
+let browserControl: BrowserControl | undefined;
+let visibleBrowser: ElectronVisibleBrowser | undefined;
+let browserHeartbeat = 0;
+const heartbeatTimer = setInterval(() => {
+  if (browserControl?.state().owner === "agent" && Date.now() - browserHeartbeat > 4000) {
+    browserControl.revoke("Preview UI disconnected");
+    void agentHost?.stop(browserControl.workspaceId);
+  }
+}, 1000);
+heartbeatTimer.unref();
+function activeBrowser(): BrowserControl {
+  const active = manager.snapshot().active;
+  if (!active || !mainWindow) throw new Error("No active visible workspace");
+  if (browserControl?.workspaceId === active.workspaceId) return browserControl;
+  visibleBrowser?.dispose();
+  let control: BrowserControl | undefined;
+  visibleBrowser = new ElectronVisibleBrowser(mainWindow, active.workspaceId, active.origin, active.appRoot, reason => control?.revoke(reason));
+  control = new BrowserControl(active.workspaceId, visibleBrowser, async (request, signal, target) => (await activeAgent()).approveBrowserAction(request, signal, target));
+  browserControl = control;
+  browserControl.subscribe(state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:browser-state", state); });
+  return browserControl;
+}
 
 app.setName("Mauxi");
 if (!app.requestSingleInstanceLock()) app.exit(0);
@@ -78,7 +103,7 @@ async function activeAgent(): Promise<PiAgentHost> {
     await previous?.dispose();
     const userData = app.getPath("userData");
     const captureRoot = process.env.MAUXI_EVIDENCE_DIR ?? path.join(userData, "captures");
-    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot);
+    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, activeBrowser());
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
       if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) approvedAuthUrls.add(link.url);
@@ -92,6 +117,7 @@ async function activeAgent(): Promise<PiAgentHost> {
 }
 
 async function disposeAgent(): Promise<void> {
+  browserControl?.revoke("Workspace closed"); visibleBrowser?.dispose(); visibleBrowser = undefined; browserControl = undefined;
   if (agentCreation) { try { await agentCreation; } catch { /* dispose the partially-created host below */ } }
   unsubscribeAgent?.(); unsubscribeAgent = null;
   const current = agentHost; agentHost = null;
@@ -106,6 +132,7 @@ function rendererLocation(): { kind: "url" | "file"; value: string } {
 
 async function createWindow(partition?: string, workspaceRoot: string | null = null): Promise<BrowserWindow> {
   const previous = mainWindow;
+  browserControl?.revoke("Visible window changed"); visibleBrowser?.dispose(); visibleBrowser = undefined; browserControl = undefined;
   currentWorkspaceRoot = workspaceRoot;
   const window = new BrowserWindow({
     width: 1500,
@@ -131,7 +158,11 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
       app.quit();
     }
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.on("minimize", () => { if (window === mainWindow) browserControl?.revoke("Window minimized; browser control returned"); });
+  window.on("hide", () => { if (window === mainWindow) browserControl?.revoke("Window hidden; browser control returned"); });
+  window.webContents.on("render-process-gone", () => { browserControl?.revoke("Renderer disconnected"); if (agentHost) void agentHost.stop(agentHost.workspaceId); });
+  window.webContents.on("unresponsive", () => browserControl?.revoke("Renderer unresponsive"));
+  window.webContents.setWindowOpenHandler(() => { browserControl?.revoke("Popup blocked; control suspended"); return { action: "deny" }; });
   window.webContents.on("will-navigate", (event, target) => {
     const renderer = rendererLocation();
     const allowed = renderer.kind === "url"
@@ -145,15 +176,17 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
     try { return origins.includes(new URL(target).origin); } catch { return false; }
   };
   window.webContents.on("will-frame-navigate", (event) => {
-    if (!event.isMainFrame && !previewOriginAllowed(event.url)) event.preventDefault();
+    if (!event.isMainFrame && !previewOriginAllowed(event.url)) { event.preventDefault(); browserControl?.revoke("Unexpected origin blocked; control suspended"); }
   });
   window.webContents.on("will-redirect", (event) => {
-    if (!event.isMainFrame && !previewOriginAllowed(event.url)) event.preventDefault();
+    if (!event.isMainFrame && !previewOriginAllowed(event.url)) { event.preventDefault(); browserControl?.revoke("Unexpected redirect blocked; control suspended"); }
   });
   // Enforce the same boundary for redirects and out-of-process subframes, not
   // only renderer navigation events. Subresources/XHR remain project-owned.
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-    callback({ cancel: details.resourceType === "subFrame" && !previewOriginAllowed(details.url) });
+    const cancel = details.resourceType === "subFrame" && !previewOriginAllowed(details.url);
+    if (cancel) browserControl?.revoke("Unexpected frame origin blocked; control suspended");
+    callback({ cancel });
   });
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
@@ -171,6 +204,35 @@ function workspacePartition(root: string): string {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("mauxi:browser-state", event => { assertTrustedSender(event); return activeBrowser().state(); });
+  ipcMain.handle("mauxi:browser-heartbeat", (event, workspaceId: unknown) => {
+    assertTrustedSender(event);
+    if (workspaceId !== browserControl?.workspaceId) throw new Error("Stale browser workspace");
+    browserHeartbeat = Date.now();
+  });
+  ipcMain.handle("mauxi:browser-owner", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid handoff");
+    const value = input as Record<string, unknown>; const browser = activeBrowser();
+    if (value.workspaceId !== browser.workspaceId) throw new Error("Stale browser workspace");
+    if (value.owner === "agent") {
+      const generation = browser.state().generation;
+      const targets = await browser.targets();
+      const shielded = await event.sender.executeJavaScript(`['desktop','mobile'].every(id => { const f=document.querySelector('[data-testid="'+id+'-preview"]'); return f && f.inert && f.tabIndex === -1 && !!f.parentElement.querySelector('[data-browser-shield]'); })`);
+      if (!shielded || targets.length !== 2 || browser.state().generation !== generation) throw new Error("Handoff requires two ready, input-shielded visible previews");
+      browserHeartbeat = Date.now(); browser.grant();
+    } else if (value.owner === "human" || value.owner === "picker") browser.humanOwner(value.owner);
+    else throw new Error("Invalid browser owner");
+    return browser.state();
+  });
+  // Fake agent requests use exactly the production host wrapper, with no permission bypass.
+  ipcMain.handle("mauxi:browser-test", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (process.env.MAUXI_TEST_MODE !== "1") throw new Error("Test API disabled");
+    const browser = activeBrowser();
+    if (input === "targets") return { state: browser.state(), targets: await browser.targets() };
+    assertBrowserRequest(input); return browser.run(input);
+  });
   ipcMain.handle("mauxi:get-bootstrap", (event) => {
     assertTrustedSender(event);
     const state = manager.snapshot();
@@ -332,6 +394,7 @@ function registerIpc(): void {
 
   ipcMain.handle("mauxi:agent-stop", async (event, workspaceId: unknown) => {
     assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+    if (browserControl?.workspaceId === workspaceId) browserControl.revoke("Stopped; browser control returned");
     await (await activeAgent()).stop(workspaceId);
   });
 
