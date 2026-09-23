@@ -45,7 +45,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const initialFit = useRef(!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT, headerWidth: HEADER_WIDTH });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
-  const baseUrl = active?.origin ?? URLS[fixture];
+  const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : URLS[fixture];
   const origin = new URL(baseUrl).origin;
   const routes = useMemo(() => new RouteLink(origin), [origin, session]);
   const urls = useMemo(() => ({ desktop: previewUrl(baseUrl, "desktop", session), mobile: previewUrl(baseUrl, "mobile", session) }), [baseUrl, session]);

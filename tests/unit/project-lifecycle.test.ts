@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceManager } from "../../src/application/workspace-manager";
 import { JournalStore } from "../../src/infrastructure/instrumentation/journal";
 import { discoverProject } from "../../src/infrastructure/project/discovery";
-import { environmentForExecutable, isPortOccupied } from "../../src/infrastructure/project/dev-process";
+import { environmentForExecutable, isPortOccupied, waitForHttp } from "../../src/infrastructure/project/dev-process";
 import { resolveWorkspaceSource } from "../../src/infrastructure/project/source-resolver";
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
 
@@ -20,6 +20,24 @@ async function temporaryRoot(): Promise<string> {
 }
 
 describe("static project discovery", () => {
+  it("approves a local start path and rejects paths that can change the preview origin", async () => {
+    const root = await temporaryRoot();
+    try {
+      await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [] };\n");
+      const manifest = { scripts: { dev: "vite" }, dependencies: { react: "19", vite: "7" }, mauxi: { startPath: "/login" } };
+      const file = path.join(root, "package.json");
+      await writeFile(file, JSON.stringify(manifest));
+      const login = (await discoverProject(root)).plans[0];
+      expect(login.startPath).toBe("/login");
+      expect(login.diagnostics.some(item => item.code === "invalid-start-path")).toBe(false);
+      await writeFile(file, JSON.stringify({ ...manifest, mauxi: { startPath: "/dashboard" } }));
+      expect((await discoverProject(root)).plans[0].id).not.toBe(login.id);
+      for (const startPath of ["https://example.com", "//example.com", "/\\example.com", "/\n/example.com", "/login?token=secret", "/login#token", 42]) {
+        await writeFile(file, JSON.stringify({ ...manifest, mauxi: { startPath } }));
+        expect((await discoverProject(root)).plans[0].diagnostics).toContainEqual(expect.objectContaining({ code: "invalid-start-path", level: "error" }));
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("finds a supported Vite plan without evaluating its config", async () => {
     const root = await temporaryRoot();
     await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
@@ -92,13 +110,29 @@ describe("static project discovery", () => {
 });
 
 describe("ownership and source boundaries", () => {
+  it("waits through an old Vite response and restart until the preview script is served", async () => {
+    let requests = 0;
+    const server = createServer((request, response) => {
+      requests++;
+      if (requests === 1) response.end("<html>old configuration</html>");
+      else if (requests === 2) request.socket.destroy();
+      else response.end('<html><script src="/.mauxi/bridge.js"></script></html>');
+    });
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test port");
+    await waitForHttp(`http://127.0.0.1:${address.port}`, 4_000, () => false, ".mauxi/bridge.js");
+    expect(requests).toBe(3);
+  });
   it("prepends a discovered package manager directory to the child PATH", () => {
     const executable = path.join("/home/tester/.nvm/versions/node/v22/bin", "npm");
     const environment = environmentForExecutable(executable, { PATH: "/usr/bin" });
     expect(environment.PATH?.split(path.delimiter)).toEqual([path.dirname(executable), "/usr/bin"]);
   });
   it("attaches explicitly and leaves the unrelated process running on close", async () => {
-    const server = createServer((_request, response) => response.end("unrelated"));
+    let serverHtml = "unrelated";
+    const server = createServer((_request, response) => response.end(serverHtml));
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
@@ -108,7 +142,7 @@ describe("ownership and source boundaries", () => {
     const root = await temporaryRoot();
     await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
     await writeFile(path.join(root, "node_modules", ".bin", "vite"), "");
-    const manifest = JSON.stringify({ scripts: { dev: `vite --port ${address.port}` }, dependencies: { react: "19", vite: "7" } });
+    const manifest = JSON.stringify({ scripts: { dev: `vite --port ${address.port}` }, dependencies: { react: "19", vite: "7" }, mauxi: { startPath: "/login" } });
     await writeFile(path.join(root, "package.json"), manifest);
     await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [\n] };\n");
     const bridge = path.join(root, "bridge-entry.js");
@@ -126,9 +160,12 @@ describe("ownership and source boundaries", () => {
     const discovery = await manager.inspect(root);
     await expect(manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "start" })).rejects.toThrow("already occupied");
     expect(await fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())).toBe("unrelated");
+    serverHtml = '<script src="/.mauxi/bridge.js"></script>';
     const active = await manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "attach" });
     expect(active.ownership).toBe("attached");
+    expect(active.startPath).toBe("/login");
     await manager.close();
+    serverHtml = "unrelated";
 
     const body = await fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text());
     expect(body).toBe("unrelated");

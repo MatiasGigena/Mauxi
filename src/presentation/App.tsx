@@ -14,7 +14,7 @@ function PlanDetails({ plan }: { plan: LaunchPlan }) {
         <div><dt>Framework</dt><dd>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</dd></div>
         <div><dt>Package manager</dt><dd>{plan.packageManager}</dd></div>
         <div><dt>Dev command</dt><dd><code>{plan.commandDisplay}</code></dd></div>
-        <div><dt>Preview origin</dt><dd><code>{plan.origin}</code></dd></div>
+        <div><dt>Preview URL</dt><dd><code>{new URL(plan.startPath ?? "/", plan.origin).href}</code></dd></div>
       </dl>
       <section className="integration-preview">
         <div><strong>Temporary integration</strong><span>{plan.integration.summary}</span></div>

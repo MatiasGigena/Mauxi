@@ -120,6 +120,7 @@ export class WorkspaceManager {
         packageManager: plan.packageManager,
         commandDisplay: plan.commandDisplay,
         origin: plan.origin,
+        startPath: plan.startPath ?? "/",
         ownership: request.mode === "start" ? "owned" : "attached",
         status: "preparing",
         statusDetail: "Recording recovery intent before temporary setup…",
@@ -156,7 +157,12 @@ export class WorkspaceManager {
       active.value.status = "waiting-for-server";
       active.value.statusDetail = `Waiting for ${plan.origin}…`;
       this.emit();
-      await waitForHttp(plan.origin, 45_000, () => !this.active || this.active !== active || (request.mode === "start" && active.process?.pid == null));
+      // An attached Vite server can answer with its old config while the file
+      // watcher is about to restart it. Wait for the instrumented HTML before
+      // creating previews, or their initial script requests can be interrupted.
+      await waitForHttp(new URL(plan.startPath ?? "/", plan.origin).href, 45_000,
+        () => !this.active || this.active !== active || (request.mode === "start" && active.process?.pid == null),
+        plan.framework === "vite" ? ".mauxi/bridge.js" : undefined);
       active.value.status = "connecting-previews";
       active.value.statusDetail = request.mode === "attach"
         ? "Server responded. Waiting for its preview bridge; restart the external server if its config was already loaded."

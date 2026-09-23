@@ -38,6 +38,7 @@ export interface LaunchPlan {
   executable: string;
   args: string[];
   origin: string;
+  startPath?: string;
   port: number;
   dependenciesPresent: boolean;
   integration: IntegrationPreview;
@@ -64,6 +65,7 @@ export interface ActiveWorkspace {
   packageManager: SupportedPackageManager;
   commandDisplay: string;
   origin: string;
+  startPath?: string;
   ownership: "owned" | "attached";
   status: WorkspaceStatus;
   statusDetail: string;

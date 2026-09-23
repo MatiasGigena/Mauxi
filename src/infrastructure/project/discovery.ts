@@ -27,6 +27,19 @@ interface PackageManifest {
   devDependencies?: unknown;
   packageManager?: unknown;
   workspaces?: unknown;
+  mauxi?: unknown;
+}
+
+function projectStartPath(manifest: PackageManifest): string {
+  if (manifest.mauxi === undefined) return "/";
+  const config = manifest.mauxi;
+  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("package.json mauxi must be an object.");
+  const value = (config as Record<string, unknown>).startPath ?? "/";
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//")
+    || /[\\\s?#]/.test(value)) throw new Error("mauxi.startPath must be a local path such as /login, without an origin, query or fragment.");
+  const url = new URL(value, "http://127.0.0.1");
+  if (url.origin !== "http://127.0.0.1") throw new Error("mauxi.startPath must stay within the project origin.");
+  return url.pathname;
 }
 
 function hash(value: string): string {
@@ -289,6 +302,9 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
       const command = commandFor(manager, managerExecutable ?? manager, scriptName);
       const port = detectedPort(rawCommand, framework);
       const planDiagnostics: ProjectDiagnostic[] = [];
+      let startPath = "/";
+      try { startPath = projectStartPath(manifest); }
+      catch (error) { planDiagnostics.push({ level: "error", code: "invalid-start-path", message: String(error) }); }
       if (!managerExecutable) planDiagnostics.push({ level: "error", code: "missing-toolchain", message: `${manager} was not found in PATH or the supported Linux user tool locations.` });
       if (!nextClientSupported) planDiagnostics.push({ level: "error", code: "unsupported-next-version", message: "This Next.js version does not support instrumentation-client. Mauxi currently requires Next.js 15.3 or newer." });
       if (!installed) planDiagnostics.push({ level: "error", code: "missing-dependencies", message: `Dependencies are missing. Run ${manager} install yourself, then retry; Mauxi will not install them.` });
@@ -320,6 +336,7 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
         executable: command.executable,
         args: command.args,
         origin: `http://127.0.0.1:${port}`,
+        startPath,
         port,
         dependenciesPresent: installed,
         integration,
