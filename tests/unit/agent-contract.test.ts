@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectionContext } from "../../src/application/agent-contract";
 import type { StoredSelection } from "../../src/application/selection-state";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
@@ -65,12 +65,13 @@ describe("bundled pi host", () => {
   });
 
   it("streams a fake provider, adapts a structured question, queues input, stops, and resumes", async () => {
-    let requests = 0;
+    let requests = 0; let expired = false;
     const server = createServer((request, response) => {
       let body = "";
       request.on("data", (chunk) => { body += String(chunk); });
       request.on("end", () => {
         requests += 1;
+        if (expired) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: { message: "Expired API credential", type: "authentication_error" } })); return; }
         const parsed = JSON.parse(body) as { messages?: Array<{ role?: string; content?: unknown }> };
         const messages = parsed.messages ?? [];
         const hasToolResult = messages.some((message) => message.role === "tool");
@@ -163,6 +164,32 @@ describe("bundled pi host", () => {
     const visual = selection();
     visual.capture.screenshot = { ...visual.capture.screenshot, status: "captured", path: path.join(root, "captures", "selection.png"), width: 20, height: 20 };
     await expect(host.send({ workspaceId: "workspace-1", text: "see this", behavior: "prompt", selections: [visual] })).rejects.toThrow(/cannot see image/i);
+    expired = true;
+    await host.send({ workspaceId: "workspace-1", text: "Expired authentication probe", behavior: "prompt", selections: [] });
+    await waitFor(() => latest.runState === "idle" && latest.error?.kind === "auth");
+    expect(latest.error?.message).toContain("sign in again");
+    expect(JSON.stringify(latest)).not.toContain("replacement-fake-secret");
+    expired = false; authResponse = "success";
+    await host.login({ workspaceId: "workspace-1", providerId: "fake", type: "api_key" });
+    authResponse = null;
+    await host.newSession("workspace-1");
+    await host.send({ workspaceId: "workspace-1", text: "Recovered authentication", behavior: "prompt", selections: [] });
+    await waitFor(() => latest.runState === "idle" && latest.messages.some(message => message.text.includes("Fake response")));
+    expect(latest.error).toBeUndefined();
+    // Exercise the host's adapter to an SDK catalog failure without consulting
+    // a live catalog or relying on external service availability.
+    const runtime = (host as unknown as { modelRuntime: { refresh: (...args: any[]) => Promise<any> } }).modelRuntime;
+    const models = latest.models.map(model => model.key);
+    const refresh = vi.spyOn(runtime, "refresh").mockResolvedValue({ errors: new Map([["fake", new Error("offline")]]), aborted: false });
+    try {
+      await host.refreshCatalog("workspace-1");
+      const cached = await host.snapshot();
+      expect(cached.error?.kind).toBe("catalog");
+      expect(cached.models.map(model => model.key)).toEqual(models);
+      refresh.mockResolvedValue({ errors: new Map(), aborted: true });
+      await host.refreshCatalog("workspace-1");
+      expect((await host.snapshot()).error?.message).toContain("timed out");
+    } finally { refresh.mockRestore(); }
     off(); await host.dispose();
   });
 });

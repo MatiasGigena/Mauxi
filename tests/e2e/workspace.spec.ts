@@ -7,15 +7,20 @@ const desktop = () => page.frameLocator('[data-testid="desktop-preview"]');
 const mobile = () => page.frameLocator('[data-testid="mobile-preview"]');
 const button = (name: string) => page.getByRole("button", { name, exact: true });
 
-test.beforeAll(async () => {
-  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+test.beforeAll(async ({}, testInfo) => {
+  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
   page = await application.firstWindow();
 });
 test.afterAll(async () => { await application?.close(); });
 test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); });
 
 async function route(side: "desktop" | "mobile") {
-  return page.frameLocator(`[data-testid="${side}-preview"]`).locator("body").evaluate(() => location.pathname + location.search + location.hash);
+  const owner = await page.getByTestId(`${side}-preview`).elementHandle();
+  const frame = await owner!.contentFrame();
+  await owner!.dispose();
+  // Navigation can destroy the page's execution context between polling calls.
+  const url = new URL(frame!.url());
+  return url.pathname + url.search + url.hash;
 }
 async function actions(side = "Desktop") { await button(`${side} actions`).click(); }
 

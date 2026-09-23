@@ -141,10 +141,11 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
   const report: Record<string, unknown> = { artifact, sha256: createHash("sha256").update(await readFile(artifact)).digest("hex"), provider: "loopback fake; $0; no live auth", cycles: [] };
   let stderr = ""; let completed = false;
   try {
-    app = await electron.launch({ executablePath: artifact, args: [], env, timeout: 60_000 });
+    app = await electron.launch({ executablePath: artifact, args: [], env, chromiumSandbox: true, timeout: 60_000 });
     app.process().stderr?.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-120_000); });
-    report.runtime = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, versions: process.versions, userData: app.getPath("userData"), path: process.env.PATH }));
+    report.runtime = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, versions: process.versions, arguments: process.argv, userData: app.getPath("userData"), path: process.env.PATH }));
     expect((report.runtime as any).packaged).toBe(true);
+    expect((report.runtime as any).arguments).not.toContain("--no-sandbox");
     let page = await app.firstWindow();
     const cleanConfigs = new Map<string, string>();
     for (const name of projects) {
@@ -160,11 +161,23 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
         const desktop = page.frameLocator('[data-testid="desktop-preview"]');
         const mobile = page.frameLocator('[data-testid="mobile-preview"]');
         const pids = await projectProcesses(project); expect(pids.length).toBeGreaterThan(0);
+        const cookie = await desktop.locator("body").evaluate(() => document.cookie.split("; ").find(value => value.startsWith("alpha-isolation=")) ?? null);
+        expect(cookie).toBe(cycle ? `alpha-isolation=${name}` : null);
+        await desktop.locator("body").evaluate((_element, value) => { document.cookie = `alpha-isolation=${value}; Path=/; Max-Age=3600; SameSite=Lax`; }, name);
+        await expect.poll(() => mobile.locator("body").evaluate(() => document.cookie)).toContain(`alpha-isolation=${name}`);
         const marker = await desktop.locator("body").evaluate(() => localStorage.getItem("alpha-workspace"));
         expect(marker).toBe(cycle ? name : null);
         await desktop.locator("body").evaluate((_element, value) => localStorage.setItem("alpha-workspace", value), name);
         await expect.poll(() => mobile.locator("body").evaluate(() => localStorage.getItem("alpha-workspace"))).toBe(name);
         if (cycle === 0 && name !== "vite-isolated") {
+          await desktop.getByText("Use local test account", { exact: true }).click();
+          const authLabel = editingNext ? "Authenticated on server" : "Authenticated locally";
+          await expect(desktop.getByTestId("auth-state")).toHaveText(authLabel);
+          await mobile.locator("body").evaluate(() => location.reload());
+          await expect(mobile.getByTestId("auth-state")).toHaveText(authLabel);
+          await expect(page.locator(".bridge-ready")).toHaveCount(2);
+          if (editingNext) expect(await desktop.locator("body").evaluate(() => document.cookie)).not.toContain("mauxi-next-auth");
+          report[`${name}CookieLogin`] = { sharedWithinWorkspace: true, httpOnly: editingNext };
           await page.getByRole("button", { name: /Models & providers|alpha-local ·/ }).click();
           const provider = page.locator(".provider-list article").filter({ hasText: "alpha-local" });
           await provider.getByRole("button", { name: "Re-authenticate" }).click();
@@ -175,17 +188,28 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await page.getByRole("button", { name: "Continue", exact: true }).click();
           await page.getByRole("combobox", { name: /^Model/ }).selectOption("alpha-local/alpha");
           await page.getByRole("button", { name: "Close settings", exact: true }).click();
-          await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
-          // File-origin shell embeds an out-of-process frame. Convert frame-local
-          // coordinates explicitly; Playwright's OOPIF locator scroll/click assumes
-          // an unscaled owner and does not handle this transformed iframe reliably.
-          const frameBox = await page.getByTestId("desktop-preview").boundingBox();
-          const target = await desktop.getByTestId("known-target").evaluate(node => {
-            const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };
-          });
-          await page.mouse.click(frameBox!.x + target.x * frameBox!.width / target.width, frameBox!.y + target.y * frameBox!.height / target.height);
-          await expect(page.locator(".selection-chip")).toContainText("verified JSX");
-          await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
+          for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
+            const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
+            // Distinct rendered pixel markers independently prove crop/preview
+            // association; checking only image presence would accept swapped crops.
+            await frame.getByTestId("known-target").evaluate((node, background) => { node.style.background = background; node.scrollIntoView({ block: "center" }); }, color);
+            const label = side === "desktop" ? "Desktop" : "Mobile";
+            await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
+            const frameBox = await page.getByTestId(`${side}-preview`).boundingBox();
+            const target = await frame.getByTestId("known-target").evaluate(node => {
+              const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };
+            });
+            await page.mouse.click(frameBox!.x + target.x * frameBox!.width / target.width, frameBox!.y + target.y * frameBox!.height / target.height);
+            await expect(page.locator(".selection-chip")).toHaveCount(side === "desktop" ? 1 : 2);
+            const chip = page.locator(".selection-chip").filter({ has: page.locator(".preview-pill", { hasText: new RegExp(`^${side}$`) }) });
+            await expect(chip).toContainText("verified JSX");
+            await chip.getByRole("button", { name: "Inspect", exact: true }).click();
+            await expect(page.getByLabel(/Selection details/)).toContainText(`${workspaceId} · ${side}`);
+            await expect(page.getByLabel(/Selection details/)).toContainText("attached to the next request");
+            await chip.getByRole("button", { name: "Inspect", exact: true }).click();
+            await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
+          }
+          await expect(page.locator(".selection-chip")).toHaveCount(2);
           const firstRequest = requests.length;
           // Local responsiveness sample, not a cross-hardware benchmark. The real
           // SDK streams while both live previews remain mounted and interactive.
@@ -227,8 +251,28 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await expect(diff).toContainText(`-${originalLine}`);
           await expect(diff).toContainText(`+${originalLine.replace("Run action", "Polished action")}`);
           await changeReview.locator(":scope > summary").click();
-          expect(JSON.stringify(requests[firstRequest])).toContain("Selection 1 [desktop]");
-          expect(JSON.stringify(requests[firstRequest])).toContain("data:image/png;base64,");
+          expect(JSON.stringify(requests[firstRequest])).toContain("Selection 1 [mobile]");
+          expect(JSON.stringify(requests[firstRequest])).toContain("Selection 2 [desktop]");
+          expect(JSON.stringify(requests[firstRequest])).toContain(createHash("sha256").update(original).digest("hex"));
+          const userMessage = requests[firstRequest].messages.findLast((message: any) => message.role === "user");
+          const images = userMessage.content.filter((part: any) => part.type === "image_url").map((part: any) => part.image_url.url) as string[];
+          expect(images).toHaveLength(2);
+          const pixels = await app.evaluate(({ nativeImage }, urls) => urls.map(url => {
+            const image = nativeImage.createFromDataURL(url); const bytes = image.toBitmap();
+            let red = 0; let blue = 0;
+            for (let i = 0; i < bytes.length; i += 4) {
+              // Native captures carry the display color profile. Classify the
+              // distinctive hue rather than assuming unconverted sRGB bytes.
+              const [b, g, r] = bytes.subarray(i, i + 3);
+              if (r > 180 && r > g + 80 && r > b + 80) red++;
+              if (b > 180 && b > g + 80 && b > r + 80) blue++;
+            }
+            return { ...image.getSize(), red: red / (bytes.length / 4), blue: blue / (bytes.length / 4) };
+          }), images);
+          expect(pixels[0].blue).toBeGreaterThan(0.1); expect(pixels[0].red).toBeLessThan(0.01);
+          expect(pixels[1].red).toBeGreaterThan(0.1); expect(pixels[1].blue).toBeLessThan(0.01);
+          expect(pixels.every(image => image.width > 10 && image.height > 10)).toBe(true);
+          report[`${name}DualCaptures`] = pixels;
           await page.getByRole("button", { name: "Give agent control", exact: true }).click();
           await page.getByLabel("Message", { exact: true }).fill("Verify both visible previews");
           await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -257,14 +301,29 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
       }
       cleanConfigs.set(name, expectedConfig);
     }
+    // A renderer outside the trusted shell cannot read credentials/state or
+    // invoke ANY registered privileged handler, even with direct Electron IPC.
+    report.untrustedIpc = await app.evaluate(async ({ BrowserWindow, ipcMain }) => {
+      const attacker = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+      try {
+        await attacker.loadURL("about:blank");
+        const channels = [...(ipcMain as unknown as { _invokeHandlers: Map<string, unknown> })._invokeHandlers.keys()].filter(name => name.startsWith("mauxi:"));
+        const results = await attacker.webContents.executeJavaScript(`Promise.all(${JSON.stringify(channels)}.map(async channel => { try { await require('electron').ipcRenderer.invoke(channel, {}); return { channel, rejected: false }; } catch (error) { return { channel, rejected: /Untrusted IPC sender/.test(String(error)) }; } }))`);
+        return results;
+      } finally { attacker.destroy(); }
+    });
+    expect((report.untrustedIpc as Array<{ rejected: boolean }>).length).toBeGreaterThan(20);
+    expect((report.untrustedIpc as Array<{ rejected: boolean }>).every(result => result.rejected)).toBe(true);
     const auth = await readFile(path.join(profile, "auth.json"));
     await app.close(); app = undefined;
-    app = await electron.launch({ executablePath: artifact, args: [], env, timeout: 60_000 });
+    app = await electron.launch({ executablePath: artifact, args: [], env, chromiumSandbox: true, timeout: 60_000 });
     const reopenedProject = path.join(root, fixture);
     page = await openProject(app, await app.firstWindow(), reopenedProject);
     const reopenedPids = await projectProcesses(reopenedProject); expect(reopenedPids.length).toBeGreaterThan(0);
     expect(await readFile(path.join(profile, "auth.json"))).toEqual(auth);
     expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => localStorage.getItem("alpha-workspace"))).toBe(fixture);
+    expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => document.cookie)).toContain(`alpha-isolation=${fixture}`);
+    expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => [typeof window.mauxi, typeof (window as any).require])).toEqual(["undefined", "undefined"]);
     page = await closeProject(app, page);
     await expectProjectClean(reopenedProject, fixture, cleanConfigs.get(fixture)!, reopenedPids);
     report.reopenCleanup = { name: fixture, stoppedPids: reopenedPids, ownedFilesAbsent: true, configPreserved: true };

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { MotionProof } from "./components/MotionProof";
 import { ProofCard } from "./components/ProofCard";
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
           <button onClick={signIn}>Use local test account</button>
         </article>
       </section>
+      <MotionProof />
       <div className="scroll-box"><div className="scroll-inner"><strong>Nested scroll target</strong><button data-testid="scrolled-target">Inspect inside scroller</button></div></div>
       <section aria-label="Selection identity fixture">
         <h2>Rendered instance identity</h2>
