@@ -37,9 +37,13 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
         }
         if (method === "Runtime.executionContextCreated") this.contexts.set(`${sessionId ?? ""}:${params.context.id}`, params.context.auxData?.frameId ?? "");
         if (method === "Runtime.executionContextDestroyed") this.contexts.delete(`${sessionId ?? ""}:${params.executionContextId}`);
-        if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument" || method === "Page.frameDetached" || method === "Page.frameStartedLoading") {
+        if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument" || method === "Page.frameDetached" || method === "Page.frameStartedNavigating") {
           const id = params.frame?.id ?? params.frameId;
           for (const [preview, target] of this.bound) if (target.frameId === id) {
+            // Next hydration replaces history at the current URL. Chromium also
+            // emits frameStartedLoading for that operation, without replacing
+            // the document. Actual navigation starts still revoke immediately.
+            if (method === "Page.navigatedWithinDocument" && params.url === target.url) continue;
             this.bound.delete(preview); this.logs.delete(id); this.invalidate("Preview navigated or disconnected; hand off again after it is ready");
           }
         }

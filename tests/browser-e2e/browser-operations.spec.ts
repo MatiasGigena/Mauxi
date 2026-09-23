@@ -41,6 +41,9 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     };
     const target = await grant();
     const run = (r: BrowserRequest) => page.evaluate(request => window.mauxi!.browserTest(request), r) as Promise<BrowserResult>;
+    // Framework hydration may replace history without changing the document.
+    await frame.evaluate(() => history.replaceState(history.state, "", location.href));
+    await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).generation)).toBe(target.generation);
     const action = async (r: BrowserRequest, approve = true) => {
       const pending = run(r).then(value => ({ value, error: "" }), error => ({ value: undefined, error: String(error) }));
       await expect(page.getByRole("dialog", { name: "Approve browser action" })).toBeVisible();
