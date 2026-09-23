@@ -22,3 +22,24 @@ it("returns bounded static source candidates, not invented runtime provenance or
     await expect(inspectDomSource(root, "button", "known", AbortSignal.abort())).rejects.toThrow();
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
+
+it("maps nested JSX within its anchor, never a nearby sibling, comment or string", async () => {
+  const { resolveWorkspaceSource } = await import("../../src/infrastructure/project/source-resolver");
+  const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-jsx-source-"));
+  try {
+    const source = `const decoy = '<span data-testid="button">not JSX</span>';
+export const Card = () => <article><span>Badge</span>
+  <button data-testid="button" title={">"} onClick={() => true}><span>Actual text</span></button>
+</article>;`;
+    await writeFile(path.join(root, "Card.tsx"), source);
+    const anchor = '<span>Actual text';
+    const offset = source.indexOf(anchor); const prefix = source.slice(0, offset);
+    expect(await resolveWorkspaceSource(root, "Card.tsx", 2, 35, { tag: "span", testIds: ["button"] })).toMatchObject({ lineNumber: 3, columnNumber: offset - prefix.lastIndexOf("\n"), method: "jsx-attribute" });
+    await writeFile(path.join(root, "Card.tsx"), '<button data-testid="button"><span>First</span><span>Second</span></button>');
+    expect(await resolveWorkspaceSource(root, "Card.tsx", 1, 29, { tag: "span", testIds: ["button"] })).toBeNull();
+    await writeFile(path.join(root, "Card.tsx"), '<><span data-testid="same" /><span data-testid="same" /></>');
+    expect(await resolveWorkspaceSource(root, "Card.tsx", 1, 3, { tag: "span", testIds: ["same"] })).toBeNull();
+    await writeFile(path.join(root, "Card.tsx"), '<button data-testid="button">unfinished');
+    expect(await resolveWorkspaceSource(root, "Card.tsx", 1, 1, { tag: "button", testIds: ["button"] })).toBeNull();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -1,3 +1,5 @@
+import { parse } from "@babel/parser";
+import type { JSXElement, Node } from "@babel/types";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -16,35 +18,41 @@ export interface ResolvedWorkspaceSource {
 
 function jsxLocation(content: string, locator: SourceLocatorHint): { lineNumber: number; columnNumber: number } | null {
   if (!/^[a-z][\w:-]{0,63}$/i.test(locator.tag) || locator.testIds.length > 12) return null;
-  const tagPattern = new RegExp(`<${locator.tag}(?=[\\s/>])`, "gi");
-  const tagOffsets = [...content.matchAll(tagPattern)].map((match) => match.index!);
-  let offset: number | null = null;
-  if (!locator.testIds.length) {
-    // A tag alone identifies JSX only when it occurs exactly once in the file.
-    if (tagOffsets.length !== 1) return null;
-    offset = tagOffsets[0];
-  } else {
-    const candidates: Array<{ offset: number; distance: number }> = [];
-    for (const testId of locator.testIds) {
-      if (!testId || testId.length > 512) continue;
-      const escaped = testId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const attribute = new RegExp(`data-testid\\s*=\\s*(["'])${escaped}\\1`, "g");
-      const anchors = [...content.matchAll(attribute)].map((match) => match.index!);
-      if (anchors.length !== 1) continue;
-      for (const tagOffset of tagOffsets) {
-        const distance = Math.abs(tagOffset - anchors[0]);
-        if (distance <= 2_000) candidates.push({ offset: tagOffset, distance });
+  const elements: JSXElement[] = [];
+  try {
+    const pending: Node[] = [parse(content, { sourceType: "unambiguous", plugins: ["jsx", "typescript"] })];
+    while (pending.length) {
+      const node = pending.pop()!;
+      if (node.type === "JSXElement") elements.push(node);
+      for (const value of Object.values(node)) {
+        for (const child of Array.isArray(value) ? value : [value]) {
+          if (child && typeof child === "object" && typeof child.type === "string") pending.push(child as Node);
+        }
       }
     }
-    if (!candidates.length) return null;
-    candidates.sort((a, b) => a.distance - b.distance);
-    if (candidates[1] && candidates[1].distance === candidates[0].distance && candidates[1].offset !== candidates[0].offset) return null;
-    offset = candidates[0].offset;
+  } catch { return null; } // Incomplete/unsupported syntax is never verified JSX.
+  const candidates = elements.filter(element => element.openingElement.name.type === "JSXIdentifier" && element.openingElement.name.name === locator.tag);
+  let matches = candidates;
+  if (locator.testIds.length) {
+    matches = [];
+    for (const testId of locator.testIds) {
+      const anchors = elements.filter(element => element.openingElement.attributes.some(attribute => {
+        if (attribute.type !== "JSXAttribute" || attribute.name.type !== "JSXIdentifier" || attribute.name.name !== "data-testid") return false;
+        const value = attribute.value?.type === "JSXExpressionContainer" ? attribute.value.expression : attribute.value;
+        return value?.type === "StringLiteral" && value.value === testId;
+      }));
+      if (!anchors.length) continue;
+      if (anchors.length !== 1) return null;
+      const anchor = anchors[0];
+      // Only descendants of the actual JSX anchor qualify. Nearest-text matching
+      // could label a preceding badge span as the selected button's child span.
+      matches = candidates.filter(element => element.start! >= anchor.start! && element.end! <= anchor.end!);
+      break;
+    }
   }
-  const before = content.slice(0, offset);
-  const lineNumber = before.split(/\r?\n/).length;
-  const lastBreak = Math.max(before.lastIndexOf("\n"), before.lastIndexOf("\r"));
-  return { lineNumber, columnNumber: offset - lastBreak };
+  if (matches.length !== 1) return null;
+  const location = matches[0].openingElement.loc?.start;
+  return location ? { lineNumber: location.line, columnNumber: location.column + 1 } : null;
 }
 
 export async function resolveWorkspaceSource(
