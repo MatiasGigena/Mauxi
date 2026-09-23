@@ -23,6 +23,7 @@ Run suites sequentially: they share fixture files and local ports.
 | --- | --- |
 | `npm run test:e2e` | Vite/Next workspace, selection, exact JSX provenance, Motion/GSAP, delayed Next streaming, capture, routing, and HMR |
 | `npm run test:browser-e2e` | Visible-preview control, exact approvals, stale targets, revocation, and checks |
+| `npm run test:session-e2e` | Disposable Vite/Next Webpack/Turbopack imports, occupied ports, private caches, preservation of source/config/types and abrupt-owner recovery |
 | `npm run test:lifecycle-e2e` | Project close/reopen, layout persistence, and integration cleanup |
 | `npm run test:turbopack-e2e` | Next.js Turbopack preview bridge |
 | `npm run build && npx playwright test --config playwright.resources.config.ts` | Local guidance import, settings, and invocation |

@@ -7,20 +7,24 @@ Mauxi opens one local project at a time. **Open project…** statically inspects
 1. Choose the intended app and development script if discovery finds several candidates.
 2. Review the canonical app root, framework, package manager, exact command, preview URL, and temporary integration diff.
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
-4. Choose **Confirm & start**, or **Attach to existing** for a user-owned server on the shown port. Mauxi waits for Vite to serve the instrumented HTML after configuration reload. If the server does not watch configuration changes, restart it and retry.
+4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied by another project, Mauxi chooses a free port. **Attach to existing** is available for Vite servers. Mauxi waits for Vite to serve the instrumented HTML after configuration reload. If the server does not watch configuration changes, restart it and retry.
 5. Wait for both preview bridges, not just HTTP readiness.
 6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration. Attached servers are left running.
 
 Saved setup only preselects a later confirmation; it does not automatically rerun commands. Temporary integration is journaled before mutation. Cleanup preserves changed files, unrelated dirty/untracked work, and the Git index. Unfinished setup/cleanup is retried on next launch, and conflicting artifacts are surfaced rather than overwritten. Unfinished journals are never automatically evicted; 64 unfinished valid journals block new setup.
 
-Previews start at `/` by default. If an application starts elsewhere, set `"mauxi": { "startPath": "/login" }` in its `package.json`. The path appears in the confirmation screen and stays within the approved local origin; full URLs, queries and fragments are rejected. This does not change the application's routes or permit external redirects.
+Previews start at `/` by default. Choose another **Initial route**, such as `/login`, in the import screen. Mauxi remembers it in its own workspace settings; no `package.json` edit is needed. Existing `mauxi.startPath` metadata remains a compatible initial default. Full URLs, queries and fragments are rejected.
 
-Next.js projects that bind to `0.0.0.0` may require `allowedDevOrigins: ['127.0.0.1']` in `next.config` for development assets and HMR. Keep the allowlist local; Mauxi does not change this project setting automatically.
+For an owned Next.js session, a temporary config wrapper adds the local development origin and redirects build output and TypeScript configuration into `.mauxi/runtime/`. Vite's dependency cache is isolated there too. The original config expression stays editable and its production behavior is unchanged. On close, Mauxi stops the owned process group before removing the wrapper, hooks and private cache; existing `.next` and dependency caches are preserved.
+
+Next.js attachment is disabled because an external server's cache cannot be isolated reliably after it has started. A detected Next development server in the same project must be closed before import; Mauxi will not stop it or delete its cache. Unsupported compound scripts cannot automatically change ports.
+
+Next-generated `next-env.d.ts` changes are reconciled against the pre-session content and the installed Next generator's expected output. Independent user edits survive. Overlapping edits, moved files and changed ownership remain explicit recovery conflicts; Mauxi never resets the repository. A durable launcher receipt records the Linux process identity before starting the dev command, allowing restart recovery to stop that exact group before cleaning its private cache. Unknown surviving descendants are reported, not killed by port. The `.mauxi/runtime/` directory is reserved for disposable session output; application source and user assets must stay outside it.
 
 ### Supported setup
 
 - React + Vite with one unambiguous static `plugins` array in `vite.config.ts`, `.mts`, `.js`, or `.mjs`.
-- Next.js 15.3+ using `instrumentation-client`, including Webpack and Turbopack. Mauxi adds a marked development-only import or an owned temporary client file, without rewriting `next.config`.
+- Next.js 15.3+ using `instrumentation-client`, including Webpack and Turbopack. Mauxi adds a marked development-only import or an owned temporary client file and a reversible wrapper around a single default export or `module.exports` assignment in `next.config`. Ambiguous exports are rejected.
 - npm, pnpm, and Yarn scripts with dependencies already installed. The packaged app looks in `PATH` and common Linux user installation locations without executing shell profiles.
 - Loopback HTTP origins. Unsupported or ambiguous setups are rejected before mutation; occupied ports are not taken over.
 
