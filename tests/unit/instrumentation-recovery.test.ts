@@ -55,3 +55,30 @@ it("a failed first journal persistence changes no project file", async () => {
   expect(await readFile(plan.configPath, "utf8")).toBe(original);
   await expect(readFile(plan.bridgePath)).rejects.toThrow();
 });
+
+for (const framework of ["vite", "next"] as const) {
+  it.each(["branch-switch", "tracked-file-move"])(`${framework} recovery preserves real Git %s changes and reports displaced hooks`, async scenario => {
+    const { root, bridge, store } = await setup(framework);
+    const file = framework === "vite" ? "vite.config.ts" : "instrumentation-client.ts";
+    if (framework === "next") await writeFile(path.join(root, file), "// original client instrumentation\n");
+    const git = (...args: string[]) => exec("git", ["-c", "user.name=Mauxi fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: root });
+    await git("init", "-q", "-b", "baseline"); await git("add", "."); await git("commit", "-qm", "test(fixture): establish baseline");
+    await git("switch", "-qc", "other");
+    const otherContent = framework === "vite" ? "export default { plugins: [], server: { port: 4321 } };\n" : "// other branch instrumentation\n";
+    await writeFile(path.join(root, file), otherContent);
+    await git("commit", "-qam", "test(fixture): change integration file");
+    await git("switch", "-q", "baseline");
+    const plan = await prepareIntegrationPlan(root, framework);
+    const journal = await applyIntegration(plan, store, bridge);
+    if (scenario === "branch-switch") await git("switch", "--discard-changes", "other");
+    else await git("mv", file, "moved-hook.ts");
+    const before = (await git("diff", "--cached", "--binary")).stdout;
+    const result = await cleanupIntegration(journal.transactionId, new JournalStore(store.directory));
+    expect(result.state).toBe("conflicted");
+    expect(result.conflicts.length).toBeGreaterThan(0);
+    expect((await git("diff", "--cached", "--binary")).stdout).toBe(before);
+    if (scenario === "branch-switch") expect(await readFile(path.join(root, file), "utf8")).toBe(otherContent);
+    else expect(await readFile(path.join(root, "moved-hook.ts"), "utf8")).toContain("mauxi-owned:start");
+    expect((await cleanupIntegration(journal.transactionId, new JournalStore(store.directory))).state).toBe("conflicted");
+  });
+}

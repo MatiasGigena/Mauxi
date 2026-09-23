@@ -13,6 +13,7 @@ export interface PatchRecord {
   originalContent?: string;
   anchor: string;
   applied: boolean;
+  cleaned?: boolean;
 }
 
 export interface ArtifactRecord {

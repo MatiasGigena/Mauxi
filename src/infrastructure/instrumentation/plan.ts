@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { parse } from "@babel/parser";
+import type { Node } from "@babel/types";
 import { lstat, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { JournalStore, sha256, type InstrumentationJournal } from "./journal";
@@ -13,7 +15,19 @@ function relativeModulePath(fromDirectory: string, target: string): string {
 }
 
 function nextClientHook(importPath: string, leadingNewline = false): string {
-  return `${leadingNewline ? "\n" : ""}// mauxi-owned:start preview-bridge\nif (process.env.NODE_ENV === "development" && new URLSearchParams(window.location.search).has("mauxiSession")) {\n  // @ts-ignore -- temporary Mauxi-owned JavaScript has no project declaration file.\n  void import(${JSON.stringify(importPath)});\n}\n// mauxi-owned:end preview-bridge\n`;
+  return `${leadingNewline ? "\n" : ""}// mauxi-owned:start preview-bridge
+if (process.env.NODE_ENV === "development" && (new URLSearchParams(window.location.search).has("mauxiSession") || (() => {
+  // Same-origin document navigation retains the frame bootstrap, not query parameters.
+  try {
+    const previous = JSON.parse(window.name.startsWith("mauxi:") ? window.name.slice(6) : "null");
+    return window.parent !== window && previous?.origin === window.location.origin && typeof previous.session === "string" && previous.session.length > 0;
+  } catch { return false; }
+})())) {
+  // @ts-ignore -- temporary Mauxi-owned JavaScript has no project declaration file.
+  void import(${JSON.stringify(importPath)});
+}
+// mauxi-owned:end preview-bridge
+`;
 }
 
 export interface IntegrationPlan {
@@ -73,10 +87,28 @@ async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
   if (file.size > MAX_CONFIG_BYTES) throw new Error(`Configuration is larger than ${MAX_CONFIG_BYTES} bytes; Mauxi made no changes.`);
   const config = await readFile(configPath, "utf8");
   let anchor = VITE_ANCHOR;
+  let patch = VITE_PATCH;
   if (!config.includes(anchor)) {
-    const matches = config.match(/plugins\s*:\s*\[\s*\n/g) ?? [];
-    if (matches.length !== 1) throw new Error("The Vite plugins array is missing or ambiguous. Mauxi made no changes.");
-    anchor = matches[0];
+    // Locate syntax, not text in a comment/string, without executing the config.
+    // Both inline and multiline arrays use the same insertion point after '['.
+    const arrays: number[] = [];
+    const pending: Node[] = [parse(config, { sourceType: "unambiguous", plugins: ["typescript"] })];
+    while (pending.length) {
+      const node = pending.pop()!;
+      if (node.type === "ObjectProperty" && !node.computed
+        && ((node.key.type === "Identifier" && node.key.name === "plugins")
+          || (node.key.type === "StringLiteral" && node.key.value === "plugins"))
+        && node.value.type === "ArrayExpression") arrays.push(node.value.start!);
+      for (const value of Object.values(node)) {
+        for (const child of Array.isArray(value) ? value : [value]) {
+          if (child && typeof child === "object" && typeof child.type === "string") pending.push(child as Node);
+        }
+      }
+    }
+    if (arrays.length !== 1) throw new Error("The Vite plugins array is missing or ambiguous. Mauxi made no changes.");
+    // The prefix uniquely locates the parsed array even if its text is repeated.
+    anchor = config.slice(0, arrays[0] + 1);
+    patch = `\n${VITE_PATCH}`;
   }
   return {
     framework: "vite",
@@ -84,7 +116,7 @@ async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
     configPath,
     bridgePath: path.join(root, ".mauxi", "bridge.js"),
     anchor,
-    patch: VITE_PATCH,
+    patch,
     placement: "after",
     createdFiles: [],
   };
@@ -255,7 +287,7 @@ export async function applyIntegration(
     if (sha256(latest) !== sha256(originalContent)) throw new Error(`File changed while setup was being prepared: ${plan.configPath}`);
     const patched = plan.placement === "append"
       ? `${originalContent}${plan.patch}`
-      : originalContent.replace(plan.anchor!, `${plan.anchor}${plan.patch}`);
+      : originalContent.replace(plan.anchor!, () => `${plan.anchor}${plan.patch}`);
     await atomicWrite(plan.configPath, patched, configMode);
     journal.patches[0].applied = true;
     journal.patches[0].appliedHash = sha256(patched);
@@ -273,8 +305,9 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
   await store.write(journal);
 
   for (const patch of journal.patches) {
+    if (patch.cleaned) continue;
     if (!(await exists(patch.path))) {
-      if (patch.applied) journal.conflicts.push(`Patched file is missing: ${patch.path}`);
+      journal.conflicts.push(`Patched file is missing or moved; restore its original path before retrying cleanup: ${patch.path}`);
       continue;
     }
     const currentFile = await lstat(patch.path);
@@ -286,11 +319,16 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
     if (current.includes(patch.ownedText)) {
       await atomicWrite(patch.path, current.replace(patch.ownedText, ""), currentFile.mode);
       patch.applied = false;
+      patch.cleaned = true;
       await store.write(journal);
-    } else if (patch.applied) journal.conflicts.push(`Owned patch changed or missing: ${patch.path}`);
+    } else journal.conflicts.push(`Owned patch changed or missing: ${patch.path}`);
   }
   for (const artifact of journal.artifacts) {
-    if (!artifact.created || !(await exists(artifact.path))) continue;
+    if (!artifact.created) continue;
+    if (!(await exists(artifact.path))) {
+      journal.conflicts.push(`Owned artifact is missing or moved; restore its original path before retrying cleanup: ${artifact.path}`);
+      continue;
+    }
     const current = await readFile(artifact.path);
     if (sha256(current) !== artifact.hash) {
       journal.conflicts.push(`Owned artifact changed: ${artifact.path}`);

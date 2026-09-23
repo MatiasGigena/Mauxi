@@ -36,6 +36,43 @@ async function setupNext(configContent: string, fileName = "next.config.mjs") {
 }
 
 describe("owned instrumentation", () => {
+  it.each([
+    ["inline Tailwind then React", "[tailwindcss(), react()]", ["tailwind", "react"]],
+    ["inline React then Tailwind", "[react(), tailwindcss()]", ["react", "tailwind"]],
+    ["empty inline", "[]", []],
+    ["multiline with comments", "[\r\n  // keep plugin order\r\n  react(),\r\n  tailwindcss(),\r\n]", ["react", "tailwind"]],
+  ])("instruments a %s array and restores the exact config", async (_label, array, names) => {
+    const { root, store, bridgeEntry } = await setup();
+    const configPath = path.join(root, "vite.config.ts");
+    const original = `const react = () => ({ name: "react" });\nconst tailwindcss = () => ({ name: "tailwind" });\nconst defineConfig = value => value;\n// Example: plugins: [notActualConfig()]\nconst note = "plugins: [decoy()] $& $' $\u0060 $$";\nexport default defineConfig({ note, plugins: ${array} });\n`;
+    await writeFile(configPath, original);
+    const plan = await prepareIntegrationPlan(root, "vite");
+    expect(await readFile(configPath, "utf8")).toBe(original);
+    const applied = await applyIntegration(plan, store, bridgeEntry);
+    const patched = await readFile(configPath, "utf8");
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e",
+      `const { default: config } = await import(${JSON.stringify(`data:text/javascript,${encodeURIComponent(patched)}`)}); console.log(JSON.stringify({ names: config.plugins.map(p => p.name), apply: config.plugins[0].apply, note: config.note }));`,
+    ]);
+    expect(JSON.parse(stdout)).toEqual({ names: ["mauxi-preview-bridge", ...names], apply: "serve", note: "plugins: [decoy()] $& $' $` $$" });
+    const userEdit = "\n// concurrent user edit\n";
+    await writeFile(configPath, patched + userEdit);
+    expect((await cleanupIntegration(applied.transactionId, store)).state).toBe("clean");
+    expect(await readFile(configPath, "utf8")).toBe(original + userEdit);
+    await expect(readFile(plan.bridgePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([
+    'const example = "plugins: [react()]"; export default {};',
+    '// plugins: [react()]\nexport default {};',
+    'export default { plugins: [], nested: { plugins: [] } };',
+  ])("refuses missing or ambiguous plugin arrays without modifying config: %s", async original => {
+    const { root } = await setup();
+    const configPath = path.join(root, "vite.config.ts");
+    await writeFile(configPath, original);
+    await expect(prepareIntegrationPlan(root, "vite")).rejects.toThrow("missing or ambiguous");
+    expect(await readFile(configPath, "utf8")).toBe(original);
+  });
+
   it("records before mutation and removes only its region", async () => {
     const { root, plan, store, bridgeEntry } = await setup();
     const applied = await applyIntegration(plan, store, bridgeEntry);
