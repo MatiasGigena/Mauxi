@@ -8,7 +8,7 @@ import type {
   WorkspaceEvent,
 } from "./project-contract";
 import { OwnedDevProcess, isPortOccupied, waitForHttp } from "../infrastructure/project/dev-process";
-import { discoverProject } from "../infrastructure/project/discovery";
+import { discoverProject, validateStartPath } from "../infrastructure/project/discovery";
 import { WorkspaceStore } from "../infrastructure/project/workspace-store";
 import { JournalStore } from "../infrastructure/instrumentation/journal";
 import {
@@ -82,6 +82,8 @@ export class WorkspaceManager {
     const initial = await discoverProject(selectedPath);
     const remembered = await this.workspaces.rememberedPlan(initial.canonicalRoot);
     this.discovery = remembered ? await discoverProject(selectedPath, remembered) : initial;
+    const startPath = await this.workspaces.startPath(initial.canonicalRoot);
+    if (startPath) for (const plan of this.discovery.plans) plan.startPath = validateStartPath(startPath);
     return structuredClone(this.discovery);
   }
 
@@ -99,6 +101,7 @@ export class WorkspaceManager {
     if (!plan.integration.supported) throw new Error(plan.integration.summary);
 
     const occupied = await isPortOccupied(plan.port);
+    plan.startPath = validateStartPath(request.startPath ?? selectedPlan.startPath ?? plan.startPath ?? "/");
     if (request.mode === "start" && occupied) {
       throw new Error(`Port ${plan.port} is already occupied. Mauxi did not stop or change the unrelated process. Choose explicit attachment if it is the intended server.`);
     }
@@ -173,7 +176,7 @@ export class WorkspaceManager {
         active.value.statusDetail = `The server at ${plan.origin} responded, but the Mauxi bridge did not connect in both previews. Check the URL, compiler output, and integration setup.`;
         this.emit();
       }, 30_000);
-      await this.workspaces.remember(plan.projectRoot, plan.id);
+      await this.workspaces.remember(plan.projectRoot, plan.id, plan.startPath);
       this.emit();
       return structuredClone(active.value);
     } catch (error) {

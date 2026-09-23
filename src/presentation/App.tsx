@@ -14,7 +14,7 @@ function PlanDetails({ plan }: { plan: LaunchPlan }) {
         <div><dt>Framework</dt><dd>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</dd></div>
         <div><dt>Package manager</dt><dd>{plan.packageManager}</dd></div>
         <div><dt>Dev command</dt><dd><code>{plan.commandDisplay}</code></dd></div>
-        <div><dt>Preview URL</dt><dd><code>{new URL(plan.startPath ?? "/", plan.origin).href}</code></dd></div>
+        <div><dt>Server origin</dt><dd><code>{plan.origin}</code></dd></div>
       </dl>
       <section className="integration-preview">
         <div><strong>Temporary integration</strong><span>{plan.integration.summary}</span></div>
@@ -34,6 +34,7 @@ export function App() {
   const [bootstrap, setBootstrap] = useState<WorkspaceBootstrap | null>(null);
   const [discovery, setDiscovery] = useState<ProjectDiscovery | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [startPath, setStartPath] = useState("/");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -49,6 +50,8 @@ export function App() {
   }, []);
 
   const selectedPlan = useMemo(() => discovery?.plans.find((plan) => plan.id === selectedPlanId) ?? null, [discovery, selectedPlanId]);
+
+  useEffect(() => { setStartPath(selectedPlan?.startPath ?? "/"); }, [selectedPlan]);
 
   async function openProject() {
     if (!window.mauxi) return;
@@ -66,7 +69,7 @@ export function App() {
     if (!window.mauxi || !discovery || !selectedPlan) return;
     setBusy(true); setError("");
     try {
-      await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode });
+      await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode, startPath });
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }
@@ -118,7 +121,11 @@ export function App() {
             {discovery.plans.length > 1 && (
               <label className="plan-picker"><span>Application and script</span><select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)}>{discovery.plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.label}</option>)}</select></label>
             )}
-            {selectedPlan && <PlanDetails plan={selectedPlan} />}
+            {selectedPlan && <>
+              <PlanDetails plan={selectedPlan} />
+              <label className="plan-picker"><span>Initial route</span><input value={startPath} onChange={(event) => setStartPath(event.target.value)} placeholder="/" /></label>
+              <p>Mauxi remembers this route for your next session.</p>
+            </>}
             <div className="confirmation-actions">
               <div><strong>No automatic installs</strong><span>Temporary hooks are journaled before the first file change.</span></div>
               <button disabled={busy || !selectedPlan || selectedPlan.diagnostics.some((item) => item.level === "error")} onClick={() => void confirm("attach")}>Attach to existing</button>

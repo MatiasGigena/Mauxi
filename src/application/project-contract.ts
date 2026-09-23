@@ -89,4 +89,5 @@ export interface ConfirmProjectRequest {
   discoveryId: string;
   planId: string;
   mode: "start" | "attach";
+  startPath?: string;
 }

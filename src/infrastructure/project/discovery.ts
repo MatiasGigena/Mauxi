@@ -30,16 +30,20 @@ interface PackageManifest {
   mauxi?: unknown;
 }
 
+export function validateStartPath(value: unknown): string {
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//")
+    || /[\\\s?#]/.test(value)) throw new Error("The initial route must be a local path such as /login, without an origin, query or fragment.");
+  const url = new URL(value, "http://127.0.0.1");
+  if (url.origin !== "http://127.0.0.1") throw new Error("The initial route must stay within the project origin.");
+  return url.pathname;
+}
+
 function projectStartPath(manifest: PackageManifest): string {
   if (manifest.mauxi === undefined) return "/";
   const config = manifest.mauxi;
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("package.json mauxi must be an object.");
   const value = (config as Record<string, unknown>).startPath ?? "/";
-  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//")
-    || /[\\\s?#]/.test(value)) throw new Error("mauxi.startPath must be a local path such as /login, without an origin, query or fragment.");
-  const url = new URL(value, "http://127.0.0.1");
-  if (url.origin !== "http://127.0.0.1") throw new Error("mauxi.startPath must stay within the project origin.");
-  return url.pathname;
+  return validateStartPath(value);
 }
 
 function hash(value: string): string {

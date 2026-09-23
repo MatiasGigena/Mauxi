@@ -9,6 +9,7 @@ interface RememberedWorkspace {
   planId: string;
   confirmedAt: string;
   canvas?: CanvasState;
+  startPath?: string;
 }
 
 export class WorkspaceStore {
@@ -25,6 +26,7 @@ export class WorkspaceStore {
     } catch { return null; }
   }
   async rememberedPlan(root: string): Promise<string | null> { return (await this.read(root))?.planId ?? null; }
+  async startPath(root: string): Promise<string | undefined> { return (await this.read(root))?.startPath; }
   async canvas(root: string): Promise<CanvasState | null> {
     const canvas = (await this.read(root))?.canvas;
     return isCanvasState(canvas) ? canvas : null;
@@ -39,8 +41,8 @@ export class WorkspaceStore {
     this.writes = write;
     return write;
   }
-  async remember(root: string, planId: string): Promise<void> {
-    return this.update(root, (current) => ({ ...current, version: 1, projectRoot: root, planId, confirmedAt: new Date().toISOString() }));
+  async remember(root: string, planId: string, startPath = "/"): Promise<void> {
+    return this.update(root, (current) => ({ ...current, version: 1, projectRoot: root, planId, startPath, confirmedAt: new Date().toISOString() }));
   }
   async saveCanvas(root: string, canvas: CanvasState): Promise<void> {
     if (!isCanvasState(canvas)) throw new Error("Invalid canvas layout");
