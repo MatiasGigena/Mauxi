@@ -125,3 +125,32 @@ export async function inspectLinuxPath(target: string, creation = false): Promis
   const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try { return await inspectLinuxMetadata(file, undefined, creation); } finally { await file.close(); }
 }
+
+/** Exchange two existing names without a missing-file window or discarding either inode. */
+export async function exchangeLinuxFiles(target: string, displaced: string): Promise<void> {
+  const executable = await trustedPython();
+  const parent = await open(path.dirname(target), constants.O_RDONLY | constants.O_DIRECTORY);
+  try {
+    const vault = await open(path.dirname(displaced), constants.O_RDONLY | constants.O_DIRECTORY);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(executable, ["-I", "-S", "-c", `
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+if libc.renameat2(3, os.fsencode(sys.argv[1]), 4, os.fsencode(sys.argv[2]), 2) != 0:
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error))
+os.fsync(3)
+os.fsync(4)
+`, path.basename(target), path.basename(displaced)], {
+          cwd: "/", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, stdio: ["ignore", "ignore", "pipe", parent.fd, vault.fd],
+        });
+        let errors = "";
+        const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+        child.stderr!.on("data", chunk => { errors = (errors + String(chunk)).slice(-4096); });
+        child.once("error", error => { clearTimeout(timer); reject(error); });
+        child.once("close", code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`Atomic Linux exchange failed: ${errors || code}`)); });
+      });
+    } finally { await vault.close(); }
+  } finally { await parent.close(); }
+}

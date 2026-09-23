@@ -34,6 +34,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     },
   };
 });
+vi.mock("../../src/infrastructure/agent/linux-file-metadata", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/infrastructure/agent/linux-file-metadata")>();
+  return { ...actual, exchangeLinuxFiles: async (from: string, to: string) => {
+    await hooks.beforeRename?.(from, to);
+    await actual.exchangeLinuxFiles(from, to);
+    await hooks.afterRename?.(from, to);
+  } };
+});
 const temporary: string[] = [];
 afterEach(async () => {
   hooks.beforeRename = hooks.afterRename = hooks.beforeLink = hooks.beforeWriteFile = undefined;
@@ -453,13 +461,17 @@ describe("managed change checkpoints", () => {
       if (to.endsWith("/displaced")) { hooks.beforeRename = undefined; await writeFile(file, "external race"); }
     };
     await expect(operation === "undo" ? changes.undo(id) : operation === "delete" ? changes.delete("src/a.txt") : changes.write("src/a.txt", "agent")).rejects.toThrow(/stopped safely/);
-    expect(await readFile(file, "utf8")).toBe("external race");
+    if (operation === "delete") expect(await readFile(file, "utf8")).toBe("external race");
+    else {
+      const dirs = await recoveries(state);
+      expect(await Promise.all(dirs.map(dir => readFile(path.join(dir, "displaced"), "utf8")))).toContain("external race");
+    }
     const recovered = await ChangeCoordinator.create("reopened", root, state);
     expect(recovered.views()[0].state).toBe("conflicted");
   });
 
   it("rejects a same-content inode replacement after revalidation", async () => {
-    const { root, changes, begin } = await setup();
+    const { root, state, changes, begin } = await setup();
     const file = path.join(root, "src/a.txt"); await writeFile(file, "before"); await begin();
     hooks.beforeRename = async (_from, to) => {
       if (!to.endsWith("/displaced")) return;
@@ -467,7 +479,7 @@ describe("managed change checkpoints", () => {
       const other = path.join(root, "src/other.txt"); await writeFile(other, "before"); await rename(other, file);
     };
     await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/changed after revalidation/);
-    expect(await readFile(file, "utf8")).toBe("before");
+    expect(await readFile(path.join((await recoveries(state))[0], "displaced"), "utf8")).toBe("before");
   });
 
   it.each([false, true])("does not clobber a concurrent arrival at installation (creating: %s)", async (creating) => {
@@ -477,10 +489,38 @@ describe("managed change checkpoints", () => {
       if (from.endsWith("/replacement")) { hooks.beforeLink = undefined; await writeFile(file, "external arrival"); }
     };
     await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/stopped safely/);
-    expect(await readFile(file, "utf8")).toBe("external arrival");
+    if (creating) expect(await readFile(file, "utf8")).toBe("external arrival");
     const [directory] = await recoveries(state);
     expect(await readFile(path.join(directory, "replacement"), "utf8")).toBe("agent");
-    if (!creating) expect(await readFile(path.join(directory, "displaced"), "utf8")).toBe("before");
+    if (!creating) expect(await readFile(path.join(directory, "displaced"), "utf8")).toBe("external arrival");
+  });
+
+  it("preserves an external arrival after the atomic exchange", async () => {
+    const { root, state, changes, begin } = await setup();
+    const file = path.join(root, "src/a.txt"); await writeFile(file, "before"); await begin();
+    hooks.afterRename = async (_from, to) => {
+      if (!to.endsWith("/displaced")) return;
+      hooks.afterRename = undefined;
+      const incoming = path.join(root, "incoming.txt");
+      await writeFile(incoming, "external arrival"); await rename(incoming, file);
+    };
+    await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/Installed inode/);
+    expect(await readFile(file, "utf8")).toBe("external arrival");
+    const [directory] = await recoveries(state);
+    expect(await readFile(path.join(directory, "displaced"), "utf8")).toBe("before");
+    expect(await readFile(path.join(directory, "replacement"), "utf8")).toBe("agent");
+  });
+
+  it("does not install staging as a supposed backup when exchange finds a moved target", async () => {
+    const { root, changes, begin } = await setup();
+    const file = path.join(root, "src/a.txt"); await writeFile(file, "before"); await begin();
+    hooks.beforeRename = async (_from, to) => {
+      if (!to.endsWith("/displaced")) return;
+      hooks.beforeRename = undefined; await rename(file, `${file}.moved`);
+    };
+    await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/Atomic Linux exchange failed/);
+    await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(`${file}.moved`, "utf8")).toBe("before");
   });
 
   it("preserves a dangling symlink arriving during deletion", async () => {
@@ -498,10 +538,10 @@ describe("managed change checkpoints", () => {
   it("retains late writes to a displaced inode rather than silently claiming a safe replacement", async () => {
     const { root, state, changes, begin } = await setup();
     await writeFile(path.join(root, "src/a.txt"), "before"); await begin();
-    hooks.beforeLink = async (from) => {
-      if (from.endsWith("/replacement")) { hooks.beforeLink = undefined; await writeFile(path.join(path.dirname(from), "displaced"), "late external write"); }
+    hooks.afterRename = async (_from, to) => {
+      if (to.endsWith("/displaced")) { hooks.afterRename = undefined; await writeFile(to, "late external write"); }
     };
-    await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/inode changed/);
+    await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/changed after revalidation/);
     const [recovery] = await recoveries(state);
     expect(await readFile(path.join(recovery, "displaced"), "utf8")).toBe("late external write");
     expect(changes.views()[0].undoEligible).toBe(false);
@@ -511,7 +551,6 @@ describe("managed change checkpoints", () => {
     const { root, state, changes, begin } = await setup();
     await writeFile(path.join(root, "src/a.txt"), "before"); await begin();
     hooks.afterRename = async (_from, to) => { if (to.endsWith("/displaced")) throw new Error("interrupted after displacement"); };
-    hooks.beforeLink = async () => { throw new Error("restoration unavailable"); };
     await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/stopped safely/);
     hooks.afterRename = hooks.beforeLink = undefined;
     const recovered = await ChangeCoordinator.create("reopened", root, state);

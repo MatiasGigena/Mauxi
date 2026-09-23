@@ -4,7 +4,7 @@ import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat
 import path from "node:path";
 import { sha256 } from "../instrumentation/journal";
 import type { AgentChangeFileView, AgentChangeSetView } from "../../application/agent-contract";
-import { inspectLinuxMetadata, inspectLinuxPath, METADATA_LIMITATION, type LinuxFileMetadata } from "./linux-file-metadata";
+import { exchangeLinuxFiles, inspectLinuxMetadata, inspectLinuxPath, METADATA_LIMITATION, type LinuxFileMetadata } from "./linux-file-metadata";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_SET_BYTES = 10 * 1024 * 1024;
@@ -493,9 +493,9 @@ export class ChangeCoordinator {
   }
 
   /**
-   * Linux no-clobber replacement: displace into a private recovery directory,
-   * validate the displaced inode, then link the staged inode into the empty name.
-   * link(2) never overwrites a concurrent arrival. We never unlink displaced data:
+   * Linux replacement atomically exchanges an existing name with a staged inode.
+   * Both versions survive even if a concurrent writer wins before the exchange.
+   * Creation uses no-clobber link(2); deletion displaces. We retain displaced data:
    * even a writer holding the old inode open can recover its late writes.
    */
   private async mutate(set: StoredChangeSet, relative: string, expectedHash: string | null, content: string | null, metadata?: LinuxFileMetadata, expectedIdentity?: string, expectedMetadata = metadata, restoreTimestamps = false): Promise<LinuxFileMetadata | null> {
@@ -560,9 +560,12 @@ export class ChangeCoordinator {
         }
         try {
           if (expectedHash !== null) {
-            // The destination is absent inside a newly created private directory.
-            // Unlike replacing the project name, this rename cannot lose its data.
-            await rename(target, backup);
+            // Both names/inodes are retained. Exchange avoids a transient
+            // ENOENT in file watchers; deletion still displaces into the vault.
+            if (content !== null) {
+              await link(staged, backup);
+              await exchangeLinuxFiles(target, backup);
+            } else await rename(target, backup);
             await sync(directory); await sync(path.dirname(target));
             const displaced = await open(backup, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
             try {
@@ -574,8 +577,9 @@ export class ChangeCoordinator {
             } finally { await displaced.close(); }
           }
           await checkParent();
-          if (content !== null) await link(staged, target); // EEXIST is a conflict, never overwrite.
-          else {
+          if (content !== null) {
+            if (expectedHash === null) await link(staged, target); // Creation never overwrites.
+          } else {
             // A new arrival after displacement is not ours to delete.
             try { await lstat(target); throw new Error("File arrived during deletion"); }
             catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -602,7 +606,7 @@ export class ChangeCoordinator {
         } catch (error) {
           // Restore only into an empty name. If another writer won the name, both
           // versions survive and the durable manifest tells the user where to look.
-          if (expectedHash !== null) await link(backup, target).catch(() => undefined);
+          if (expectedHash !== null && content === null) await link(backup, target).catch(() => undefined);
           await sync(path.dirname(target));
           set.state = "conflicted";
           set.errors.push(`Mutation stopped safely for ${relative}: ${error instanceof Error ? error.message : String(error)}. Review ${recovery.directory}; displaced/replacement data was retained.`);
