@@ -383,7 +383,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             </div>
           </header>
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
-            <iframe ref={(node) => { frames.current[id] = node; }} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand || browser.locked ? -1 : 0} inert={browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand || browser.locked ? -1 : 0} inert={browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
             {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
             {(hand || dragging) && <div className="input-shield" aria-hidden="true" onPointerDown={(event) => startDrag(null, event)} />}
           </div>

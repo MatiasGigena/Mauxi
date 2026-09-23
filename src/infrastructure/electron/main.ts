@@ -1,9 +1,11 @@
+import { startRendererServer } from "./renderer-server";
+import { installPreviewHeaders } from "./preview-headers";
 import { writeCapture } from "../storage/artifact-budget";
 import { app, BrowserWindow, dialog, ipcMain, shell, type Rectangle } from "electron";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
@@ -18,6 +20,7 @@ import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
+let packagedRenderer: Awaited<ReturnType<typeof startRendererServer>> | undefined;
 let currentWorkspaceRoot: string | null = null;
 let manager: WorkspaceManager;
 let quittingAfterCleanup = false;
@@ -126,9 +129,10 @@ async function disposeAgent(): Promise<void> {
   await current?.dispose();
 }
 
-function rendererLocation(): { kind: "url" | "file"; value: string } {
-  if (process.env.MAUXI_RENDERER_URL) return { kind: "url", value: process.env.MAUXI_RENDERER_URL };
-  return { kind: "file", value: path.resolve(__dirname, "../dist/renderer/index.html") };
+function rendererLocation(): string {
+  if (process.env.MAUXI_RENDERER_URL) return process.env.MAUXI_RENDERER_URL;
+  if (!packagedRenderer) throw new Error("Packaged renderer is not ready");
+  return packagedRenderer.url;
 }
 
 async function createWindow(partition?: string, workspaceRoot: string | null = null): Promise<BrowserWindow> {
@@ -153,6 +157,15 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
     },
   });
   mainWindow = window;
+  const activeWorkspace = manager.snapshot().active;
+  if (workspaceRoot && activeWorkspace?.projectRoot === workspaceRoot) {
+    installPreviewHeaders(window, {
+      workspaceId: activeWorkspace.workspaceId,
+      projectOrigin: activeWorkspace.origin,
+      rendererUrl: rendererLocation(),
+      isActive: () => mainWindow === window && manager.snapshot().active?.workspaceId === activeWorkspace.workspaceId,
+    });
+  }
   window.on("close", (event) => {
     if (window === mainWindow && manager?.snapshot().active && !quittingAfterCleanup) {
       event.preventDefault();
@@ -166,9 +179,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   window.webContents.setWindowOpenHandler(() => { browserControl?.revoke("Popup blocked; control suspended"); return { action: "deny" }; });
   window.webContents.on("will-navigate", (event, target) => {
     const renderer = rendererLocation();
-    const allowed = renderer.kind === "url"
-      ? new URL(target).origin === new URL(renderer.value).origin
-      : new URL(target).pathname === pathToFileURL(renderer.value).pathname;
+    const allowed = new URL(target).origin === new URL(renderer).origin;
     if (!allowed) event.preventDefault();
   });
   const previewOriginAllowed = (target: string): boolean => {
@@ -192,9 +203,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.webContents.session.setPermissionCheckHandler(() => false);
   window.once("ready-to-show", () => window.show());
-  const renderer = rendererLocation();
-  if (renderer.kind === "url") await window.loadURL(renderer.value);
-  else await window.loadFile(renderer.value);
+  await window.loadURL(rendererLocation());
   if (previous && !previous.isDestroyed()) previous.destroy();
   return window;
 }
@@ -465,6 +474,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(async () => {
+  if (!process.env.MAUXI_RENDERER_URL) packagedRenderer = await startRendererServer(path.join(__dirname, "../dist/renderer"));
   const userData = app.getPath("userData");
   manager = new WorkspaceManager(
     new JournalStore(process.env.MAUXI_STATE_DIR ?? path.join(userData, "recovery")),
@@ -505,3 +515,5 @@ app.on("before-quit", (event) => {
 });
 
 app.on("window-all-closed", () => app.quit());
+
+app.on("will-quit", () => { void packagedRenderer?.close(); });
