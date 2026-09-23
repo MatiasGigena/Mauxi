@@ -1,3 +1,5 @@
+import { addSessionIntegration, type SessionPatch } from "./session";
+import { cleanSessionFiles, stopSessionProcess } from "./session-cleanup";
 import { randomUUID } from "node:crypto";
 import { parse } from "@babel/parser";
 import type { Node } from "@babel/types";
@@ -38,6 +40,9 @@ export interface IntegrationPlan {
   anchor: string | null;
   patch: string | null;
   placement: "after" | "append";
+  runtimeDirectory?: string;
+  sessionPatches?: SessionPatch[];
+  sessionRemovals?: string[];
   createdFiles: Array<{ path: string; content: string }>;
 }
 
@@ -175,13 +180,14 @@ async function prepareNextPlan(root: string): Promise<IntegrationPlan> {
   };
 }
 
-export async function prepareIntegrationPlan(workspaceRoot: string, framework: "vite" | "next"): Promise<IntegrationPlan> {
+export async function prepareIntegrationPlan(workspaceRoot: string, framework: "vite" | "next", ownedSession = false): Promise<IntegrationPlan> {
   const root = path.resolve(workspaceRoot);
-  return framework === "vite" ? prepareVitePlan(root) : prepareNextPlan(root);
+  const plan = await (framework === "vite" ? prepareVitePlan(root) : prepareNextPlan(root));
+  return ownedSession ? addSessionIntegration(plan) : plan;
 }
 
 export async function previewIntegrationPlan(workspaceRoot: string, framework: "vite" | "next") {
-  const plan = await prepareIntegrationPlan(workspaceRoot, framework);
+  const plan = await prepareIntegrationPlan(workspaceRoot, framework, true);
   const relative = (filePath: string) => path.relative(plan.workspaceRoot, filePath).split(path.sep).join("/");
   const files: Array<{ path: string; action: "modify" | "create"; diff: string }> = [];
   if (plan.patch) {
@@ -190,6 +196,8 @@ export async function previewIntegrationPlan(workspaceRoot: string, framework: "
   for (const artifact of plan.createdFiles) {
     files.push({ path: relative(artifact.path), action: "create", diff: `+${artifact.content.trimEnd().replaceAll("\n", "\n+")}` });
   }
+  for (const patch of plan.sessionPatches ?? []) files.push({ path: relative(patch.path), action: "modify", diff: "+ Temporary development configuration wrapper; removed on close" });
+  files.push({ path: ".mauxi/runtime/", action: "create", diff: "+ Private development cache; removed after the owned server stops" });
   files.push({ path: ".mauxi/bridge.js", action: "create", diff: "+ Bundled Mauxi preview bridge (development only)" });
   return {
     supported: true,
@@ -215,6 +223,15 @@ export async function applyIntegration(
   store: JournalStore,
   bridgeEntry = path.resolve("src/infrastructure/preview/bridge.ts"),
 ): Promise<InstrumentationJournal> {
+  const mauxiDirectory = path.join(plan.workspaceRoot, ".mauxi");
+  try {
+    const info = await lstat(mauxiDirectory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Mauxi directory must not be a symlink or file.");
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  if (plan.runtimeDirectory) {
+    try { await lstat(plan.runtimeDirectory); throw new Error("Session cache already exists; recover it before opening this project."); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
   let originalContent: string | null = null;
   let configMode: number | undefined;
   if (plan.patch) {
@@ -272,10 +289,34 @@ export async function applyIntegration(
     artifacts: createdArtifacts.map((artifact) => ({ path: artifact.path, hash: sha256(artifact.content), created: true })),
     conflicts: [],
   };
+  for (const patch of plan.sessionPatches ?? []) {
+    if (await readFile(patch.path, "utf8") !== patch.before) throw new Error("Configuration changed before session setup.");
+    journal.patches.push({ path: patch.path, originalHash: sha256(patch.before), originalContent: patch.before, appliedHash: null, ownedText: "", ownedParts: plan.sessionRemovals, anchor: "<session>", applied: false });
+  }
+  if (plan.runtimeDirectory) {
+    journal.runtime = { path: plan.runtimeDirectory, token: randomUUID(), created: false };
+    if (plan.framework === "next") {
+      const typesPath = path.join(plan.workspaceRoot, "next-env.d.ts");
+      let before: string | null = null;
+      try {
+        const info = await lstat(typesPath);
+        if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_CONFIG_BYTES) throw new Error("Unsupported Next type declaration file.");
+        before = await readFile(typesPath, "utf8");
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      journal.generatedTypes = { path: typesPath, before };
+    }
+  }
   await store.write(journal);
   journal.state = "applying";
   await store.write(journal);
 
+  if (journal.runtime) {
+    await mkdir(path.dirname(journal.runtime.path), { recursive: true });
+    await mkdir(journal.runtime.path);
+    await writeFile(path.join(journal.runtime.path, "owner"), journal.runtime.token, { flag: "wx", mode: 0o600 });
+    journal.runtime.created = true;
+    await store.write(journal);
+  }
   for (const artifact of createdArtifacts) {
     await mkdir(path.dirname(artifact.path), { recursive: true });
     await writeFile(artifact.path, artifact.content, { flag: "wx", mode: 0o600 });
@@ -292,6 +333,15 @@ export async function applyIntegration(
     journal.patches[0].applied = true;
     journal.patches[0].appliedHash = sha256(patched);
   }
+  for (const patch of plan.sessionPatches ?? []) {
+    const info = await lstat(patch.path);
+    if (!info.isFile() || info.isSymbolicLink() || await readFile(patch.path, "utf8") !== patch.before) throw new Error("Configuration changed during session setup.");
+    await atomicWrite(patch.path, patch.after, info.mode);
+    const record = journal.patches.find(item => item.path === patch.path)!;
+    record.applied = true;
+    record.appliedHash = sha256(patch.after);
+    await store.write(journal);
+  }
   journal.state = "applied";
   await store.write(journal);
   return journal;
@@ -300,6 +350,7 @@ export async function applyIntegration(
 export async function cleanupIntegration(transactionId: string, store: JournalStore): Promise<InstrumentationJournal> {
   const journal = await store.read(transactionId);
   if (journal.state === "clean") return journal;
+  await stopSessionProcess(journal);
   journal.state = "cleaning";
   journal.conflicts = [];
   await store.write(journal);
@@ -316,8 +367,11 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
       continue;
     }
     const current = await readFile(patch.path, "utf8");
-    if (current.includes(patch.ownedText)) {
-      await atomicWrite(patch.path, current.replace(patch.ownedText, ""), currentFile.mode);
+    const parts = patch.ownedParts ?? [patch.ownedText];
+    if (parts.every(part => part && current.split(part).length === 2)) {
+      let cleaned = current;
+      for (const part of parts) cleaned = cleaned.replace(part, "");
+      await atomicWrite(patch.path, cleaned, currentFile.mode);
       patch.applied = false;
       patch.cleaned = true;
       await store.write(journal);
@@ -338,6 +392,10 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
     await rmdir(path.dirname(artifact.path)).catch(() => undefined);
     artifact.created = false;
     await store.write(journal);
+  }
+  if (!journal.conflicts.length) {
+    try { await cleanSessionFiles(journal, store); }
+    catch (error) { journal.conflicts.push(error instanceof Error ? error.message : String(error)); }
   }
   journal.state = journal.conflicts.length ? "conflicted" : "clean";
   await store.write(journal);

@@ -25,6 +25,7 @@
     "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
     "test:turbopack-e2e": "bash scripts/turbopack-e2e.sh",
     "test:package-e2e": "playwright test --config playwright.package.config.ts",
+    "test:session-e2e": "vitest run tests/session-e2e",
     "test:release-gates": "vitest run tests/release-gates",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "check": "npm run typecheck && npm test",

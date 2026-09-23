@@ -14,6 +14,7 @@ export interface PatchRecord {
   anchor: string;
   applied: boolean;
   cleaned?: boolean;
+  ownedParts?: string[];
 }
 
 export interface ArtifactRecord {
@@ -33,6 +34,8 @@ export interface InstrumentationJournal {
   patches: PatchRecord[];
   artifacts: ArtifactRecord[];
   conflicts: string[];
+  runtime?: { path: string; token: string; created: boolean; cleaned?: boolean };
+  generatedTypes?: { path: string; before: string | null; cleanupBefore?: string; cleanupAfter?: string; cleaned?: boolean };
 }
 
 export function sha256(content: string | Buffer): string {

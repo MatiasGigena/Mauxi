@@ -1,3 +1,4 @@
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { isCanvasState, type CanvasState } from "./canvas-state";
 import type {
@@ -7,7 +8,7 @@ import type {
   ProjectDiscovery,
   WorkspaceEvent,
 } from "./project-contract";
-import { OwnedDevProcess, isPortOccupied, waitForHttp } from "../infrastructure/project/dev-process";
+import { OwnedDevProcess, availablePort, existingNextServer, withSessionPort, isPortOccupied, waitForHttp } from "../infrastructure/project/dev-process";
 import { discoverProject, validateStartPath } from "../infrastructure/project/discovery";
 import { WorkspaceStore } from "../infrastructure/project/workspace-store";
 import { JournalStore } from "../infrastructure/instrumentation/journal";
@@ -93,21 +94,21 @@ export class WorkspaceManager {
     const selectedPlan = this.discovery.plans.find((candidate) => candidate.id === request.planId);
     if (!selectedPlan) throw new Error("Unknown launch plan.");
     const refreshed = await discoverProject(this.discovery.selectedRoot);
-    const plan = refreshed.plans.find((candidate) => candidate.id === selectedPlan.id);
+    let plan = refreshed.plans.find((candidate) => candidate.id === selectedPlan.id);
     if (!plan) throw new Error("The manifest, lockfile, development script, or integration plan changed. Inspect and confirm the project again.");
     const blocker = plan.diagnostics.find((item) => item.level === "error");
     if (blocker) throw new Error(blocker.message);
     if (!plan.dependenciesPresent) throw new Error("Project dependencies are missing. Mauxi will not install them.");
     if (!plan.integration.supported) throw new Error(plan.integration.summary);
 
+    if (request.mode === "attach" && plan.framework === "next") throw new Error("Next.js needs a Mauxi-owned server to isolate and clean its build cache. Choose Confirm & start; external servers remain untouched.");
+    if (plan.framework === "next" && await existingNextServer(plan.appRoot)) throw new Error("This Next.js project already has a development server running. Close it before importing so it cannot compile Mauxi hooks into its own cache. Mauxi did not stop it.");
     const occupied = await isPortOccupied(plan.port);
+    if (request.mode === "start") plan = withSessionPort(plan, occupied ? await availablePort() : plan.port);
     plan.startPath = validateStartPath(request.startPath ?? selectedPlan.startPath ?? plan.startPath ?? "/");
-    if (request.mode === "start" && occupied) {
-      throw new Error(`Port ${plan.port} is already occupied. Mauxi did not stop or change the unrelated process. Choose explicit attachment if it is the intended server.`);
-    }
     if (request.mode === "attach" && !occupied) throw new Error(`Nothing is listening on ${plan.origin}; attachment was not started.`);
 
-    const integration = await prepareIntegrationPlan(plan.appRoot, plan.framework);
+    const integration = await prepareIntegrationPlan(plan.appRoot, plan.framework, request.mode === "start");
     const active: ActiveInternal = {
       plan,
       integration,
@@ -153,7 +154,7 @@ export class WorkspaceManager {
             this.emit();
           },
         );
-        active.process.start(plan);
+        active.process.start(plan, integration.runtimeDirectory ? path.join(plan.appRoot, ".mauxi/launcher.cjs") : undefined);
       } else {
         active.value.logs.push(`Attached to ${plan.origin}. The external process remains user-owned.`);
       }
@@ -194,8 +195,13 @@ export class WorkspaceManager {
         this.recoveryConflicts = [...new Set([...this.recoveryConflicts, ...cleanup.conflicts])];
         cleanupComplete = cleanup.state === "clean";
       } catch (cleanupError) {
-        if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") cleanupComplete = true;
-        else this.recoveryConflicts.push(`Setup cleanup failed for ${plan.appRoot}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+        // ENOENT may describe a missing owned artifact, not a missing journal.
+        // Only a setup that never recorded intent can be treated as untouched.
+        if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") {
+          try { await this.journals.read(transactionIdFor(integration)); }
+          catch (journalError) { cleanupComplete = (journalError as NodeJS.ErrnoException).code === "ENOENT"; }
+        }
+        if (!cleanupComplete) this.recoveryConflicts.push(`Setup cleanup failed for ${plan.appRoot}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
       }
       if (cleanupComplete) this.active = null;
       else active.closing = false;

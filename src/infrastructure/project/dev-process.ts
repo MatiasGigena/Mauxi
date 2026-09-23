@@ -1,3 +1,4 @@
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
@@ -39,9 +40,11 @@ export class OwnedDevProcess {
   get pid(): number | null { return this.child?.pid ?? null; }
   get logs(): string[] { return [...this.lines]; }
 
-  start(plan: LaunchPlan): void {
+  start(plan: LaunchPlan, sessionLauncher?: string): void {
     if (this.child || this.groupId) throw new Error("The owned development process is already running.");
-    const child = spawn(plan.executable, plan.args, {
+    const executable = sessionLauncher ? "node" : plan.executable;
+    const args = sessionLauncher ? [sessionLauncher, plan.executable, ...plan.args] : plan.args;
+    const child = spawn(executable, args, {
       cwd: plan.appRoot,
       env: environmentForExecutable(plan.executable),
       shell: false,
@@ -110,4 +113,42 @@ export async function waitForHttp(origin: string, timeoutMs: number, aborted: ()
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
   throw new Error(`Timed out waiting for ${origin}: ${lastError}`);
+}
+
+export async function availablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") { server.close(); reject(new Error("No local port available")); return; }
+      server.close(error => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
+
+export function withSessionPort(plan: LaunchPlan, port: number): LaunchPlan {
+  // Appending flags is only defined for a direct framework invocation, never
+  // arbitrary shell pipelines, wrappers, or a different project directory.
+  const direct = plan.framework === "vite" ? /^vite(?:\s+--?[\w=./:-]+(?:\s+[\w=./:-]+)?)*\s*$/ : /^next\s+dev(?:\s+--?[\w=./:-]+(?:\s+[\w=./:-]+)?)*\s*$/;
+  if (!direct.test(plan.scriptCommand)) {
+    if (port !== plan.port) throw new Error("This development script cannot accept a temporary port safely. Free its configured port or use a direct Vite/Next development script.");
+    return plan;
+  }
+  const flags = ["--port", String(port), ...(plan.framework === "vite" ? ["--strictPort"] : [])];
+  return { ...plan, port, origin: `http://127.0.0.1:${port}`, args: [...plan.args, ...(plan.packageManager === "npm" ? ["--"] : []), ...flags], commandDisplay: `${plan.commandDisplay} ${plan.packageManager === "npm" ? "-- " : ""}${flags.join(" ")}` };
+}
+
+export async function existingNextServer(appRoot: string): Promise<number | null> {
+  for (const entry of await readdir("/proc")) {
+    if (!/^\d+$/.test(entry) || Number(entry) === process.pid) continue;
+    try {
+      if (await realpath(`/proc/${entry}/cwd`) !== appRoot) continue;
+      const argv = (await readFile(`/proc/${entry}/cmdline`, "utf8")).split("\0");
+      if (argv[0]?.startsWith("next-server (") || argv.some((arg, index) => /(?:^|\/)next$/.test(arg) && argv[index + 1] === "dev")) return Number(entry);
+    } catch (error) {
+      if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+    }
+  }
+  return null;
 }

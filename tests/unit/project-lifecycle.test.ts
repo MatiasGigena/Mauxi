@@ -158,7 +158,6 @@ describe("ownership and source boundaries", () => {
     await writeFile(path.join(root, "package.json"), manifest);
 
     const discovery = await manager.inspect(root);
-    await expect(manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "start" })).rejects.toThrow("already occupied");
     expect(await fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())).toBe("unrelated");
     serverHtml = '<script src="/.mauxi/bridge.js"></script>';
     const active = await manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "attach" });
@@ -191,4 +190,31 @@ describe("ownership and source boundaries", () => {
     await writeFile(path.join(root, "other", "App.tsx"), "export const Other = () => null;\n");
     expect(await resolveWorkspaceSource(root, "App.tsx")).toBeNull();
   });
+});
+
+it("keeps failed setup visible when an owned file is missing but its journal exists", async () => {
+  const root = await temporaryRoot();
+  await mkdir(path.join(root, "node_modules/.bin"), { recursive: true });
+  await writeFile(path.join(root, "node_modules/.bin/vite"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: "vite" }, dependencies: { react: "19", vite: "7" } }));
+  await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [] };\n");
+  const bridge = path.join(root, "bridge-entry.js"); await writeFile(bridge, "// bridge");
+  class MissingOwnerStore extends JournalStore {
+    override async write(journal: Parameters<JournalStore["write"]>[0]) {
+      await super.write(journal);
+      if (journal.state === "applied" && journal.runtime) await rm(path.join(journal.runtime.path, "owner"));
+    }
+  }
+  const store = new MissingOwnerStore(path.join(root, "state"));
+  const manager = new WorkspaceManager(store, new WorkspaceStore(path.join(root, "settings")), bridge);
+  try {
+    const discovery = await manager.inspect(root);
+    await expect(manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "start" })).rejects.toThrow();
+    expect(manager.snapshot().active?.status).toBe("failed");
+    expect(manager.snapshot().recoveryConflicts.join("\n")).toContain("Setup cleanup failed");
+    const journal = (await store.list())[0];
+    expect(journal.state).not.toBe("clean");
+    await writeFile(path.join(journal.runtime!.path, "owner"), journal.runtime!.token);
+    await manager.close();
+  } finally { await manager.close().catch(() => undefined); await rm(root, { recursive: true, force: true }); }
 });

@@ -127,8 +127,8 @@ export function App() {
               <p>Mauxi remembers this route for your next session.</p>
             </>}
             <div className="confirmation-actions">
-              <div><strong>No automatic installs</strong><span>Temporary hooks are journaled before the first file change.</span></div>
-              <button disabled={busy || !selectedPlan || selectedPlan.diagnostics.some((item) => item.level === "error")} onClick={() => void confirm("attach")}>Attach to existing</button>
+              <div><strong>No automatic installs</strong><span>Temporary integration is removed on close. An occupied port uses a free port for direct Vite/Next scripts.</span></div>
+              <button disabled={busy || !selectedPlan || selectedPlan.framework === "next" || selectedPlan.diagnostics.some((item) => item.level === "error")} title={selectedPlan?.framework === "next" ? "Start a dedicated server to keep Next.js build files isolated" : undefined} onClick={() => void confirm("attach")}>Attach to existing</button>
               <button className="primary" disabled={busy || !selectedPlan || selectedPlan.diagnostics.some((item) => item.level === "error")} onClick={() => void confirm("start")}>{busy ? "Preparing…" : "Confirm & start"}</button>
             </div>
           </div>
