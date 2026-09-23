@@ -12,7 +12,7 @@ Open a local project, explore live desktop and mobile previews on a freeform can
 - Applies live edits with checkpoints, changed-file review, eligible undo, and one-time command approval.
 - Lets the agent inspect the same visible previews after an explicit handoff, with separate approvals for interactions and recorded checks.
 
-Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) records known lifecycle/Next.js blockers and missing real-project/live-provider evidence. macOS and Windows are outside this repository's scope.
+Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) records the tested fixture scope and missing real-project/live-provider evidence. macOS and Windows are outside this repository's scope.
 
 ## Run locally
 

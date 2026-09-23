@@ -1,6 +1,6 @@
 # Private-alpha candidate: setup and recovery
 
-**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete, with known safety/Next.js blockers. This is Linux-only private validation, not a public release or general compatibility promise.
+**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete, with remaining real-project and live-provider evidence gaps. This is Linux-only private validation, not a public release or general compatibility promise.
 
 ## Artifact and setup
 
@@ -24,10 +24,8 @@ Personal design skills/visual catalogs are **not bundled or licensed for redistr
 
 ## Known blockers and limits
 
-- [#11](https://github.com/MatiasGigena/Mauxi/issues/11): managed edits can leave Next 16.3.5/Webpack previews stale after a transient missing-file compile error. Do not mistake a settled source diff for a verified result. Stop and retain the diff/logs; do not keep editing an unseen result.
-- [#12](https://github.com/MatiasGigena/Mauxi/issues/12): moved owned instrumentation can be silently missed; an early-exiting dev launcher can leave descendants. Normal Vite cycle evidence does not cover these failures. Do not move/checkout instrumented files during validation; record owned process identities before manual investigation. Never kill a process merely because it holds the port.
-- [#13](https://github.com/MatiasGigena/Mauxi/issues/13): sessions/captures/completed instrumentation records lack aggregate retention; newline-free dev output is not fully bounded. Disk consumption and sensitive logs need manual attention; delivery remains blocked.
-- [#14](https://github.com/MatiasGigena/Mauxi/issues/14): Motion/GSAP and delayed Next streaming evidence is missing. Turbopack only has a bridge smoke. Other versions/routers, real projects, live auth, real-model quality and other tester environments remain unverified.
+- Fixes for [#11](https://github.com/MatiasGigena/Mauxi/issues/11), [#12](https://github.com/MatiasGigena/Mauxi/issues/12), and [#13](https://github.com/MatiasGigena/Mauxi/issues/13) are covered by the regression suites: atomic managed replacement, explicit moved-hook conflicts, owned process-group cleanup, and storage admission limits. This does not complete the alpha acceptance matrix.
+- [#14](https://github.com/MatiasGigena/Mauxi/issues/14): pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance have fixture evidence. Turbopack still has only a bridge smoke. Other versions/routers, real projects, live auth, real-model quality and other tester environments remain unverified. See the [remaining private run](real-project-acceptance.md).
 - Mobile is a Chromium viewport, not Safari/hardware simulation. Both previews share cookies/storage **inside one workspace**; canonical workspaces have separate browser partitions.
 
 ## Local storage, privacy and network behavior
@@ -37,13 +35,15 @@ Default profile: `${XDG_CONFIG_HOME:-$HOME/.config}/Mauxi/` (Electron `userData`
 | Location / surface | Policy |
 | --- | --- |
 | `pi-profile/auth.json` | SDK-owned provider credentials. Not sent to chat/preview or returned as stored secrets to the renderer. Use dedicated login/logout UI. |
-| `pi-profile/sessions/` | Native SDK conversations, including submitted code/context/images and tool results. No total retention/age limit yet; back up/review while stopped before manual removal. Removing history does not undo code. |
-| `captures/` | Selection/preview PNGs; visible pixels can contain secrets. Per-submission selection PNG cap 10 MiB; **no total retention cap**. Remove only reviewed, unneeded captures while stopped, understanding historical links may break. |
+| `pi-profile/sessions/` | Native SDK conversations, including submitted code/context/images and tool results. App-wide admission: 512 files / 256 MiB across all workspaces. Every native SDK append (including the deferred first flush) checks capacity. No automatic deletion or age expiry. Sending needs at least 1 MiB headroom; an oversized response can still stop persistence and is reported as potentially unsaved. After freeing space, reopen/resume the saved conversation before continuing. Removing history does not undo code. |
+| `captures/` | Selection/preview PNGs; visible pixels can contain secrets. Admission: 256 files / 128 MiB across workspaces; existing captures are preserved at capacity. Individual attachment cap remains 10 MiB. Remove only reviewed, unneeded captures while stopped; historical links may break. |
 | `pi-profile/checkpoints/` | 2 MiB/file, 10 MiB/set, scan 2,000 files/20 MiB, 64 retained records; recovery-bearing records stay pinned. |
 | `pi-profile/checkpoints/recovery/` | 128 entries/128 MiB admission budget, not a filesystem quota. Preserve unfinished/exposed/displaced data; no automatic expiry. |
-| `recovery/` | Instrumentation ownership journals/before-images. At most 64 unfinished records admitted; completed data has no total retention policy. Do not delete a journal to clear a warning. |
+| `recovery/` | Instrumentation ownership journals/before-images. At most 64 unfinished records; total admission 128 files / 128 MiB, including completed journals. New instrumentation reserves 2 MiB headroom for bounded before-images and atomic staging. Recovery/cleanup of existing records remains available even at capacity. No automatic pruning. |
 | Browser partitions/workspace metadata | Local canonical-workspace storage/layout. Preview storage is separate from provider auth. No claim that arbitrary page JavaScript state survives reopen. |
-| Logs/checks | Dev logs retain 400 completed lines of up to 4,000 characters, with the unresolved pending-line issue above; command output 120,000 bytes; browser diagnostics 40 entries of 1,200 characters per frame. Redaction is limited, not a guarantee. Native sessions/test traces can retain tool context; review before sharing. |
+| Logs/checks | Dev logs retain 400 completed lines of up to 4,000 characters, plus at most 4,000 pending characters even without newlines; command output 120,000 bytes; browser diagnostics 40 entries of 1,200 characters per frame. Redaction is limited, not a guarantee. Native sessions/test traces can retain tool context; review before sharing. |
+
+The packaged interface is served from an ephemeral `127.0.0.1` port so ordinary `SameSite=Lax` preview cookies work. It serves only bundled static UI assets, has no project-file or privileged API, and closes with the app. Preview and shell origins remain distinct; browser partitions, context isolation, sandboxing and IPC sender checks remain enabled.
 
 **No Mauxi-operated cloud sync or analytics backend.** Local-first is not offline: configured providers receive prompts, code/context and images; project pages and approved commands can use the network or reach production systems.
 
@@ -55,10 +55,16 @@ Inherited SDK behavior at pin 0.86.1:
 - SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 16 model turns/five minutes, and browser verification to 24 calls/four screenshots per run. These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
 - Default tests use local fakes and incur no model credits. For this acceptance run the founder authorized **$0** and deferred all live-provider tests. A future run needs separate provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
 
+## Capacity and explicit cleanup
+
+These are application **admission budgets, not physical disk quotas**. Externally added/growing files can exceed them; subsequent writes are refused. Capacity errors identify the directory, observed file/byte usage, requested growth and limits. Existing over-budget data is preserved. Captures and SDK writes serialize their checks and writes in the single Electron main process. Bounded scans refuse unexpected entries or more than 4,096 entries instead of silently ignoring them.
+
+There is no automatic expiry of conversations, screenshots or journals. To reclaim capacity, stop Mauxi and back up the affected directory. Explicitly choose conversations/captures you no longer need, or instrumentation journals whose state is `clean` and whose cleanup you have verified. Remove only those individually reviewed files. A conversation can contain images/tool output; screenshots may contain sensitive pixels. Never delete an unfinished/conflicted instrumentation journal, retained displaced inode, or checkpoint to bypass a capacity warning. Developer output is not generically redacted; treat all logs as sensitive before sharing.
+
 ## Recovery
 
 1. Stop agent work, take back browser control, then close the project normally. Verify cleanup status; an HTTP response or a closed window alone is not proof of cleanup.
-2. After a crash, reopen Mauxi to reconcile unfinished instrumentation journals before relaunching. If it reports a conflict, keep the current files and recovery directory; inspect the exact owned region/artifact and retry only after safe resolution. Moved files need manual comparison due to #12.
+2. After a crash, reopen Mauxi to reconcile unfinished instrumentation journals before relaunching. If it reports a conflict, keep the current files and recovery directory; inspect the exact owned region/artifact and retry only after safe resolution. A missing or moved owned file remains a conflict. Restore the moved file to its journaled path after reviewing its contents, then retry cleanup. If a cleanup was interrupted before its receipt became durable, preserve the journal and compare all owned paths manually; absence alone cannot prove removal.
 3. On checkpoint/disk/capacity failure, stop further writes and free **unrelated disposable** space. Back up current source and app state. Compare individual `intent.json`, `displaced`, and `replacement` files after stopping external writers. Remove only individually reviewed/resolved vault entries. See [detailed recovery](changes-and-recovery.md#recovery-limits-pruning-and-manual-cleanup).
 4. Undo is only for the latest backend-eligible managed change set while idle; overlap conflicts must not be overridden. Commands, databases, remote effects, dependency caches and untracked external writes are not generally undoable.
 5. Never use `git reset --hard`, blanket `git clean`/stash restoration, lockfile regeneration, bulk journal deletion, or killing by port as Mauxi recovery. When uncertain, preserve data and report the failure with redacted logs and the artifact checksum.

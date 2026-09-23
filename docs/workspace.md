@@ -5,13 +5,17 @@
 Mauxi opens one local project at a time. **Open project…** statically inspects manifests, lockfiles, workspace declarations, scripts, and Git status without evaluating project configuration.
 
 1. Choose the intended app and development script if discovery finds several candidates.
-2. Review the canonical app root, framework, package manager, exact command, preview origin, and temporary integration diff.
+2. Review the canonical app root, framework, package manager, exact command, preview URL, and temporary integration diff.
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
-4. Choose **Confirm & start**, or **Attach to existing** for a user-owned server on the shown port. If attachment changes a configuration the server has already loaded, restart that server yourself when prompted.
+4. Choose **Confirm & start**, or **Attach to existing** for a user-owned server on the shown port. Mauxi waits for Vite to serve the instrumented HTML after configuration reload. If the server does not watch configuration changes, restart it and retry.
 5. Wait for both preview bridges, not just HTTP readiness.
 6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration. Attached servers are left running.
 
 Saved setup only preselects a later confirmation; it does not automatically rerun commands. Temporary integration is journaled before mutation. Cleanup preserves changed files, unrelated dirty/untracked work, and the Git index. Unfinished setup/cleanup is retried on next launch, and conflicting artifacts are surfaced rather than overwritten. Unfinished journals are never automatically evicted; 64 unfinished valid journals block new setup.
+
+Previews start at `/` by default. If an application starts elsewhere, set `"mauxi": { "startPath": "/login" }` in its `package.json`. The path appears in the confirmation screen and stays within the approved local origin; full URLs, queries and fragments are rejected. This does not change the application's routes or permit external redirects.
+
+Next.js projects that bind to `0.0.0.0` may require `allowedDevOrigins: ['127.0.0.1']` in `next.config` for development assets and HMR. Keep the allowlist local; Mauxi does not change this project setting automatically.
 
 ### Supported setup
 
@@ -20,7 +24,7 @@ Saved setup only preselects a later confirmation; it does not automatically reru
 - npm, pnpm, and Yarn scripts with dependencies already installed. The packaged app looks in `PATH` and common Linux user installation locations without executing shell profiles.
 - Loopback HTTP origins. Unsupported or ambiguous setups are rejected before mutation; occupied ports are not taken over.
 
-The preview bridge is development-only. Project pages receive no Node, Electron preload, filesystem, or provider-credential API. Frame policies, CSP, third-party cookies, and external OAuth flows can still prevent embedding; Mauxi does not weaken headers to bypass them. Desktop and mobile share browser storage within a workspace; separate workspaces have separate persistent partitions.
+The preview bridge is development-only. Project pages receive no Node, Electron preload, filesystem, or provider-credential API. Only embedding response headers are adapted for the two authorized previews, as described below; other CSP restrictions, third-party cookies and external OAuth flows can still prevent integration. Desktop and mobile share browser storage within a workspace; separate workspaces have separate persistent partitions.
 
 ## Canvas and previews
 
@@ -40,11 +44,13 @@ Linked routes mirror a supported same-origin **URL navigation**, not clicks, sub
 
 A mirrored navigation can reset the peer's page state and issue a GET request. Mauxi cannot infer arbitrary custom side-effectful GET endpoints: unlink for those flows. External navigation is restricted to approved project origins, and a page without a responding bridge cannot be selected.
 
+For the two previews of an approved local project, Mauxi adapts response headers that prevent embedding: it replaces CSP `frame-ancestors` with the Mauxi shell origin and removes `X-Frame-Options`. Other CSP directives remain enforced. This applies only inside the active workspace window; nested frames, other windows, subresources and other origins keep their original headers. Closing the workspace ends the exception. Project configuration and production responses are unchanged. A project's other restrictions, such as blocking the bridge script, can still prevent integration.
+
 ## Select elements
 
 **Select** enables hit testing without activating the page beneath it. **Up/Down** refines the DOM child/parent path; **[ / ]** cycles overlapping targets; **Enter** attaches the target; **Escape** exits. DOM ancestry and React ownership are shown separately.
 
-Desktop/mobile picks accumulate as distinct removable attachments, with bounded/redacted DOM, styles, route, viewport, source hints, and clipped screenshot context. Source hints are verified against canonical project paths, an unambiguous JSX match, and a file fingerprint; ambiguous or dependency-only locations are not presented as verified application source.
+Desktop/mobile picks accumulate as distinct removable attachments, with bounded/redacted DOM, styles, route, viewport, source hints, and clipped screenshot context. Source hints are verified against canonical project paths, an unambiguous parsed JSX match inside the selected test-ID anchor, and a file fingerprint; ambiguous or dependency-only locations are not presented as verified application source.
 
 Selections retain rendered-instance identity through safe reorders, but remounts, navigation, document replacement, and source changes can make them stale. Every send revalidates the attachments; failed preflight preserves the draft. Historical crops remain inspectable but never authorize a replacement element. Text-only models reject captured image context rather than silently ignoring it.
 
