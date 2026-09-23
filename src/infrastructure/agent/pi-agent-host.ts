@@ -1,3 +1,5 @@
+import { guardSessionStorage } from "./session-budget";
+import { ARTIFACT_LIMITS, assertArtifactCapacity } from "../storage/artifact-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
@@ -449,6 +451,11 @@ export class PiAgentHost {
     });
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+      guardSessionStorage(sessionManager, path.join(this.profileDir, "sessions"), error => {
+        this.checkpointFailure = error.message;
+        this.lastError = classifyError(error); this.runHadFailure = true;
+        queueMicrotask(() => { void this.stop(this.workspaceId).catch(() => undefined).finally(() => { this.status = `Conversation storage failed; latest output may not be saved. ${error.message}`; this.schedulePublish(); }); });
+      });
       const services = await createAgentSessionServices({
         cwd,
         agentDir: this.profileDir,
@@ -920,6 +927,7 @@ export class PiAgentHost {
     const selectedAvailable = selectedModel && this.modelRuntime!.getAvailableSnapshot().some((model) => model.provider === selectedModel.provider && model.id === selectedModel.id);
     if (!selectedModel || !selectedAvailable) throw new Error("Choose an authenticated model before sending.");
     if (request.selections.length > 8 || request.selections.some((item) => item.status !== "current" || item.capture.workspaceId !== this.workspaceId)) throw new Error("Attached context is stale or belongs to another workspace.");
+    assertArtifactCapacity(path.join(this.profileDir, "sessions"), ARTIFACT_LIMITS.sessions, 1024 * 1024);
     const images = await this.imageInputs(request);
     const guidance = await this.resources.guidance(text, request.selections.some((item) => item.capture.previewId === "mobile"));
     // Prefix the original request so SDK slash expansion cannot replace it.

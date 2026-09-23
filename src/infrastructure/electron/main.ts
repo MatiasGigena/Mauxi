@@ -1,6 +1,7 @@
+import { writeCapture } from "../storage/artifact-budget";
 import { app, BrowserWindow, dialog, ipcMain, shell, type Rectangle } from "electron";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
@@ -457,7 +458,7 @@ function registerIpc(): void {
     await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
     const suffix = input.selectionId ? `-selection-${input.selectionId}` : "";
     const outputPath = path.join(outputDirectory, `${input.previewId}${suffix}-${Date.now()}.png`);
-    await writeFile(outputPath, image.toPNG(), { mode: 0o600 });
+    writeCapture(outputPath, image.toPNG());
     const size = image.getSize();
     return { path: outputPath, width: size.width, height: size.height };
   });

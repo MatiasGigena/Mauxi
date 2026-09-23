@@ -1,3 +1,4 @@
+import { ARTIFACT_LIMITS, assertArtifactCapacity } from "../storage/artifact-budget";
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -46,6 +47,12 @@ export class JournalStore {
 
   async write(journal: InstrumentationJournal): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    if (journal.state === "planned") {
+      // Reserve room for the bounded config before-image, receipts and atomic
+      // staging before touching the project. Recovery writes remain available.
+      const existing = (await this.list()).some(item => item.transactionId === journal.transactionId);
+      assertArtifactCapacity(this.directory, ARTIFACT_LIMITS.journals, 2 * 1024 * 1024, existing ? 0 : 1);
+    }
     const finalPath = this.pathFor(journal.transactionId);
     const temporaryPath = `${finalPath}.${process.pid}.tmp`;
     const next = { ...journal, updatedAt: new Date().toISOString() };
