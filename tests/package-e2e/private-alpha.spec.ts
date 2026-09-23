@@ -190,17 +190,22 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await page.getByRole("button", { name: "Close settings", exact: true }).click();
           for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
             const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
+            // Server-rendered text can appear before Next hydrates after login.
+            // Wait for the actual client handler before changing its DOM pixels.
+            await expect.poll(() => frame.getByTestId("known-target").evaluate(node => Object.keys(node).some(key => key.startsWith("__reactProps$") && typeof (node as any)[key]?.onClick === "function"))).toBe(true);
             // Distinct rendered pixel markers independently prove crop/preview
             // association; checking only image presence would accept swapped crops.
             await frame.getByTestId("known-target").evaluate((node, background) => { node.style.background = background; node.scrollIntoView({ block: "center" }); }, color);
             const label = side === "desktop" ? "Desktop" : "Mobile";
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
+            await expect.poll(() => frame.locator("html").evaluate(node => node.style.cursor)).toBe("crosshair");
             const frameBox = await page.getByTestId(`${side}-preview`).boundingBox();
             const target = await frame.getByTestId("known-target").evaluate(node => {
               const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };
             });
             await page.mouse.click(frameBox!.x + target.x * frameBox!.width / target.width, frameBox!.y + target.y * frameBox!.height / target.height);
             await expect(page.locator(".selection-chip")).toHaveCount(side === "desktop" ? 1 : 2);
+            await expect(frame.getByTestId("click-count")).toContainText("0");
             const chip = page.locator(".selection-chip").filter({ has: page.locator(".preview-pill", { hasText: new RegExp(`^${side}$`) }) });
             await expect(chip).toContainText("verified JSX");
             await chip.getByRole("button", { name: "Inspect", exact: true }).click();
