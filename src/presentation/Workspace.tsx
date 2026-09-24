@@ -8,6 +8,7 @@ import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
 import { PreviewTools } from "./PreviewTools";
 import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
+import logo from "./assets/logo-mauxi.png";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
 type Fixture = keyof typeof URLS;
@@ -350,7 +351,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const statusText = serverFailed ? active.statusDetail : notice || (allReady ? active?.statusDetail : undefined) || bridgeDetail;
   return <div className="workspace">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">M</span><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
+      <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
       {!active && <div className="fixture-switch" aria-label="Fixture"><button aria-pressed={fixture === "vite"} onClick={() => switchFixture("vite")}>Vite</button><button aria-pressed={fixture === "next"} onClick={() => switchFixture("next")}>Next.js</button></div>}
       <div className="canvas-actions" aria-label="Canvas controls" inert={browser.locked}>
         <button aria-pressed={hand} onClick={() => { setHand(!hand); setSelecting(null); if (active && selecting) void browser.owner("human"); }}>{hand ? "Hand on" : "Hand"}</button>

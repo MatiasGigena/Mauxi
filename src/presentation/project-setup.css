@@ -1,0 +1,88 @@
+.project-setup { --line: #e8e5e1; width: 100%; }
+.project-setup .guided-intro { padding: 18px 0 34px; }
+.project-setup .guided-intro h2 { margin: 0; font-size: clamp(24px, 3vw, 32px); font-weight: 400; letter-spacing: -1px; overflow-wrap: anywhere; }
+.project-setup .guided-intro h2 span { font-weight: 600; }
+.project-setup .project-path { margin: 10px 0 0; color: #747178; font-size: 12px; overflow-wrap: anywhere; }
+.project-setup .setup-diagnostics { display: grid; gap: 8px; margin-bottom: 18px; }
+.project-setup .guided-rows { position: relative; }
+.project-setup .guided-rows > button, .project-setup .guided-integration > button { display: flex; align-items: center; width: 100%; gap: 18px; text-align: left; background: transparent; padding: 22px 10px 22px 0; border-bottom: 1px solid var(--line); }
+.project-setup .guided-integration > button { border-bottom: 0; }
+.project-setup[data-view="review"] .review-trigger { border-bottom: 1px solid var(--line); }
+.project-setup .row-icon { display: grid; place-items: center; width: 36px; flex: none; color: #747178; }
+.project-setup .guided-rows strong { display: block; font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.project-setup .guided-rows small { display: block; margin-top: 6px; font-size: 11px; color: #747178; overflow-wrap: anywhere; }
+.project-setup .guided-rows > button > span:nth-child(2), .project-setup .guided-integration > button > span:nth-child(2) { min-width: 0; }
+.project-setup .row-link { display: flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 16px; font-size: 11px; color: #747178; flex: none; transition: transform 120ms cubic-bezier(.23,1,.32,1); }
+.project-setup .configure-trigger .row-link svg { transition: transform 180ms cubic-bezier(.23,1,.32,1); }
+.project-setup[data-expanded="true"] .configure-trigger .row-link svg { transform: rotate(180deg); }
+.project-setup .configure-trigger:active:not(:disabled), .project-setup .guided-integration > button:active:not(:disabled) { background: #faf9f7; }
+.project-setup .configure-trigger:active .row-link, .project-setup .guided-integration > button:active .row-link { transform: scale(.97); }
+.project-setup .configure-trigger:focus-visible .row-link svg { transition: none; }
+.project-setup .guided-inline-config, .project-setup .guided-inline-review { padding: 22px 10px 10px 54px; }
+.project-setup [data-guided-layer], .project-setup [data-file-layer] { transform-origin: top left; }
+.project-setup [data-guided-layer][aria-hidden="true"], .project-setup [data-file-layer][aria-hidden="true"] { position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none; visibility: hidden; }
+.project-setup .script-control { display: grid; gap: 8px; max-width: 420px; min-width: 0; font-size: 11px; color: #747178; }
+.project-setup .script-control select { width: 100%; padding: 10px 30px 10px 12px; border: 1px solid #dedbd6; border-radius: 8px; color: #24242a; background: #fff; font-size: 12px; }
+.project-setup .technical-details { display: grid; gap: 12px; margin: 24px 0 16px; }
+.project-setup .technical-details > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; font-size: 11px; }
+.project-setup .technical-details dt { color: #747178; }
+.project-setup .technical-details dd { margin: 0; overflow-wrap: anywhere; }
+.project-setup .technical-details code { font-size: 11px; }
+.project-setup .guided-file-list { position: relative; max-width: 680px; }
+.project-setup .guided-file-trigger { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 0; text-align: left; background: transparent; border-bottom: 1px solid var(--line); }
+.project-setup .guided-file-trigger:last-of-type:not([aria-expanded="true"]) { border-bottom: 0; }
+.project-setup .guided-file-trigger code { font: 11px/1.6 ui-monospace, monospace; overflow-wrap: anywhere; min-width: 0; transition: transform 120ms cubic-bezier(.23,1,.32,1); transform-origin: left center; }
+.project-setup .guided-file-trigger > svg { color: #949096; flex: none; transition: transform 180ms cubic-bezier(.23,1,.32,1); }
+.project-setup .guided-file-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.project-setup .guided-file-trigger:focus-visible > svg { transition: none; }
+.project-setup .guided-file-trigger:active:not(:disabled) { background: transparent; }
+.project-setup .guided-file-trigger:active code { transform: scale(.97); }
+.project-setup .guided-diff { margin: 0; padding: 18px 0 8px; background: transparent; font: 11px/1.9 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.project-setup .guided-diff code { font: inherit; }
+.project-setup .guided-diff .added { color: #187340; }
+.project-setup .guided-diff .removed { color: #b43636; }
+.project-setup .guided-diff .context { color: #55515b; }
+.project-setup .empty-integration { margin: 0; font-size: 12px; color: #747178; }
+.project-setup .confirmation-actions { padding-top: 26px; gap: 22px; }
+/* The action group participates in the coordinated entrance; keep the CTA's
+   hover/press and border animation, without a second independent entrance. */
+.project-setup .confirmation-actions > .primary { animation: none; }
+.project-setup .confirmation-actions > .change-project { background: transparent; color: #747178; font-size: 11px; font-weight: 500; padding: 8px 0; flex: none; text-decoration: none; }
+.project-setup .change-project-copy { display: grid; text-align: right; }
+.project-setup .change-project-copy > span { grid-area: 1 / 1; white-space: nowrap; transition: opacity 120ms cubic-bezier(.23,1,.32,1), transform 120ms cubic-bezier(.23,1,.32,1); }
+.project-setup .change-project-idle { opacity: 1; transform: translateY(0); }
+.project-setup .change-project-intent { opacity: 0; transform: translateY(4px); }
+.project-setup .has-hover-copy:focus-visible .change-project-copy > span { transition: none; transform: none; }
+.project-setup .has-hover-copy:focus-visible .change-project-idle { opacity: 0; }
+.project-setup .has-hover-copy:focus-visible .change-project-intent { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .project-setup .guided-rows > button:hover, .project-setup .guided-integration > button:hover { background: #faf9f7; }
+  .project-setup .guided-file-trigger[data-action="create"]:hover { color: #147a7a; }
+  .project-setup .guided-file-trigger[data-action="modify"]:hover { color: #927000; }
+  .project-setup .has-hover-copy:hover:not(:disabled) { color: #24242a; }
+  .project-setup .has-hover-copy:hover:not(:disabled):not(:focus-visible) .change-project-copy > span { transition-duration: 160ms; }
+  .project-setup .has-hover-copy:hover:not(:disabled):not(:focus-visible) .change-project-idle { opacity: 0; transform: translateY(-4px); }
+  .project-setup .has-hover-copy:hover:not(:disabled):not(:focus-visible) .change-project-intent { opacity: 1; transform: translateY(0); }
+}
+@media (hover: none), (pointer: coarse) {
+  .project-setup .has-hover-copy .change-project-idle { opacity: 0; transform: none; }
+  .project-setup .has-hover-copy .change-project-intent { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-setup .has-hover-copy .change-project-copy > span { transform: none !important; }
+  .project-setup .row-link, .project-setup .guided-file-trigger:active code { transform: none; }
+}
+@media (max-width: 650px) {
+  .launch-screen.has-setup { padding: 36px 20px; }
+  .has-setup .launch-brand { margin-bottom: 32px; }
+  .project-setup .guided-rows > button, .project-setup .guided-integration > button { gap: 8px; flex-wrap: wrap; }
+  .project-setup .guided-rows > button > span:nth-child(2), .project-setup .guided-integration > button > span:nth-child(2) { flex: 1; }
+  .project-setup .guided-inline-config, .project-setup .guided-inline-review { padding: 20px 0 8px; }
+  .project-setup .row-link { padding-left: 44px; margin-left: 0; width: 100%; }
+  .project-setup .technical-details > div { grid-template-columns: 110px minmax(0, 1fr); }
+  .project-setup .confirmation-actions { gap: 16px; }
+}
+@media (max-width: 450px) {
+  .project-setup .confirmation-actions { flex-wrap: wrap; }
+  .project-setup .confirmation-actions > .primary { flex: none; }
+}

@@ -1,40 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import type { LaunchPlan, ProjectDiscovery, WorkspaceBootstrap } from "../application/project-contract";
+import { FolderOpen } from "lucide-react";
+import type { ProjectDiscovery, WorkspaceBootstrap } from "../application/project-contract";
 import { Workspace } from "./Workspace";
+import { ProjectSetup } from "./ProjectSetup";
+import logoText from "./assets/logo-mauxi-text.png";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function PlanDetails({ plan }: { plan: LaunchPlan }) {
-  return (
-    <div className="plan-details">
-      <dl>
-        <div><dt>App root</dt><dd title={plan.appRoot}>{plan.appRoot}</dd></div>
-        <div><dt>Framework</dt><dd>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</dd></div>
-        <div><dt>Package manager</dt><dd>{plan.packageManager}</dd></div>
-        <div><dt>Dev command</dt><dd><code>{plan.commandDisplay}</code></dd></div>
-        <div><dt>Server origin</dt><dd><code>{plan.origin}</code></dd></div>
-      </dl>
-      <section className="integration-preview">
-        <div><strong>Temporary integration</strong><span>{plan.integration.summary}</span></div>
-        {plan.integration.files.map((file) => (
-          <details key={`${file.action}:${file.path}`}>
-            <summary><span className={`change-kind ${file.action}`}>{file.action}</span><code>{file.path}</code></summary>
-            <pre>{file.diff}</pre>
-          </details>
-        ))}
-      </section>
-      {plan.diagnostics.map((item) => <p className={`diagnostic ${item.level}`} key={item.code}>{item.message}</p>)}
-    </div>
-  );
 }
 
 export function App() {
   const [bootstrap, setBootstrap] = useState<WorkspaceBootstrap | null>(null);
   const [discovery, setDiscovery] = useState<ProjectDiscovery | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState("");
-  const [startPath, setStartPath] = useState("/");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,8 +29,6 @@ export function App() {
 
   const selectedPlan = useMemo(() => discovery?.plans.find((plan) => plan.id === selectedPlanId) ?? null, [discovery, selectedPlanId]);
 
-  useEffect(() => { setStartPath(selectedPlan?.startPath ?? "/"); }, [selectedPlan]);
-
   async function openProject() {
     if (!window.mauxi) return;
     setBusy(true); setError("");
@@ -65,11 +41,11 @@ export function App() {
     finally { setBusy(false); }
   }
 
-  async function confirm(mode: "start" | "attach") {
+  async function confirm() {
     if (!window.mauxi || !discovery || !selectedPlan) return;
     setBusy(true); setError("");
     try {
-      await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode, startPath });
+      await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode: "start", startPath: "/" });
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }
@@ -84,7 +60,7 @@ export function App() {
     finally { setBusy(false); }
   }
 
-  if (!bootstrap && !error) return <div className="launch-screen"><div className="launch-card"><span className="brand-mark large">M</span><p>Checking recovery records…</p></div></div>;
+  if (!bootstrap && !error) return <main className="launch-screen is-empty"><img className="launch-logo" src={logoText} alt="Mauxi" /><p>Checking recovery records…</p></main>;
   if (bootstrap?.mode === "proof") return <Workspace />;
   if (bootstrap?.active) return (
     <>
@@ -94,48 +70,23 @@ export function App() {
   );
 
   return (
-    <main className="launch-screen">
-      <header className="launch-brand"><span className="brand-mark large">M</span><div><h1>Mauxi</h1><p>Open a local interface project</p></div></header>
-      <section className="launch-card" aria-busy={busy}>
+    <main className={`launch-screen${discovery ? " has-setup" : " is-empty"}`}>
+      {discovery ? (
+        <h1 className="launch-brand setup-brand"><img className="launch-logo" src={logoText} alt="Mauxi" /></h1>
+      ) : (
+        <h1 className="launch-brand"><img className="launch-logo" src={logoText} alt="Mauxi" /></h1>
+      )}
+      <section className={discovery ? "launch-setup" : "launch-entry"} aria-busy={busy}>
         {bootstrap?.recoveryConflicts.length ? (
           <div className="recovery-warning" role="alert"><strong>Recovery needs attention</strong>{bootstrap.recoveryConflicts.map((item) => <p key={item}>{item}</p>)}</div>
         ) : null}
         {!discovery ? (
-          <div className="empty-launch">
-            <div className="folder-art" aria-hidden="true">⌁</div>
-            <h2>Choose an existing project</h2>
-            <p>Mauxi reads manifests and lockfiles first. It will not execute configuration, install dependencies, or launch a server until you confirm the plan.</p>
-            <button className="primary" disabled={busy} onClick={() => void openProject()}>{busy ? "Opening…" : "Open project…"}</button>
-          </div>
+          <button className="primary" disabled={busy} onClick={() => void openProject()}><FolderOpen size={17} aria-hidden="true" /><span>{busy ? "Opening Project" : "Open Project"}</span></button>
         ) : (
-          <div className="confirmation">
-            <div className="confirmation-heading">
-              <div><span className="eyebrow">CONFIRM PROJECT SETUP</span><h2>{discovery.canonicalRoot.split(/[\\/]/).pop()}</h2><p title={discovery.canonicalRoot}>{discovery.canonicalRoot}</p></div>
-              <button disabled={busy} onClick={() => void openProject()}>Choose another…</button>
-            </div>
-            <div className="project-facts">
-              <span>{discovery.git.repository ? (discovery.git.dirty ? "Git · local changes preserved" : "Git · clean working tree") : "Not a Git repository"}</span>
-              <span>{discovery.plans.length} launch {discovery.plans.length === 1 ? "plan" : "plans"}</span>
-            </div>
-            {discovery.diagnostics.map((item) => <p className={`diagnostic ${item.level}`} key={item.code}>{item.message}</p>)}
-            {discovery.plans.length > 1 && (
-              <label className="plan-picker"><span>Application and script</span><select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)}>{discovery.plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.label}</option>)}</select></label>
-            )}
-            {selectedPlan && <>
-              <PlanDetails plan={selectedPlan} />
-              <label className="plan-picker"><span>Initial route</span><input value={startPath} onChange={(event) => setStartPath(event.target.value)} placeholder="/" /></label>
-              <p>Mauxi remembers this route for your next session.</p>
-            </>}
-            <div className="confirmation-actions">
-              <div><strong>No automatic installs</strong><span>Temporary integration is removed on close. An occupied port uses a free port for direct Vite/Next scripts.</span></div>
-              <button disabled={busy || !selectedPlan || selectedPlan.framework === "next" || selectedPlan.diagnostics.some((item) => item.level === "error")} title={selectedPlan?.framework === "next" ? "Start a dedicated server to keep Next.js build files isolated" : undefined} onClick={() => void confirm("attach")}>Attach to existing</button>
-              <button className="primary" disabled={busy || !selectedPlan || selectedPlan.diagnostics.some((item) => item.level === "error")} onClick={() => void confirm("start")}>{busy ? "Preparing…" : "Confirm & start"}</button>
-            </div>
-          </div>
+          <ProjectSetup key={discovery.discoveryId} discovery={discovery} plan={selectedPlan} busy={busy} onSelectPlan={setSelectedPlanId} onChooseProject={() => void openProject()} onConfirm={() => void confirm()} />
         )}
         {error && <p className="diagnostic error" role="alert">{error}</p>}
       </section>
-      <p className="launch-footnote">One active project · Linux private alpha · AppImage</p>
     </main>
   );
 }
