@@ -114,6 +114,6 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.screenshot({ path: testInfo.outputPath(`${fixture}-disconnect.png`) });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click(); page = await welcome;
-    await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally { await writeFile(testInfo.outputPath(`${fixture}-operations-stderr.log`), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

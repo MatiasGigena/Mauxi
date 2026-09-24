@@ -78,7 +78,7 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   const welcomeWindow = application.waitForEvent("window");
   await page.getByRole("button", { name: "Close project" }).click();
   page = await welcomeWindow;
-  await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   await expect.poll(portIsFree, { timeout: 10_000 }).toBe(true);
 
   const cleaned = await readFile(configPath, "utf8");

@@ -118,6 +118,6 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await expect.poll(() => page.frames().filter(f => { try { return new URL(f.url()).pathname === "/ordinary-proof"; } catch { return false; } }).length).toBe(2);
     await page.screenshot({ path: testInfo.outputPath("returned-control.png") });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
-    page = await welcome; await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
+    page = await welcome; await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally { await writeFile(testInfo.outputPath("electron-stderr.log"), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

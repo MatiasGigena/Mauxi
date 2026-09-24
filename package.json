@@ -23,6 +23,7 @@
     "test:e2e": "bash scripts/e2e.sh",
     "test:browser-e2e": "npm run build && playwright test --config playwright.browser.config.ts",
     "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
+    "test:setup-e2e": "npm run build && playwright test --config playwright.setup.config.ts",
     "test:turbopack-e2e": "bash scripts/turbopack-e2e.sh",
     "test:package-e2e": "playwright test --config playwright.package.config.ts",
     "test:session-e2e": "vitest run tests/session-e2e",

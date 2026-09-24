@@ -90,7 +90,7 @@ test("only the two approved previews may override embedding headers", async ({},
     const welcome = app.waitForEvent("window");
     await page.getByRole("button", { name: "Close project", exact: true }).click();
     page = await welcome;
-    await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
     expect(await readFile(path.join(root, "vite.config.mjs"), "utf8")).toBe(config);
   } finally {
     await writeFile(testInfo.outputPath("electron-stderr.log"), stderr);

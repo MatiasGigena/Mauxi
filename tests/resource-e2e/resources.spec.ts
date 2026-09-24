@@ -54,6 +54,6 @@ test("native imports require approval, settings stay transient, toggles and expl
     await page.screenshot({ path: testInfo.outputPath("electron-workspace.png") });
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
     page = await welcome;
-    await expect(page.getByRole("button", { name: "Open project…" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally { await writeFile(testInfo.outputPath("electron-stderr.log"), stderr); await app.close(); await writeFile(config, before); await rm(state, {recursive:true,force:true}); }
 });

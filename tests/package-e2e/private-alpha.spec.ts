@@ -33,7 +33,7 @@ async function alive(pids: number[]): Promise<number[]> {
 async function openProject(app: ElectronApplication, page: Page, root: string) {
   // Stub only the native folder picker, not discovery/confirmation/SDK/browser IPC.
   await app.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] }); }, root);
-  await page.getByRole("button", { name: "Open project…", exact: true }).click();
+  await page.getByRole("button", { name: "Open Project", exact: true }).click();
   const next = app.waitForEvent("window");
   await page.getByRole("button", { name: /Confirm.*start/i }).click();
   page = await next;
@@ -45,7 +45,7 @@ async function closeProject(app: ElectronApplication, page: Page) {
   const next = app.waitForEvent("window");
   await page.getByRole("button", { name: "Close project", exact: true }).click();
   page = await next;
-  await expect(page.getByRole("button", { name: "Open project…", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Project", exact: true })).toBeVisible();
   return page;
 }
 
