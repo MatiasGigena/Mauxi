@@ -23,7 +23,7 @@ npm ci
 npm run dev
 ```
 
-Open a project with its dependencies already installed, review the proposed setup, and confirm launch or explicitly attach to an existing server. Configure a provider and model through **Models & providers** in chat; a separate agent CLI is not required.
+Open a project with its dependencies already installed, review the proposed setup, and choose **Confirm & start**. Mauxi starts its own server without taking over one already running. Configure a provider and model through **Models & providers** in chat; a separate agent CLI is not required.
 
 ## Build an AppImage
 

@@ -2,18 +2,20 @@
 
 ## Open and close a project
 
-Mauxi opens one local project at a time. **Open project…** statically inspects manifests, lockfiles, workspace declarations, scripts, and Git status without evaluating project configuration.
+Mauxi opens one local project at a time. **Open Project** statically inspects manifests, lockfiles, workspace declarations, scripts, and Git status without evaluating project configuration.
 
-1. Choose the intended app and development script if discovery finds several candidates.
-2. Review the canonical app root, framework, package manager, exact command, preview URL, and temporary integration diff.
+1. Use **Configure** to inspect the canonical app root, framework, package manager, exact command and preview URL, and choose the intended app/script when discovery finds several candidates.
+2. Use **Review** under **Temporary integration** to inspect the proposed file changes. Opening a file focuses its diff; additions are green, removals red. Escape returns to the file list, then to the setup overview.
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
-4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied by another project, Mauxi chooses a free port. **Attach to existing** is available for Vite servers. Mauxi waits for Vite to serve the instrumented HTML after configuration reload. If the server does not watch configuration changes, restart it and retry.
+4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied, Mauxi chooses a free port and leaves the existing server alone. Mauxi waits for Vite to serve the instrumented HTML after configuration reload.
 5. Wait for both preview bridges, not just HTTP readiness.
-6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration. Attached servers are left running.
+6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
+
+**Not this project?** changes to **Choose another** on hover (or keyboard focus) and reopens Electron’s native folder dialog. Cancelling preserves the current project and selected script. There is no browser upload or prototype picker. Configure, Review and file disclosures expand inline with reversible motion; keyboard activation is immediate and reduced motion uses a short fade. Each new setup view enters with a subtle 290ms stagger (heading, options, actions), without replaying on plan changes or cancelled selection. Reduced motion uses a simultaneous 120ms fade.
 
 Saved setup only preselects a later confirmation; it does not automatically rerun commands. Temporary integration is journaled before mutation. Cleanup preserves changed files, unrelated dirty/untracked work, and the Git index. Unfinished setup/cleanup is retried on next launch, and conflicting artifacts are surfaced rather than overwritten. Unfinished journals are never automatically evicted; 64 unfinished valid journals block new setup.
 
-Previews start at `/` by default. Choose another **Initial route**, such as `/login`, in the import screen. Mauxi remembers it in its own workspace settings; no `package.json` edit is needed. Existing `mauxi.startPath` metadata remains a compatible initial default. Full URLs, queries and fragments are rejected.
+Previews opened through the app start at `/`. Previously saved routes or `mauxi.startPath` metadata do not change the starting route selected by the setup screen.
 
 For an owned Next.js session, a temporary config wrapper adds the local development origin and redirects build output and TypeScript configuration into `.mauxi/runtime/`. Vite's dependency cache is isolated there too. The original config expression stays editable and its production behavior is unchanged. On close, Mauxi stops the owned process group before removing the wrapper, hooks and private cache; existing `.next` and dependency caches are preserved.
 
