@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type Page } from "@playwright/test
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { latestSelection, observeSelections, resolvedSelection } from "../helpers/selection-evidence";
 
 // Expected JSX anchors are declared independently of runtime source hints. A
 // related filename, owner location, or stale fingerprint cannot satisfy this.
@@ -23,15 +24,16 @@ async function pick(page: Page, id: string, file: string, anchor: string, method
   } else await target.click({ force: true });
   const chip = page.locator(".selection-chip");
   await expect(chip).toHaveCount(1);
-  await expect(chip).toContainText(`${method} · verified JSX`);
-  await chip.getByRole("button", { name: "Inspect", exact: true }).click();
+  const evidence = await resolvedSelection(page);
+  expect(evidence.capture.source.method).toBe(method);
+  expect(evidence.source).not.toBeNull();
   const source = await readFile(file, "utf8");
   const offset = source.indexOf(anchor); expect(offset).toBeGreaterThanOrEqual(0);
   expect(source.indexOf(anchor, offset + 1)).toBe(-1);
   const prefix = source.slice(0, offset);
   const line = prefix.split("\n").length;
   const column = offset - prefix.lastIndexOf("\n");
-  await expect(page.getByLabel(/Selection details/)).toContainText(`${file.replace(/^fixtures\/(vite|next)\//, "")}:${line}:${column} · SHA-256 ${createHash("sha256").update(source).digest("hex")}`);
+  expect(evidence.source).toMatchObject({ filePath: file.replace(/^fixtures\/(vite|next)\//, ""), lineNumber: line, columnNumber: column, fileFingerprint: createHash("sha256").update(source).digest("hex") });
   await chip.getByRole("button", { name: /Remove selection/ }).click();
 }
 
@@ -43,6 +45,7 @@ for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
       const page = await app.firstWindow();
       if (fixture === "next") await page.getByRole("button", { name: "Next.js", exact: true }).click();
       await expect(page.locator(".bridge-ready")).toHaveCount(2);
+      await observeSelections(page);
       await page.waitForTimeout(250); // one-time canvas fit
       const desktop = page.frameLocator('[data-testid="desktop-preview"]');
       expect(await desktop.locator("body").evaluate(() => devicePixelRatio)).toBe(scale);
@@ -76,10 +79,10 @@ for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
       if (fixture === "vite") {
         await page.getByLabel("Camera zoom").fill("0.5");
         await desktop.getByTestId("identity-alpha").click();
-        await expect(page.locator(".selection-chip")).toContainText("missing-or-ambiguous");
+        expect((await resolvedSelection(page)).source).toBeNull();
         await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
         await desktop.getByTestId("unsupported-canvas").click();
-        await expect(page.locator(".selection-chip")).toContainText(/unsupported/i);
+        expect((await latestSelection(page)).support.status).toBe("unsupported");
         await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
       }
       await page.emulateMedia({ reducedMotion: "reduce" });

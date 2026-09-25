@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { observeSelections, resolvedSelection, revalidateSelection } from "../helpers/selection-evidence";
 
 let application: ElectronApplication;
 let page: Page;
@@ -26,6 +27,7 @@ async function waitForBridge() {
 
 async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, mappingMethod: "react-grab" | "jsx-attribute" = "react-grab") {
   await waitForBridge();
+  await observeSelections(page);
   // Let the canvas ResizeObserver complete its one-time initial fit before the
   // test applies an explicit camera and starts pointer geometry assertions.
   await page.waitForTimeout(250);
@@ -56,9 +58,10 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
   await desktop.locator('[data-testid="known-icon"]').click();
   await expect(desktop.locator('[data-testid="click-count"]')).toContainText("0");
-  const selection = page.locator(".selection-chip").first();
-  await expect(selection).toContainText(sourceName, { timeout: 15_000 });
-  await expect(selection).toContainText(`${mappingMethod} · verified JSX`);
+  await expect(page.locator(".selection-chip")).toHaveCount(initialSelectionCount + 1);
+  const evidence = await resolvedSelection(page);
+  expect(evidence.source?.filePath).toContain(sourceName);
+  expect(evidence.capture.source.method).toBe(mappingMethod);
 
   await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
   await mobile.locator('[data-testid="known-target"]').click();
@@ -88,8 +91,8 @@ test("Vite: scaled picking, source provenance, viewport invariance, capture and 
   try {
     await writeFile(sourcePath, original.replace("Run action", "Run changed action"));
     await expect(desktop.getByText("Run changed action")).toBeVisible({ timeout: 20_000 });
-    await page.locator(".selection-chip").first().getByText("Revalidate").click();
-    await expect(page.locator(".selection-chip").first()).toContainText("Stale");
+    expect(await revalidateSelection(page)).toBe("stale");
+    await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
   } finally {
     await writeFile(sourcePath, original);
   }
@@ -116,8 +119,8 @@ test("Next App Router/Webpack: server-client fixture has precise source picking"
     await writeFile(sourcePath, original.replace("Run action", "Run changed action"));
     await expect(desktop.getByText("Run changed action")).toBeVisible({ timeout: 30_000 });
     await expect(page.frameLocator('[data-testid="mobile-preview"]').getByText("Run changed action")).toBeVisible({ timeout: 30_000 });
-    await page.locator(".selection-chip").first().getByText("Revalidate").click();
-    await expect(page.locator(".selection-chip").first()).toContainText("Stale");
+    expect(await revalidateSelection(page)).toBe("stale");
+    await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
   } finally {
     await writeFile(sourcePath, original);
   }

@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import path from "node:path";
+import { latestSelection, observeSelections, revalidateSelection } from "../helpers/selection-evidence";
 
 let application: ElectronApplication;
 let page: Page;
@@ -12,7 +13,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
 });
 test.afterAll(async () => { await application?.close(); });
-test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); });
+test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); await observeSelections(page); });
 
 async function route(side: "desktop" | "mobile") {
   const owner = await page.getByTestId(`${side}-preview`).elementHandle();
@@ -54,10 +55,19 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
   expect(await mobile().locator("body").evaluate(() => [innerWidth, matchMedia("(max-width: 600px)").matches])).toEqual([720, false]);
   await actions("Mobile"); await page.keyboard.press("Escape");
   await expect(button("Mobile actions")).toBeFocused();
-  await page.getByRole("separator", { name: "Resize chat" }).focus();
-  const height = await page.locator(".chat-dock").evaluate((node) => node.clientHeight);
-  await page.keyboard.press("ArrowUp");
-  expect(await page.locator(".chat-dock").evaluate((node) => node.clientHeight)).toBe(height + 24);
+  await expect(page.getByRole("separator", { name: "Resize chat" })).toHaveCount(0);
+  await expect(page.getByRole("log", { name: "Conversation" })).toHaveCount(0);
+  const dock = await page.locator(".chat-dock").boundingBox();
+  const surface = await page.locator(".canvas-surface").boundingBox();
+  expect(dock!.x).toBeGreaterThan(surface!.x);
+  expect(dock!.x + dock!.width).toBeLessThan(surface!.x + surface!.width);
+  expect(dock!.y + dock!.height).toBeLessThan(surface!.y + surface!.height);
+  expect((await page.getByLabel("Message", { exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(36);
+  await button("Hand").click();
+  await page.getByLabel("Message", { exact: true }).fill("Typing does not pan the canvas.");
+  await page.getByLabel("Message", { exact: true }).press("ArrowLeft");
+  expect(await page.locator(".chat-dock").boundingBox()).toEqual(dock);
+  await button("Hand on").click();
 });
 
 test("1:1 header dragging, pointer cancellation, independent wheel and hand/selection input", async () => {
@@ -136,12 +146,11 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await page.keyboard.press("Enter");
   const refinedChip = page.locator(".selection-chip").first();
   await expect(refinedChip).toContainText("Increment proof counter");
-  await refinedChip.getByRole("button", { name: "Inspect" }).click();
-  await expect(page.getByLabel(/Selection details/)).toContainText("DOM ancestry");
-  await expect(page.getByLabel(/Selection details/)).toContainText("<button>");
-  await expect(page.getByLabel(/Selection details/)).toContainText("React ownership");
-  await expect(page.getByLabel(/Selection details/)).toContainText("component-owner: ProofCard");
-  await expect(page.getByLabel(/Selection details/)).not.toContainText("component-owner: path");
+  const refined = await latestSelection(page);
+  expect(refined.domAncestry.some(entry => entry.tag === "button")).toBe(true);
+  expect(refined.componentOwners.some(owner => owner.componentName === "ProofCard")).toBe(true);
+  expect(refined.componentOwners.some(owner => owner.componentName === "path")).toBe(false);
+  await expect(refinedChip.getByRole("button")).toHaveCount(1);
   await expect(desktop().getByTestId("click-count")).toContainText("0");
   await button("Select in Desktop").click();
   await refinedChip.getByRole("button", { name: /Remove selection/ }).click();
@@ -163,9 +172,9 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   }
   await button("Select in Desktop").click();
   await desktop().getByTestId("unsupported-canvas").click();
-  await expect(page.locator(".selection-chip").first()).toContainText("Unsupported source");
-  await page.locator(".selection-chip").first().getByRole("button", { name: "Inspect" }).click();
-  await expect(page.getByLabel(/Selection details/)).toContainText("Canvas/WebGL pixels");
+  const unsupported = await latestSelection(page);
+  expect(unsupported.support.status).toBe("unsupported");
+  expect(unsupported.support.reason).toContain("Canvas/WebGL pixels");
   await button("Select in Desktop").click();
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
@@ -184,15 +193,15 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await desktop().getByTestId("identity-alpha").click();
   await button("Select in Desktop").click();
   await desktop().getByRole("button", { name: "Reorder retained items" }).click();
-  await page.locator(".selection-chip").first().getByRole("button", { name: "Revalidate" }).click();
+  expect(await revalidateSelection(page)).toBe("valid");
   await expect(page.locator(".selection-chip").first()).toHaveClass(/current/);
   await desktop().getByRole("button", { name: "Remount identical items" }).click();
-  await page.locator(".selection-chip").first().getByRole("button", { name: "Revalidate" }).click();
+  expect(await revalidateSelection(page)).toBe("stale");
   await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
   await page.getByLabel("Message", { exact: true }).fill("Do not send stale context");
   await expect(button("Send")).toBeDisabled();
   await expect(page.locator(".selection-chip").first()).toHaveClass(/stale/);
-  await expect(page.getByRole("log")).not.toContainText("Do not send stale context");
+  await expect(page.getByRole("log")).toHaveCount(0);
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
   const secret = "never-serialize-this-value";
@@ -202,26 +211,28 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await button("Select in Desktop").click();
   await desktop().getByLabel("Persistent note").click();
   let chip = page.locator(".selection-chip").first();
-  await chip.getByRole("button", { name: "Inspect" }).click();
-  await expect(page.getByLabel(/Selection details/)).toContainText(/Screenshot crop/);
-  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
-  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+  const inputCapture = await latestSelection(page);
+  expect(inputCapture.screenshot.crop).toBeDefined();
+  expect(JSON.stringify(inputCapture)).not.toContain(secret);
+  expect(JSON.stringify(inputCapture)).toContain("[redacted input]");
   await chip.getByRole("button", { name: /Remove selection/ }).click();
 
   await desktop().getByTestId("editable-secret").click();
   chip = page.locator(".selection-chip").first();
-  await chip.getByRole("button", { name: "Inspect" }).click();
-  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
-  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+  const editableCapture = await latestSelection(page);
+  expect(JSON.stringify(editableCapture)).not.toContain(secret);
+  expect(JSON.stringify(editableCapture)).toContain("[redacted input]");
   await chip.getByRole("button", { name: /Remove selection/ }).click();
 
+  // Removing the final badge intentionally returns focus to the editor.
+  // Move focus back to the canvas before using picker keyboard shortcuts.
+  await page.getByTestId("canvas").focus();
   await desktop().getByTestId("sensitive-parent-label").hover();
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");
-  chip = page.locator(".selection-chip").first();
-  await chip.getByRole("button", { name: "Inspect" }).click();
-  await expect(page.getByLabel(/Selection details/)).not.toContainText(secret);
-  await expect(page.getByLabel(/Selection details/)).toContainText("[redacted input]");
+  const parentCapture = await latestSelection(page);
+  expect(JSON.stringify(parentCapture)).not.toContain(secret);
+  expect(JSON.stringify(parentCapture)).toContain("[redacted input]");
 });
 
 test("linked client/document routes arrive once; unlink/copy, POST and auth isolation", async () => {
@@ -299,8 +310,8 @@ test("SPA route changes invalidate only that preview's selections and require a 
     await expect(page.locator(".selection-chip")).toHaveCount(side === "Desktop" ? 2 : 1);
   }
   await button("Select in Desktop").click();
-  const sourceChip = page.locator(".selection-chip").filter({ hasText: /^desktop/ });
-  const peerChip = page.locator(".selection-chip").filter({ hasText: /^mobile/ });
+  const sourceChip = page.locator('.selection-chip[data-selection-preview="desktop"]');
+  const peerChip = page.locator('.selection-chip[data-selection-preview="mobile"]');
   const marker = await desktop().locator("body").evaluate(() => {
     document.body.dataset.instance = crypto.randomUUID();
     history.replaceState({ local: true }, "", location.href);
