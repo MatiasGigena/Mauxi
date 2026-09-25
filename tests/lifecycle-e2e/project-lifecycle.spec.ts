@@ -67,12 +67,11 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
   await page.getByLabel("Width", { exact: true }).fill("420");
   await page.getByRole("button", { name: "Apply viewport", exact: true }).click();
-  await page.getByRole("separator", { name: "Resize chat" }).focus();
-  await page.keyboard.press("ArrowUp");
+  await expect(page.getByRole("separator", { name: "Resize chat" })).toHaveCount(0);
   await page.getByRole("button", { name: "Focus Mobile", exact: true }).click();
   await expect.poll(() => page.evaluate(async () => (await window.mauxi!.getBootstrap()).active?.canvas?.focus?.previewId)).toBe("mobile");
   const saved = await page.evaluate(async () => (await window.mauxi!.getBootstrap()).active!.canvas!);
-  expect(saved).toMatchObject({ linked: false, chatHeight: 232, boards: { mobile: { width: 420 } } });
+  expect(saved).toMatchObject({ linked: false, chatHeight: 208, boards: { mobile: { width: 420 } } });
 
   await writeFile(configPath, `${await readFile(configPath, "utf8")}\n// concurrent user edit kept by lifecycle e2e\n`);
   const welcomeWindow = application.waitForEvent("window");

@@ -206,12 +206,11 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             await page.mouse.click(frameBox!.x + target.x * frameBox!.width / target.width, frameBox!.y + target.y * frameBox!.height / target.height);
             await expect(page.locator(".selection-chip")).toHaveCount(side === "desktop" ? 1 : 2);
             await expect(frame.getByTestId("click-count")).toContainText("0");
-            const chip = page.locator(".selection-chip").filter({ has: page.locator(".preview-pill", { hasText: new RegExp(`^${side}$`) }) });
-            await expect(chip).toContainText("verified JSX");
-            await chip.getByRole("button", { name: "Inspect", exact: true }).click();
-            await expect(page.getByLabel(/Selection details/)).toContainText(`${workspaceId} · ${side}`);
-            await expect(page.getByLabel(/Selection details/)).toContainText("attached to the next request");
-            await chip.getByRole("button", { name: "Inspect", exact: true }).click();
+            const chip = page.locator(`.selection-chip[data-selection-preview="${side}"]`);
+            await expect(chip).toHaveCount(1);
+            await expect(chip.getByRole("button", { name: /Remove selection/ })).toBeVisible();
+            // Provenance and crop association are checked below in the actual
+            // provider request, rather than through removed debug controls.
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
           }
           await expect(page.locator(".selection-chip")).toHaveCount(2);
