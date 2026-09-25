@@ -19,18 +19,20 @@ button { border: 0; color: inherit; cursor: pointer; } button:active:not(:disabl
 .launch-logo { display: block; width: min(250px, 82vw); height: auto; }
 .launch-entry { max-width: 520px; text-align: center; }
 .launch-entry .recovery-warning, .launch-entry .diagnostic { margin-top: 16px; text-align: left; }
-:is(.launch-entry, .confirmation-actions) .primary { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 9px; overflow: hidden; padding: 11px 22px; background: #181b22; color: #fff; font-size: 13px; box-shadow: 0 6px 18px rgba(24,27,34,.18); animation: launch-enter 240ms 70ms cubic-bezier(.23,1,.32,1) backwards; transition: transform 140ms cubic-bezier(.23,1,.32,1); }
-:is(.launch-entry, .confirmation-actions) .primary::before { content: ""; position: absolute; top: 50%; left: 50%; width: 200%; aspect-ratio: 1; background: conic-gradient(transparent 0deg 220deg, #218f90 238deg, #f4785d 265deg, #ffc870 292deg, transparent 312deg 360deg); transform: translate(-50%, -50%) rotate(0deg); animation: launch-border-spin 2.2s linear infinite; pointer-events: none; }
-:is(.launch-entry, .confirmation-actions) .primary::after { content: ""; position: absolute; inset: 2px; border-radius: 7px; background: #181b22; pointer-events: none; }
-:is(.launch-entry, .confirmation-actions) .primary > svg, :is(.launch-entry, .confirmation-actions) .primary > span { position: relative; z-index: 1; }
+:is(.launch-entry, .confirmation-actions, .composer) .primary { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 9px; overflow: hidden; padding: 11px 22px; background: #181b22; color: #fff; font-size: 13px; box-shadow: 0 6px 18px rgba(24,27,34,.18); animation: launch-enter 240ms 70ms cubic-bezier(.23,1,.32,1) backwards; transition: transform 140ms cubic-bezier(.23,1,.32,1); }
+:is(.launch-entry, .confirmation-actions, .composer) .primary::before { content: ""; position: absolute; top: 50%; left: 50%; width: 200%; aspect-ratio: 1; background: conic-gradient(transparent 0deg 220deg, #218f90 238deg, #f4785d 265deg, #ffc870 292deg, transparent 312deg 360deg); transform: translate(-50%, -50%) rotate(0deg); animation: launch-border-spin 2.2s linear infinite; pointer-events: none; }
+:is(.launch-entry, .confirmation-actions, .composer) .primary::after { content: ""; position: absolute; inset: 2px; border-radius: 7px; background: #181b22; pointer-events: none; }
+:is(.launch-entry, .confirmation-actions, .composer) .primary > svg, :is(.launch-entry, .confirmation-actions, .composer) .primary > span { position: relative; z-index: 1; }
+.composer .primary { animation: none; white-space: nowrap; }
+.composer .primary:disabled::before { animation-play-state: paused; }
 @keyframes launch-border-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 @media (hover: hover) and (pointer: fine) {
-  :is(.launch-entry, .confirmation-actions) .primary:hover:not(:disabled) { background: #292c34; transform: translateY(-2px); }
-  :is(.launch-entry, .confirmation-actions) .primary:hover:not(:disabled)::after { background: #292c34; }
+  :is(.launch-entry, .confirmation-actions, .composer) .primary:hover:not(:disabled) { background: #292c34; transform: translateY(-2px); }
+  :is(.launch-entry, .confirmation-actions, .composer) .primary:hover:not(:disabled)::after { background: #292c34; }
 }
-:is(.launch-entry, .confirmation-actions) .primary:active:not(:disabled) { background: #101218; transform: scale(.97); }
-:is(.launch-entry, .confirmation-actions) .primary:active:not(:disabled)::after { background: #101218; }
-:is(.launch-entry, .confirmation-actions) .primary:focus-visible { outline-color: #218f90; }
+:is(.launch-entry, .confirmation-actions, .composer) .primary:active:not(:disabled) { background: #101218; transform: scale(.97); }
+:is(.launch-entry, .confirmation-actions, .composer) .primary:active:not(:disabled)::after { background: #101218; }
+:is(.launch-entry, .confirmation-actions, .composer) .primary:focus-visible { outline-color: #218f90; }
 .launch-setup { width: 100%; padding-bottom: 40px; }
 .primary { padding: 9px 15px; border-radius: 9px; background: #5f54d4; color: white; font-size: 12px; font-weight: 700; box-shadow: 0 4px 12px rgba(95,84,212,.23); }.primary:disabled, button:disabled { opacity: .48; cursor: default; transform: none; }
 .confirmation-actions > button { padding: 8px 11px; border-radius: 8px; background: #e9e8e5; font-size: 11px; font-weight: 650; }
@@ -39,5 +41,5 @@ button { border: 0; color: inherit; cursor: pointer; } button:active:not(:disabl
 .confirmation-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 8px; }
 .recovery-warning { margin-bottom: 16px; padding: 12px; border-radius: 10px; background: #fff4df; color: #78531d; font-size: 11px; }.recovery-warning p { margin: 5px 0 0; }.floating-error { position: fixed; z-index: 100; right: 16px; bottom: 180px; max-width: 480px; padding: 11px 13px; border-radius: 10px; background: #8f3934; color: white; box-shadow: 0 10px 30px rgba(30,20,20,.2); font-size: 11px; }.log-drawer { position: fixed; z-index: 90; right: 16px; bottom: 180px; width: min(620px, calc(100vw - 32px)); padding: 10px; border: 1px solid #d2cfca; border-radius: 12px; background: #fafaf9; box-shadow: 0 18px 50px rgba(30,28,25,.18); }.log-drawer summary { cursor: pointer; font-size: 11px; font-weight: 700; }.log-drawer pre { margin-top: 8px; }
 :focus-visible { outline: 2px solid #6558db; outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } .launch-entry .primary:hover:not(:disabled), .launch-entry .primary:active:not(:disabled), .confirmation-actions .primary:hover:not(:disabled), .confirmation-actions .primary:active:not(:disabled) { transform: none; } }
-@media (prefers-reduced-transparency: reduce) { .topbar, .chat-dock { background: #fafaf9; backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } .launch-entry .primary:hover:not(:disabled), .launch-entry .primary:active:not(:disabled), .confirmation-actions .primary:hover:not(:disabled), .confirmation-actions .primary:active:not(:disabled), .composer .primary:hover:not(:disabled), .composer .primary:active:not(:disabled) { transform: none; } }
+@media (prefers-reduced-transparency: reduce) { .topbar, .chat-surface { background: #fafaf9; backdrop-filter: none; } }

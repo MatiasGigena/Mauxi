@@ -140,7 +140,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
           screenshot: { status: "pending", crop: message.capture.screenshot.crop },
         };
         if (capture.documentGeneration !== message.generation || projectRoute(capture.url, origin) !== runtimeRef.current[id].route) return;
-        setSelections((items) => [{ capture, status: "current" as const }, ...items].slice(0, 8));
+        setSelections((items) => [{ capture, status: "current" as const, interaction: message.interaction }, ...items].slice(0, 8));
         if (capture.source.filePath && capture.source.ownership !== "library" && window.mauxi) {
           const input = {
             hint: capture.source.filePath, lineNumber: capture.source.lineNumber, columnNumber: capture.source.columnNumber,
@@ -368,6 +368,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       }} />}
       <div className="connection"><span className={allReady && !serverFailed ? "online" : ""} aria-hidden="true">●</span><span className="status-text" role="status" title={`${active?.statusDetail ?? bridgeDetail}\n${notice}`}>{statusText}</span>{active && <button onClick={() => { void persist(layoutRef.current).then(onClose); }}>Close project</button>}</div>
     </header>
+    <div className="canvas-surface">
     <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
       onPointerDown={(event) => { if (event.target === event.currentTarget || hand) startDrag(null, event); }}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
@@ -391,7 +392,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock height={layout.chatHeight} onResize={(height) => setLayout((current) => ({ ...current, chatHeight: Math.max(144, Math.min(600, window.innerHeight * .55, height)) }))} workspaceId={active?.workspaceId} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onRevalidate={(item) => { void revalidateSelection(item); }} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    <ChatDock workspaceId={active?.workspaceId} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    </div>
     {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
   </div>;
 }
