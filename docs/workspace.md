@@ -2,16 +2,18 @@
 
 ## Open and close a project
 
-Mauxi opens one local project at a time. **Open Project** statically inspects manifests, lockfiles, workspace declarations, scripts, and Git status without evaluating project configuration.
+Mauxi opens one local project at a time. **Open Project** statically inspects manifests, lockfiles, workspace declarations, scripts, and Git status without evaluating project configuration. The folder picker starts at the last successfully inspected project folder, remembered across restarts. It falls back to your home folder when no location is saved or the saved folder is no longer accessible. Cancelling leaves the saved location unchanged.
 
-1. Use **Configure** to inspect the canonical app root, framework, package manager, exact command and preview URL, and choose the intended app/script when discovery finds several candidates.
+1. Use **Configure** to inspect the canonical app root, framework, package manager, exact command and preview URL, and choose the intended app/script when discovery finds several candidates. **Application and script** is an inline command-only selector; the menu shows each full command without project-name prefixes. Folder paths remain available in option tooltips and accessible labels to distinguish identical commands. Arrow keys, Home/End and typing navigate; Enter selects, Escape dismisses the menu first, and Tab moves on. Technical details fade out in 90ms while the menu is open and fade/rise back in 160ms when it closes, without a layout shift. Keyboard and reduced-motion changes are instant. A single available command remains visible but cannot be changed.
 2. Use **Review** under **Temporary integration** to inspect the proposed file changes. Opening a file focuses its diff; additions are green, removals red. Escape returns to the file list, then to the setup overview.
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
 4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied, Mauxi chooses a free port and leaves the existing server alone. Mauxi waits for Vite to serve the instrumented HTML after configuration reload.
 5. Wait for both preview bridges, not just HTTP readiness.
 6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
 
-**Not this project?** changes to **Choose another** on hover (or keyboard focus) and reopens Electron’s native folder dialog. Cancelling preserves the current project and selected script. There is no browser upload or prototype picker. Configure, Review and file disclosures expand inline with reversible motion; keyboard activation is immediate and reduced motion uses a short fade. Each new setup view enters with a subtle 290ms stagger (heading, options, actions), without replaying on plan changes or cancelled selection. Reduced motion uses a simultaneous 120ms fade.
+Configure and Review keep their action icons visible and reveal their labels on row hover or keyboard focus, without a filled background. Labels stay visible while expanded and on touch devices; keyboard reveals are instant, and reduced motion removes the small horizontal movement.
+
+**Not this project?** changes to **Choose another** on hover (or keyboard focus) and reopens Electron’s native folder dialog. Cancelling preserves the current project and selected script. There is no browser upload or prototype picker. Configure, Review and file disclosures expand inline with reversible motion; keyboard activation is immediate and reduced motion uses a short fade. Each new setup view enters with a subtle 280ms sequence (logo first, then heading, options, actions; 200ms fade-and-rise with 20ms staggering), without replaying on plan changes or cancelled selection. Reduced motion uses a simultaneous 120ms fade.
 
 Saved setup only preselects a later confirmation; it does not automatically rerun commands. Temporary integration is journaled before mutation. Cleanup preserves changed files, unrelated dirty/untracked work, and the Git index. Unfinished setup/cleanup is retried on next launch, and conflicting artifacts are surfaced rather than overwritten. Unfinished journals are never automatically evicted; 64 unfinished valid journals block new setup.
 
