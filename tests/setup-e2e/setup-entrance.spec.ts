@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { discovery, mockDesktop } from "./fixtures";
+import { discovery, mockDesktop, selectScript } from "./fixtures";
 
 async function captureEntrance(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
@@ -21,27 +21,30 @@ test("setup enters once with a short stagger, without layout shift or replay on 
   await captureEntrance(page);
   const entry = await page.evaluate(() => document.getAnimations().filter(a => a.id === "setup-entrance").map(a => ({
     duration: a.effect!.getTiming().duration, delay: a.effect!.getTiming().delay,
+    target: ((a.effect as KeyframeEffect).target as HTMLElement).className,
     frames: (a.effect as KeyframeEffect).getKeyframes(),
   })));
-  expect(entry).toHaveLength(4);
-  expect(entry.map(a => a.delay)).toEqual([0, 30, 60, 90]);
+  expect(entry).toHaveLength(5);
+  expect(entry.map(a => a.target)).toEqual(["launch-brand setup-brand", "guided-intro", "configure-trigger", "guided-integration", "confirmation-actions"]);
+  expect(entry.map(a => a.delay)).toEqual([0, 20, 40, 60, 80]);
   expect(entry.every(a => Number(a.duration) + (a.delay ?? 0) < 300)).toBe(true);
   expect(entry.every(a => a.frames[0].opacity === "0" && a.frames[1].opacity === "1")).toBe(true);
   expect(entry.every(a => !a.frames.some(frame => "height" in frame || "width" in frame || "margin" in frame))).toBe(true);
   const height = await page.locator(".project-setup").evaluate(node => (node as HTMLElement).offsetHeight);
   await page.evaluate(() => document.getAnimations().filter(a => a.id === "setup-entrance").forEach(a => { a.currentTime = 120; }));
-  const opacities = await page.locator(".guided-intro, .configure-trigger, .guided-integration, .confirmation-actions").evaluateAll(nodes => nodes.map(node => Number(getComputedStyle(node).opacity)));
+  const opacities = await page.locator(".launch-brand, .guided-intro, .configure-trigger, .guided-integration, .confirmation-actions").evaluateAll(nodes => nodes.map(node => Number(getComputedStyle(node).opacity)));
   expect(opacities.every(value => value > 0 && value < 1)).toBe(true);
   expect(opacities[0]).toBeGreaterThan(opacities[1]);
   expect(opacities[1]).toBeGreaterThan(opacities[2]);
   expect(opacities[2]).toBeGreaterThan(opacities[3]);
+  expect(opacities[3]).toBeGreaterThan(opacities[4]);
   await page.screenshot({ path: testInfo.outputPath("entry-midpoint.png") });
   await page.evaluate(() => document.getAnimations().filter(a => a.id === "setup-entrance").forEach(a => a.finish()));
   await page.waitForFunction(() => !document.getAnimations().some(a => a.id === "setup-entrance"));
   expect(await page.locator(".project-setup").evaluate(node => (node as HTMLElement).offsetHeight)).toBe(height);
   const starts = await page.evaluate(() => (window as any).entranceStarts);
   await page.locator(".configure-trigger").click();
-  await page.getByLabel("Application and script").selectOption("next-start");
+  await selectScript(page, "pnpm run start");
   await page.keyboard.press("Escape");
   await page.locator(".review-trigger").click();
   await page.locator(".guided-file-trigger").click();
@@ -75,6 +78,7 @@ test("entry can be interrupted immediately by keyboard or pointer disclosures", 
   await page.locator(".configure-trigger").focus();
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => document.getAnimations().some(a => a.id === "setup-entrance"))).toBe(false);
+  await expect(page.locator(".launch-brand")).toHaveCSS("opacity", "1");
   await expect(page.locator(".guided-intro")).toHaveCSS("opacity", "1");
   await expect(page.locator(".guided-inline-config")).toHaveCSS("opacity", "1");
 });
@@ -83,7 +87,7 @@ test("reduced motion uses a simultaneous fade without translation or stagger", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await captureEntrance(page);
   const entry = await page.evaluate(() => document.getAnimations().filter(a => a.id === "setup-entrance").map(a => ({ duration: a.effect!.getTiming().duration, delay: a.effect!.getTiming().delay, frames: (a.effect as KeyframeEffect).getKeyframes() })));
-  expect(entry).toHaveLength(4);
+  expect(entry).toHaveLength(5);
   expect(entry.every(a => a.duration === 120 && a.delay === 0)).toBe(true);
   expect(entry.every(a => a.frames.every(frame => !("transform" in frame)))).toBe(true);
   await page.emulateMedia({ reducedMotion: "no-preference" });

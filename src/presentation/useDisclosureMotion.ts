@@ -38,7 +38,7 @@ export function useDisclosureMotion() {
     nodes.forEach((node, index) => {
       const frames: Keyframe[] = [{ opacity: 0 }, { opacity: 1 }];
       if (!reduce) { frames[0].transform = "translateY(8px)"; frames[1].transform = "translateY(0)"; }
-      animate(node, frames, { id: "setup-entrance", duration: reduce ? 120 : 200, delay: reduce ? 0 : index * 30, easing: easeOut, fill: "backwards" });
+      animate(node, frames, { id: "setup-entrance", duration: reduce ? 120 : 200, delay: reduce ? 0 : index * 20, easing: easeOut, fill: "backwards" });
     });
   }
 

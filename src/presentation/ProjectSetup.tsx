@@ -1,7 +1,8 @@
-import { useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { ArrowRight, ArrowUpRight, ChevronDown, Plug, Settings2 } from "lucide-react";
 import type { LaunchPlan, ProjectDiscovery } from "../application/project-contract";
 import { IntegrationChanges } from "./IntegrationChanges";
+import { ScriptSelect } from "./ScriptSelect";
 import { useDisclosureMotion } from "./useDisclosureMotion";
 
 interface ProjectSetupProps {
@@ -26,6 +27,8 @@ export function integrationSummary(plan: LaunchPlan): string {
 
 export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProject, onConfirm }: ProjectSetupProps) {
   const [view, setView] = useState<View>("overview");
+  const [selectorState, setSelectorState] = useState({ open: false, keyboard: false });
+  const onSelectorOpenChange = useCallback((open: boolean, keyboard: boolean) => setSelectorState({ open, keyboard }), []);
   const root = useRef<HTMLDivElement>(null);
   const configureTrigger = useRef<HTMLButtonElement>(null);
   const reviewTrigger = useRef<HTMLButtonElement>(null);
@@ -42,7 +45,8 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
   // App keys this component by discoveryId: animate only on entering a new setup,
   // not on plan changes, disclosures, busy state changes, or a cancelled picker.
   useLayoutEffect(() => {
-    motion.enter([...root.current!.querySelectorAll<HTMLElement>(".guided-intro, .configure-trigger, .guided-integration, .confirmation-actions")]);
+    const screen = root.current!.closest(".launch-screen") ?? root.current!;
+    motion.enter([...screen.querySelectorAll<HTMLElement>(".launch-brand, .guided-intro, .configure-trigger, .guided-integration, .confirmation-actions")]);
     return motion.cancel;
   }, []);
 
@@ -55,7 +59,7 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
     motion.change({
       moving: [...screen.querySelectorAll<HTMLElement>(".launch-brand, .guided-intro, .project-setup .confirmation-actions")],
       layers: [...root.current!.querySelectorAll<HTMLElement>("[data-guided-layer]")],
-      update: () => setView(next), opening: next !== "overview", keyboard,
+      update: () => { setView(next); setSelectorState({ open: false, keyboard }); }, opening: next !== "overview", keyboard,
     });
   }
   function toggle(target: View, event: MouseEvent<HTMLButtonElement>) { transition(view === target ? "overview" : target, event.detail === 0); }
@@ -72,13 +76,13 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
     {plan && <div className="guided-rows">
       <button ref={configureTrigger} className="configure-trigger" data-guided-layer aria-hidden={reviewing} inert={reviewing} aria-expanded={configuring} aria-controls={configId} onClick={event => toggle("configure", event)}>
         <span className="row-icon"><Settings2 size={19} aria-hidden="true" /></span><span><strong>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</strong><small>{plan.commandDisplay}</small></span>
-        <span className="row-link">{configuring ? "Close configuration" : "Configure"}<ChevronDown size={15} aria-hidden="true" /></span>
+        <span className="row-link"><span className="row-link-label">{configuring ? "Close configuration" : "Configure"}</span><ChevronDown size={15} aria-hidden="true" /></span>
       </button>
       <section id={configId} aria-label="Launch configuration" className="guided-inline-config" data-guided-layer aria-hidden={!configuring} inert={!configuring}>
-        <label className="script-control"><span>Application and script</span><select disabled={busy || discovery.plans.length < 2} value={plan.id} onChange={event => { motion.cancel(); onSelectPlan(event.target.value); }}>
-          {discovery.plans.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
-        </select></label>
-        <dl className="technical-details">
+        <ScriptSelect plans={discovery.plans} value={plan.id} disabled={busy || discovery.plans.length < 2}
+          open={selectorState.open && configuring} keyboard={selectorState.keyboard} onOpenChange={onSelectorOpenChange}
+          onChange={id => { motion.cancel(); onSelectPlan(id); }} />
+        <dl className="technical-details" data-selector-open={selectorState.open} data-selector-keyboard={selectorState.keyboard} aria-hidden={selectorState.open} inert={selectorState.open}>
           <div><dt>App root</dt><dd>{plan.appRoot}</dd></div>
           <div><dt>Framework</dt><dd>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</dd></div>
           <div><dt>Package manager</dt><dd>{plan.packageManager}</dd></div>
@@ -88,7 +92,7 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
       </section>
       <div className="guided-integration" data-guided-layer aria-hidden={configuring} inert={configuring}>
         <button ref={reviewTrigger} className="review-trigger" aria-expanded={reviewing} aria-controls={reviewId} onClick={event => toggle("review", event)}>
-          <span className="row-icon"><Plug size={19} aria-hidden="true" /></span><span><strong>Temporary integration</strong><small title={plan.integration.summary}>{integrationSummary(plan)}</small></span><span className="row-link">{reviewing ? "Close review" : "Review"}<ArrowUpRight size={15} aria-hidden="true" /></span>
+          <span className="row-icon"><Plug size={19} aria-hidden="true" /></span><span><strong>Temporary integration</strong><small title={plan.integration.summary}>{integrationSummary(plan)}</small></span><span className="row-link"><span className="row-link-label">{reviewing ? "Close review" : "Review"}</span><ArrowUpRight size={15} aria-hidden="true" /></span>
         </button>
       </div>
       <section id={reviewId} aria-label="Temporary integrations" className="guided-inline-review" data-guided-layer aria-hidden={!reviewing} inert={!reviewing}>

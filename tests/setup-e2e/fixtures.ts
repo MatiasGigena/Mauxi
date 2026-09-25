@@ -24,6 +24,11 @@ export function discovery(): ProjectDiscovery {
   };
 }
 
+export async function selectScript(page: Page, command: string) {
+  await page.getByRole("combobox", { name: /Application and script/ }).click();
+  await page.getByRole("option").filter({ has: page.getByText(command, { exact: true }) }).click();
+}
+
 export async function mockDesktop(page: Page) {
   await page.addInitScript((initial) => {
     const state = { next: initial as typeof initial | null, calls: 0, confirms: [] as unknown[], pending: false, release: null as null | (() => void) };

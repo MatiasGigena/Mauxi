@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { discovery, mockDesktop } from "./fixtures";
+import { discovery, mockDesktop, selectScript } from "./fixtures";
 
 const settle = async (page: import("@playwright/test").Page) => {
   await page.waitForFunction(() => !document.querySelector(".project-setup")!.getAnimations({ subtree: true }).some(animation => animation.effect!.getTiming().iterations !== Infinity && animation.playState === "running"));
@@ -14,7 +14,7 @@ test("approved setup uses actual plans, commands, integration files and native I
   await expect(page.locator(".guided-integration small")).toContainText("1 file modified, 3 artifacts created");
   await expect(page.locator(".review-trigger .lucide-plug")).toHaveCount(1);
   await page.locator(".configure-trigger").click();
-  await page.getByLabel("Application and script").selectOption("next-start");
+  await selectScript(page, "pnpm run start");
   await expect(page.locator(".configure-trigger")).toContainText("pnpm run start");
   await expect(page.locator(".technical-details")).toContainText("http://127.0.0.1:3000");
   await page.keyboard.press("Escape");
@@ -27,7 +27,7 @@ test("approved setup uses actual plans, commands, integration files and native I
   await expect(page.locator(".project-setup")).toHaveAttribute("data-view", "review");
   await page.keyboard.press("Escape");
   await page.locator(".configure-trigger").click();
-  await page.getByLabel("Application and script").selectOption("vite-dev");
+  await selectScript(page, "npm run dev");
   await page.keyboard.press("Escape");
   await page.locator(".review-trigger").click();
   await page.locator(".guided-file-trigger").first().click();
@@ -45,7 +45,7 @@ test("approved setup uses actual plans, commands, integration files and native I
   await page.locator(".review-trigger").click();
 
   await page.locator(".configure-trigger").click();
-  await page.getByLabel("Application and script").selectOption("next-start");
+  await selectScript(page, "pnpm run start");
   await page.keyboard.press("Escape");
   await page.evaluate(() => { (window as any).setupTest.next = null; (window as any).setupTest.pending = true; });
   await page.locator(".change-project").click();
