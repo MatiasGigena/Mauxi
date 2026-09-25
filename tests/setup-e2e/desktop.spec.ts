@@ -2,6 +2,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { selectScript } from "./fixtures";
 
 test("desktop opens the native directory dialog via IPC, inspects real folders and preserves selection on cancel", async ({}, testInfo) => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-setup-desktop-"));
@@ -13,10 +14,11 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     await writeFile(path.join(folder, "vite.config.ts"), 'import { defineConfig } from "vite";\nexport default defineConfig({ plugins: [] });\n');
     await symlink(path.resolve("node_modules"), path.join(folder, "node_modules"), "dir");
   }
-  const application = await electron.launch({
+  const launchOptions = {
     args: [path.resolve("dist-electron/main.js")],
     env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_PROOF: "0", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(temp, "recovery"), XDG_CONFIG_HOME: path.join(temp, "config") },
-  });
+  };
+  let application = await electron.launch(launchOptions);
   try {
     // Substitute only the OS dialog result; preload, trusted IPC, discovery and UI are real.
     await application.evaluate(({ dialog }, folders) => {
@@ -36,9 +38,7 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     await expect(page.locator(".project-path")).toHaveText(first);
     await expect(page.locator(".proto-picker, input[type=file], dialog")).toHaveCount(0);
     await page.locator(".configure-trigger").click();
-    const select = page.getByLabel("Application and script");
-    const hostPlan = await select.locator("option").filter({ hasText: "dev:host" }).getAttribute("value");
-    await select.selectOption(hostPlan!);
+    await selectScript(page, "npm run dev:host");
     await expect(page.locator(".configure-trigger small")).toHaveText("npm run dev:host");
     await page.keyboard.press("Escape");
     await page.locator(".change-project").click();
@@ -57,7 +57,23 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     const calls = await application.evaluate(() => (globalThis as any).setupDialogCalls);
     expect(calls).toHaveLength(3);
     expect(calls.every((call: { properties: string[] }) => JSON.stringify(call.properties) === '["openDirectory"]')).toBe(true);
+    const home = await application.evaluate(({ app }) => app.getPath("home"));
+    expect(calls.map((call: { defaultPath: string }) => call.defaultPath)).toEqual([home, first, first]);
     expect(errors).toEqual([]);
+
+    // A new Electron process must remember the last folder, not the cancelled selection.
+    await application.close();
+    application = await electron.launch(launchOptions);
+    await application.evaluate(({ dialog }) => {
+      Object.assign(dialog, { showOpenDialog: async (_window: unknown, options: unknown) => {
+        (globalThis as any).restartedDialogOptions = options;
+        return { canceled: true, filePaths: [] };
+      } });
+    });
+    const restartedPage = await application.firstWindow();
+    await restartedPage.getByRole("button", { name: "Open Project", exact: true }).click();
+    await expect(restartedPage.getByRole("button", { name: "Open Project", exact: true })).toBeEnabled();
+    expect(await application.evaluate(() => (globalThis as any).restartedDialogOptions.defaultPath)).toBe(second);
   } finally {
     await application.close();
     await rm(temp, { recursive: true, force: true });

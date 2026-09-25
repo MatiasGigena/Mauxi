@@ -16,6 +16,7 @@ import { ElectronVisibleBrowser } from "./visible-browser";
 import { assertBrowserRequest } from "../../application/browser-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
+import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,7 @@ let mainWindow: BrowserWindow | null = null;
 let packagedRenderer: Awaited<ReturnType<typeof startRendererServer>> | undefined;
 let currentWorkspaceRoot: string | null = null;
 let manager: WorkspaceManager;
+let projectPickerLocation: ProjectPickerLocation;
 let quittingAfterCleanup = false;
 let cleanupInProgress = false;
 let agentHost: PiAgentHost | null = null;
@@ -251,9 +253,13 @@ function registerIpc(): void {
 
   ipcMain.handle("mauxi:open-project", async (event) => {
     assertTrustedSender(event);
-    const result = await dialog.showOpenDialog(mainWindow!, { title: "Open a local project", properties: ["openDirectory"] });
+    const defaultPath = await projectPickerLocation.defaultPath(app.getPath("home"));
+    const result = await dialog.showOpenDialog(mainWindow!, { title: "Open a local project", defaultPath, properties: ["openDirectory"] });
     if (result.canceled || !result.filePaths[0]) return null;
-    return manager.inspect(result.filePaths[0]);
+    const discovery = await manager.inspect(result.filePaths[0]);
+    // Preference failures must not prevent opening a project.
+    await projectPickerLocation.remember(discovery.canonicalRoot).catch(error => console.warn("Could not save project picker location", error));
+    return discovery;
   });
 
   ipcMain.handle("mauxi:inspect-project-path", async (event, selectedPath: unknown) => {
@@ -476,6 +482,7 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   if (!process.env.MAUXI_RENDERER_URL) packagedRenderer = await startRendererServer(path.join(__dirname, "../dist/renderer"));
   const userData = app.getPath("userData");
+  projectPickerLocation = new ProjectPickerLocation(path.join(userData, "project-picker.json"));
   manager = new WorkspaceManager(
     new JournalStore(process.env.MAUXI_STATE_DIR ?? path.join(userData, "recovery")),
     new WorkspaceStore(path.join(userData, "workspaces")),
