@@ -77,7 +77,7 @@ export type BridgeToShellMessage =
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-cancelled" | "navigation-blocked"; session: string; generation: string }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "route"; session: string; generation: string; url: string; navigationId: string | null; safe: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "ready"; session: string; generation: string; url: string; viewport: { width: number; height: number }; reactGrab: boolean }
-  | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection"; session: string; generation: string; capture: Omit<SelectionCapture, "previewId" | "workspaceId"> }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection"; session: string; generation: string; interaction?: "pointer" | "keyboard"; capture: Omit<SelectionCapture, "previewId" | "workspaceId"> }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidation"; session: string; generation: string; selectionId: string; status: "valid" | "stale"; reason?: string };
 
 export type ShellToBridgeMessage =
@@ -176,7 +176,8 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
   const support = capture.support as Record<string, unknown> | undefined;
   const ancestry = capture.domAncestry;
   const owners = capture.componentOwners;
-  return boundedString(capture.selectionId, 128)
+  return (record.interaction === undefined || record.interaction === "pointer" || record.interaction === "keyboard")
+    && boundedString(capture.selectionId, 128)
     && boundedString(capture.documentGeneration, 128)
     && boundedString(capture.capturedAt, 64)
     && boundedString(capture.url, 4_096)

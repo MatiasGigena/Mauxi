@@ -66,6 +66,12 @@ describe("selection freshness", () => {
     expect(markSelectionsAfterRouteChange(result, "desktop")[0].requiresRepick).toBe(true);
   });
 
+  it("accepts pointer/keyboard selection origins, but rejects unknown modalities", () => {
+    const message = { protocol: BRIDGE_PROTOCOL, kind: "selection", session: "session", generation: "generation-1", capture: capture() };
+    for (const interaction of [undefined, "pointer", "keyboard"]) expect(isBridgeMessage({ ...message, interaction })).toBe(true);
+    expect(isBridgeMessage({ ...message, interaction: "unknown" })).toBe(false);
+  });
+
   it("rejects malformed bridge payloads before presentation or IPC use", () => {
     const { previewId: _previewId, workspaceId: _workspaceId, ...bridgeCapture } = capture();
     expect(isBridgeMessage({

@@ -264,7 +264,7 @@ function cancelPageAction(event: Event): void {
   if (!selectionEnabled) return;
   event.preventDefault(); event.stopImmediatePropagation(); event.stopPropagation();
 }
-async function commitSelection(target: Element | null, clientX: number, clientY: number): Promise<void> {
+async function commitSelection(target: Element | null, clientX: number, clientY: number, interaction: "pointer" | "keyboard" = "pointer"): Promise<void> {
   if (!selectionEnabled || !target) return;
   const revision = routeRevision;
   const selectionId = crypto.randomUUID();
@@ -275,7 +275,7 @@ async function commitSelection(target: Element | null, clientX: number, clientY:
   // Keep interception active for multi-select, but remove picker chrome so the
   // shell can capture the attached element without the outline in the pixels.
   drawOutline(null);
-  send({ kind: "selection", capture });
+  send({ kind: "selection", capture, interaction });
 }
 
 document.addEventListener("pointermove", (event) => { if (selectionEnabled) updatePoint(event.clientX, event.clientY); }, true);
@@ -333,7 +333,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     } else if (message.action === "overlap-next" || message.action === "overlap-previous") {
       cycleOverlap(message.action === "overlap-next" ? 1 : -1);
     } else {
-      void commitSelection(hoverTarget, pointer.x, pointer.y);
+      void commitSelection(hoverTarget, pointer.x, pointer.y, "keyboard");
     }
     return;
   }
@@ -377,7 +377,7 @@ document.addEventListener("keydown", (event) => {
     drawOutline(refinementPath[refinementIndex] ?? hoverBase); return;
   }
   if (event.key === "[" || event.key === "]") { cancelPageAction(event); cycleOverlap(event.key === "]" ? 1 : -1); return; }
-  if (event.key === "Enter") { cancelPageAction(event); void commitSelection(hoverTarget, pointer.x, pointer.y); return; }
+  if (event.key === "Enter") { cancelPageAction(event); void commitSelection(hoverTarget, pointer.x, pointer.y, "keyboard"); return; }
   if (event.key === " ") cancelPageAction(event);
 }, true);
 document.addEventListener("click", (event) => {

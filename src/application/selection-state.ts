@@ -5,6 +5,7 @@ export type SelectionStatus = "current" | "stale";
 export interface StoredSelection {
   capture: SelectionCapture;
   status: SelectionStatus;
+  interaction?: "pointer" | "keyboard";
   staleReason?: string;
   requiresRepick?: boolean;
 }
