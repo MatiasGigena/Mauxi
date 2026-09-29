@@ -13,7 +13,7 @@
 .connection { margin-left: auto; display: flex; align-items: center; gap: .4rem; min-width: 0; color: #59555f; font-size: .8rem; }
 .connection > span:first-child { color: #97621d; }.connection > .online:first-child { color: #287b49; }
 .status-text { max-width: 17rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.canvas-surface { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 24px; padding-bottom: 32px; background: radial-gradient(#bebbb6 .8px, transparent .8px) 0 0 / 24px 24px, #dedcd8; }
+.canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: radial-gradient(#bebbb6 .8px, transparent .8px) 0 0 / 24px 24px, #dedcd8; }
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
 .hand-mode, .input-shield { cursor: grab; }.dragging, .dragging * { cursor: grabbing !important; }
@@ -41,6 +41,9 @@
 .agent-dialog-backdrop.browser-approval { pointer-events: none; background: transparent; }
 .browser-approval .agent-dialog { pointer-events: auto; max-height: min(60vh, 36rem); }
 .chat-dock { flex: 0 0 auto; position: relative; z-index: 20; width: min(70rem, calc(100% - 48px)); max-height: 55vh; margin-inline: auto; border: 1px solid transparent; border-radius: 20px; }
+/* Chat overlays the preview; its height must never shrink the canvas or
+   trigger a camera refit when selections, settings, or login views change. */
+.canvas-surface > .chat-dock { position: absolute; inset: auto 0 32px; }
 .chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: 0 12px 40px #28252012, 0 2px 6px #28252008; transform-origin: bottom center; pointer-events: none; }
 .chat-content { position: relative; max-height: inherit; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
 .chat-content > .send-error { margin: 0; font-size: 12px; }
@@ -66,14 +69,14 @@
 .send-actions { display: flex; align-items: center; gap: 12px; flex: none; }
 .stop-button { color: #963e37; background: #fbe8e6 !important; }
 @media (max-width: 600px) {
-  .canvas-surface { gap: 16px; padding-bottom: 16px; }
+  .canvas-surface > .chat-dock { bottom: 16px; }
   .chat-dock { width: calc(100% - 32px); border-radius: 16px; }
   .chat-content { padding: 16px; }
   .composer-toolbar { flex-wrap: wrap; }
   .send-actions { margin-left: auto; }
 }
 @media (max-height: 650px) {
-  .canvas-surface { gap: 12px; padding-bottom: 16px; }
+  .canvas-surface > .chat-dock { bottom: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .workspace .model-picker:active:not(:disabled), .workspace .composer-secondary:active:not(:disabled) { transform: none; }
