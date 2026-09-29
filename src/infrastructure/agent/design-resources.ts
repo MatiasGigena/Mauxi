@@ -55,7 +55,10 @@ export class DesignResources {
   private view: ResourceView = { skills: [], diagnostics: [], tools: ["design_read", "design_search", "design_image"] };
   private references: Reference[] = [];
   private configError?: string;
-  constructor(readonly directory: string) {}
+  private bundledCatalog?: ResourceState["catalog"];
+  private bundledCatalogError?: string;
+  constructor(readonly directory: string, private readonly bundledCatalogPath?: string) {}
+  private get catalog(): ResourceState["catalog"] { return this.state.catalog ?? this.bundledCatalog; }
   private skillDirectory(record: SkillRecord): string { return path.join(this.directory, "skills", record.name, record.digest); }
   get loadedSkills(): Skill[] { return [...this.skills]; }
   snapshot(): ResourceView { return structuredClone(this.view); }
@@ -69,6 +72,12 @@ export class DesignResources {
       this.state = candidate;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.configError = `Resource configuration could not be loaded. Repair resources.json before importing: ${String(error)}`;
+    }
+    // App-owned references need no setup. Never replace an approved catalog,
+    // override its disabled state, or bypass a corrupt private configuration.
+    if (!this.configError && !this.state.catalog && this.bundledCatalogPath) {
+      try { this.bundledCatalog = await this.prepareCatalog(this.bundledCatalogPath); }
+      catch (error) { this.bundledCatalogError = `Bundled visual library could not be loaded: ${String(error)}`; }
     }
     await this.reload();
   }
@@ -88,7 +97,7 @@ export class DesignResources {
     const skill = parsed.skills[0];
     if (!skill || parsed.diagnostics.length || parsed.skills.length !== 1) throw new Error(`Invalid skill: ${parsed.diagnostics.map((d) => d.message).join("; ")}`);
     if (!DESIGN_SKILLS.includes(skill.name as typeof DESIGN_SKILLS[number])) throw new Error("This skill is not in the reviewed initial pack. Only apple-design, mobile-native, emil-design-eng and prototype can be imported.");
-    if (this.state.skills.some((item) => item.name === skill.name)) throw new Error(`Skill ${skill.name} is already imported. Disable it in settings; duplicate imports are not loaded.`);
+    if (this.state.skills.some((item) => item.name === skill.name)) throw new Error(`Skill ${skill.name} is already imported. Duplicate imports are not loaded.`);
     const frontmatter = /^---\r?\n[\s\S]*?\r?\n---/.exec(original)?.[0];
     if (!frontmatter) throw new Error("Skill frontmatter is missing.");
     let normalized = original.replace(frontmatter, frontmatter.replace(/^disable-model-invocation:.*\r?\n/gm, ""));
@@ -141,7 +150,7 @@ export class DesignResources {
   }
   async reload(): Promise<void> {
     this.skills = []; this.references = [];
-    this.view = { skills: [], diagnostics: this.configError ? [this.configError] : [], tools: ["design_read", "design_search", "design_image"] };
+    this.view = { skills: [], diagnostics: [this.configError, this.bundledCatalogError].filter((error): error is string => !!error), tools: ["design_read", "design_search", "design_image"] };
     for (const record of this.state.skills) {
       try {
         for (const [file, digest] of Object.entries(record.files)) {
@@ -153,7 +162,7 @@ export class DesignResources {
         this.view.skills.push({ ...record, loaded: record.enabled, description: result.skills[0].description });
       } catch (error) { this.view.skills.push({ ...record, loaded: false, error: String(error) }); }
     }
-    const catalog = this.state.catalog;
+    const catalog = this.catalog;
     if (catalog) {
       this.view.catalog = { path: catalog.path, enabled: catalog.enabled, count: 0 };
       if (catalog.enabled) try {
@@ -165,7 +174,7 @@ export class DesignResources {
   }
   async readSkill(name: string, file = "SKILL.md"): Promise<string> {
     const record = this.state.skills.find((item) => item.name === name && item.enabled);
-    if (!record || !this.skills.some((skill) => skill.name === name)) throw new Error(`Guidance ${name} is unavailable or disabled. Import/enable it in settings.`);
+    if (!record || !this.skills.some((skill) => skill.name === name)) throw new Error(`Guidance ${name} is unavailable or disabled. No approved enabled copy is available.`);
     if (!relativeMarkdown(file) || !record.files[file]) throw new Error("Only reviewed Markdown files can be read. Executable resources and terminal UI are unsupported.");
     const bytes = await boundedFile(path.join(this.skillDirectory(record), file), MAX_MARKDOWN, this.skillDirectory(record));
     if (hash(bytes) !== record.files[file]) throw new Error("Guidance changed since approval; reading was refused.");
@@ -173,7 +182,7 @@ export class DesignResources {
   }
   async guidance(text: string, mobile = false): Promise<string> {
     const explicit = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];
-    if (explicit && !this.skills.some((skill) => skill.name === explicit)) throw new Error(`Guidance ${explicit} is unavailable. Import and enable a reviewed skill in settings.`);
+    if (explicit && !this.skills.some((skill) => skill.name === explicit)) throw new Error(`Guidance ${explicit} is unavailable. No approved enabled copy is available.`);
     const names = classifyDesignRequest(text, mobile).filter((name) => this.skills.some((skill) => skill.name === name));
     if (!names.length) return "";
     const prefix = `${GUIDANCE_MARKER}\nUse the following loaded guidance for this request, subject to host safety and target-project conventions. Do not narrate activation.\n`;
@@ -189,7 +198,7 @@ export class DesignResources {
       for (const file of files) {
         const body = `Guidance: ${name}\nFile: ${file}\n${await this.readSkill(name, file)}`;
         bytes += Buffer.byteLength(body) + (bodies.length ? 2 : 0);
-        if (bytes > 300_000) throw new Error("Selected guidance exceeds the 300,000-byte request budget. Disable unrelated guidance in settings or split this request; no guidance was sent.");
+        if (bytes > 300_000) throw new Error("Selected guidance exceeds the 300,000-byte request budget. Split this request; no guidance was sent.");
         bodies.push(body);
       }
     }
@@ -212,7 +221,7 @@ export class DesignResources {
     });
   }
   search(query: string, viewport: "desktop" | "mobile" = "desktop"): Array<Reference & { score: number }> {
-    if (!this.state.catalog?.enabled || this.view.catalog?.error) throw new Error("Visual library unavailable. Configure a valid local catalog in settings.");
+    if (!this.catalog?.enabled || this.view.catalog?.error) throw new Error(`Visual library unavailable. ${this.view.catalog?.error ?? this.view.diagnostics.join(" ")}`.trim());
     const expanded = query.toLowerCase().replace(/testimonials?|reviews?/g, "social_proof").replace(/metrics|numbers/g, "stats").replace(/questions/g, "faq").replace(/plans|subscription/g, "pricing").replace(/steps|process/g, "how_it_works");
     const words = [...new Set(expanded.match(/[\p{L}_-]{3,}/gu) ?? [])].filter((word) => !["the", "for", "with", "make", "more", "this", "and", "mobile", "desktop"].includes(word));
     const requestedFamilies = words.filter((word) => ["hero", "pricing", "faq", "feature", "footer", "social_proof", "stats", "how_it_works", "cta", "about", "contact"].includes(word));
@@ -223,10 +232,10 @@ export class DesignResources {
   async image(id: string, viewport: "desktop" | "mobile", supportsImages: boolean): Promise<{ type: "image"; data: string; mimeType: "image/webp" }> {
     if (!supportsImages) throw new Error("This model cannot inspect images. Use catalog text as metadata only, or choose an image-capable model.");
     const reference = this.references.find((item) => item.id === id);
-    if (!this.state.catalog?.enabled || !reference) throw new Error("Unknown or disabled image.");
+    if (!this.catalog?.enabled || !reference) throw new Error("Unknown or disabled image.");
     const field = viewport === "mobile" ? "mobileImagePath" : "imagePath";
     const file = reference[field]; if (!file) throw new Error("No matching viewport image.");
-    const root = path.dirname(this.state.catalog.path);
+    const root = path.dirname(this.catalog.path);
     const bytes = await boundedFile(path.join(root, file), 8 * 1024 * 1024, root);
     if (hash(bytes) !== reference.sha256[field] || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WEBP") throw new Error("Image content is invalid or changed since catalog review.");
     return { type: "image", data: bytes.toString("base64"), mimeType: "image/webp" };

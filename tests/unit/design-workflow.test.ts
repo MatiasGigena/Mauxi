@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 import type { AgentSnapshot } from "../../src/application/agent-contract";
 
-it("runs consented native guidance through the real SDK: automatic/manual, tools, images, isolation, quiet chat and disablement", async () => {
+it("runs the automatic library and approved native guidance through the real SDK without design UI", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-design-workflow-"));
   const project = path.join(root, "project"); const profile = path.join(root, "profile");
   await mkdir(path.join(project, ".pi", "extensions"), { recursive: true }); await mkdir(profile);
@@ -40,7 +40,7 @@ it("runs consented native guidance through the real SDK: automatic/manual, tools
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No server");
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { fake: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "test", api: "openai-completions", models: [{ id: "fake", name: "Fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
-  const host = new PiAgentHost("design", project, profile, path.join(root, "captures"));
+  const host = new PiAgentHost("design", project, profile, path.join(root, "captures"), undefined, undefined, undefined, path.resolve("design-references/library/catalog.json"));
   let latest: AgentSnapshot; let consent = false; let sawApproval = false;
   const off = host.subscribe((event) => {
     if (event.type === "snapshot") latest = event.snapshot;
@@ -55,6 +55,8 @@ it("runs consented native guidance through the real SDK: automatic/manual, tools
   };
   try {
     await host.initialize();
+    expect((await host.snapshot()).resources?.catalog).toMatchObject({ count: 10, enabled: true });
+    expect(sawApproval).toBe(false); // Built-in references require no import or UI interaction.
     const source = path.join(root, "mobile-native"); await mkdir(source);
     const sourceFile = path.join(source, "SKILL.md");
     const original = "---\nname: mobile-native\ndescription: Mobile layout guidance\ndisable-model-invocation: true\n---\nUNIQUE_LOADED_BODY: Preserve the project tokens and never disable zoom.\nSee [details](DETAILS.md).\n";
@@ -64,7 +66,6 @@ it("runs consented native guidance through the real SDK: automatic/manual, tools
     expect((await host.snapshot()).resources?.skills).toHaveLength(0);
     consent = true;
     await host.importResource({ workspaceId: "design", kind: "skill", path: sourceFile });
-    await host.importResource({ workspaceId: "design", kind: "catalog", path: path.resolve("design-references/library/catalog.json") });
     expect(sawApproval).toBe(true);
     const replacementDirectory = path.join(root, "replacement"); await mkdir(replacementDirectory);
     const catalogPath = path.resolve("design-references/library/catalog.json");
@@ -80,6 +81,9 @@ it("runs consented native guidance through the real SDK: automatic/manual, tools
     await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });
     await host.send({ workspaceId: "design", text: "Improve mobile hero; inspect examples", behavior: "prompt", selections: [] });
     await waitIdle();
+    expect(JSON.stringify(requests[0].tools)).toContain("design_search");
+    expect(JSON.stringify(requests[0].tools)).toContain("design_image");
+    expect(JSON.stringify(requests[0].tools)).toContain("design_read");
     expect(JSON.stringify(requests[0].messages)).toContain("UNIQUE_LOADED_BODY");
     expect(JSON.stringify(requests[0].messages)).toContain("UNIQUE_DEPENDENCY_BODY");
     expect(JSON.stringify(requests[0].messages)).toContain("Preserve the target project's framework");

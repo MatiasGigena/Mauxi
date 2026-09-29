@@ -20,7 +20,7 @@ The AppImage includes Electron and pi's SDK, **not your project's toolchain**. I
 
 Use disposable, trusted copies with non-production data/accounts. Open project → inspect the plan → Confirm & start → Models & providers → configure/select a model → select a preview element → inspect/remove context → send → give agent control for checks → review the actual checks/diff → undo if eligible → close project. Commands and consequential browser interactions require their own approvals. Take back control revokes queued browser actions; Stop also aborts the agent, not an unrelated external server.
 
-Personal design skills/visual catalogs are **not bundled or licensed for redistribution**. Import approved local copies deliberately via [Design guidance](agent.md). Missing guidance is not permission to install packages or claim design quality.
+Design guidance works in the background: the visual reference library is available automatically, and previously approved personal skills continue loading without design-direction controls. Personal skills are not bundled or licensed for redistribution. See [background design guidance](agent.md) for resource trust and verification limits. Missing guidance is not permission to install packages or claim design quality.
 
 ## Known blockers and limits
 

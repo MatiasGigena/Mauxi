@@ -142,6 +142,47 @@ describe("reviewed local design resources", () => {
     await writeFile(file, JSON.stringify({ version: 1, references: [{ ...entry, imagePath: "../private.webp" }] }));
     await expect(resources.prepareCatalog(file)).rejects.toThrow(/path/);
   });
+  it("loads built-in references on a fresh profile without imports and verifies every reviewed image", async () => {
+    const { root } = await setup();
+    const file = path.resolve("design-references/library/catalog.json");
+    const directory = path.join(root, "fresh-profile");
+    const resources = new DesignResources(directory, file);
+    await resources.initialize();
+    expect(resources.snapshot().catalog).toMatchObject({ path: file, count: 10, enabled: true });
+    expect(resources.search("light serif hero", "mobile").length).toBeGreaterThan(0);
+    const entries = JSON.parse(await readFile(file, "utf8")).references;
+    for (const entry of entries.filter((item: { reviewStatus: string }) => item.reviewStatus === "reviewed")) {
+      expect((await resources.image(entry.id, "desktop", true)).data.length).toBeGreaterThan(100);
+      if (entry.mobileImagePath) expect((await resources.image(entry.id, "mobile", true)).data.length).toBeGreaterThan(100);
+    }
+    await expect(readFile(path.join(directory, "resources.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    const reopened = new DesignResources(directory, file); await reopened.initialize();
+    expect(reopened.search("light serif hero", "mobile")).toEqual(resources.search("light serif hero", "mobile"));
+  });
+  it("preserves an approved library and its disabled state instead of replacing it with built-ins", async () => {
+    const { root, resources, source } = await setup();
+    const { file } = await catalog(source);
+    await resources.importCatalog(await resources.prepareCatalog(file));
+    const directory = path.join(root, "profile");
+    const bundled = path.resolve("design-references/library/catalog.json");
+    const reopened = new DesignResources(directory, bundled); await reopened.initialize();
+    expect(reopened.search("pricing")[0].id).toBe("calm-pricing");
+    await reopened.setEnabled("catalog", false);
+    const disabled = new DesignResources(directory, bundled); await disabled.initialize();
+    expect(disabled.snapshot().catalog).toMatchObject({ path: file, enabled: false });
+    expect(() => disabled.search("hero")).toThrow(/unavailable/);
+  });
+  it("does not bypass corrupt private configuration or silently accept missing built-ins", async () => {
+    const { root } = await setup();
+    const directory = path.join(root, "profile");
+    await writeFile(path.join(directory, "resources.json"), "broken");
+    const corrupt = new DesignResources(directory, path.resolve("design-references/library/catalog.json"));
+    await corrupt.initialize();
+    expect(() => corrupt.search("hero")).toThrow(/configuration could not be loaded/);
+    const missing = new DesignResources(path.join(root, "missing-profile"), path.join(root, "catalog.json"));
+    await missing.initialize();
+    expect(() => missing.search("hero")).toThrow(/Bundled visual library could not be loaded/);
+  });
   it("retrieves the actual reviewed repository catalog without reading unindexed directions", async () => {
     const { resources } = await setup();
     await resources.importCatalog(await resources.prepareCatalog(path.resolve("design-references/library/catalog.json")));

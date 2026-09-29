@@ -81,6 +81,7 @@ export interface AgentSnapshot {
   messages: AgentMessageView[];
   tools: AgentToolActivityView[];
   changeSets: AgentChangeSetView[];
+  /** Host diagnostics only; design guidance has no settings UI. */
   resources?: ResourceView;
   runState: AgentRunState;
   queued: { steering: number; followUp: number };

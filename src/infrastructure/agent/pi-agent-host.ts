@@ -202,10 +202,11 @@ export class PiAgentHost {
     private readonly suppliedModelRuntime?: ModelRuntime,
     private readonly browser?: BrowserPort,
     private readonly openAuthUrl?: (url: string) => Promise<void>,
+    bundledCatalogPath?: string,
   ) {
     this.sessionDir = path.join(profileDir, "sessions", workspaceId.replace(/[^a-zA-Z0-9_-]/g, "_"));
     this.captureRoot = path.resolve(captureRoot);
-    this.resources = new DesignResources(path.join(profileDir, "design-resources"));
+    this.resources = new DesignResources(path.join(profileDir, "design-resources"), bundledCatalogPath);
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {
@@ -1022,6 +1023,7 @@ export class PiAgentHost {
     if (this.resourceBusy || this.runtime?.session.isStreaming || !["idle", "error"].includes(this.runState)) throw new Error("Resource settings are available only while idle.");
   }
 
+  // Kept for trusted host integrations; no renderer import/settings surface.
   async importResource(request: ResourceImportRequest): Promise<void> {
     this.assertWorkspace(request.workspaceId); await this.initialize(); this.assertResourceIdle();
     this.resourceBusy = true;

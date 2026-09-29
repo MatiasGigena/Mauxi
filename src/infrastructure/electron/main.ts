@@ -116,7 +116,7 @@ async function activeAgent(): Promise<PiAgentHost> {
       const url = new URL(target);
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
-    });
+    }, path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-references", "library", "catalog.json"));
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
       if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) approvedAuthUrls.add(link.url);
@@ -337,28 +337,6 @@ function registerIpc(): void {
     if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
     if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
     return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
-  });
-
-  ipcMain.handle("mauxi:agent-import-resource", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid resource request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128);
-    if (value.kind !== "skill" && value.kind !== "catalog") throw new Error("Executable imports and terminal UI are unsupported. Choose a reviewed Markdown skill or catalog.");
-    const host = await activeAgent();
-    if (host.workspaceId !== value.workspaceId) throw new Error("Stale resource workspace");
-    const chosen = await dialog.showOpenDialog(mainWindow!, { title: value.kind === "skill" ? "Choose a reviewed SKILL.md" : "Choose library/catalog.json", properties: ["openFile"], filters: [{ name: value.kind === "skill" ? "Markdown" : "Catalog", extensions: [value.kind === "skill" ? "md" : "json"] }] });
-    if (chosen.canceled || !chosen.filePaths[0]) return;
-    await host.importResource({ workspaceId: value.workspaceId, kind: value.kind, path: chosen.filePaths[0] });
-  });
-
-  ipcMain.handle("mauxi:agent-toggle-resource", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid resource toggle");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.name, "resource name", 64);
-    if (typeof value.enabled !== "boolean") throw new Error("Invalid resource enablement");
-    await (await activeAgent()).toggleResource({ workspaceId: value.workspaceId, name: value.name, enabled: value.enabled });
   });
 
   ipcMain.handle("mauxi:agent-bootstrap", async (event) => {

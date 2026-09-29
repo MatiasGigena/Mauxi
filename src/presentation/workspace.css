@@ -101,20 +101,6 @@
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 @media (prefers-contrast: more) { .workspace, .preview-tools { color: #161218; }.topbar, .chat-surface, .selection-chip, .artboard-header, .preview-tools { border-color: #38313e; }.workspace button, .preview-tools button { outline: 1px solid #63576f; } }
 @media (prefers-reduced-transparency: reduce) { .preview-tools::backdrop { background: #dfdbe3; } }
-.resource-settings { margin-top: 1rem; border: 1px solid #d8d4da; border-radius: .65rem; padding: .75rem; }
-.resource-settings > summary { display: flex; justify-content: space-between; gap: .75rem; cursor: pointer; padding: .2rem 0; }
-.resource-settings > summary span, .resource-hint, .resource-row small { color: #625d68; font-size: .75rem; }
-.resource-settings p { line-height: 1.5; }
-.resource-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-.resource-row { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .8rem 0; border-bottom: 1px solid #ded9e1; }
-.resource-row > label { flex: 1; display: flex; align-items: center; gap: .6rem; }
-.resource-row input[type=checkbox] { width: 1.15rem; height: 1.15rem; accent-color: #5c46b6; }
-.resource-row label span, .resource-row small { display: block; }
-.resource-row details, .resource-row > code, .resource-row > p { flex-basis: 100%; }
-.resource-row code, .resource-row small { overflow-wrap: anywhere; }
-.resource-row details { font-size: .75rem; }
-.resource-row summary { cursor: pointer; }
-.resource-row button { min-height: 2.25rem; }
 .agent-dialog-backdrop { z-index: 130; }
 .agent-settings button:focus-visible, .agent-settings summary:focus-visible, .agent-settings input:focus-visible { outline: 2px solid #5c46b6; outline-offset: 3px; }
 /* Camera, focus and resizing are intentionally immediate: there is no animation

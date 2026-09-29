@@ -56,13 +56,12 @@ function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: stri
   </div>;
 }
 
-function AgentSettings({ agent, workspaceId, busy, run, onClose, onInvoke, error }: {
-  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; onClose: () => void; onInvoke: (name: string) => void; error?: string;
+function AgentSettings({ agent, workspaceId, busy, run, onClose, error }: {
+  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; onClose: () => void; error?: string;
 }) {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
   const [rename, setRename] = useState(agent.sessionName ?? "");
   const focusRef = useModalFocus(onClose);
-  const resourceBusy = busy || !["idle", "error"].includes(agent.runState);
   return <div className="agent-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={focusRef} className="agent-settings" role="dialog" aria-modal="true" aria-label="Agent settings">
       <header><div><span className="eyebrow">MAUXI</span><h2>Agent settings</h2></div><button aria-label="Close settings" onClick={onClose}>×</button></header>
@@ -74,15 +73,6 @@ function AgentSettings({ agent, workspaceId, busy, run, onClose, onInvoke, error
       <label><span>Thinking</span><select value={agent.thinkingLevel} disabled={!selected || busy} onChange={(event) => run(() => window.mauxi!.agentSetThinking({ workspaceId, level: event.target.value as AgentSnapshot["thinkingLevel"] }))}>
         {(selected?.thinkingLevels ?? ["off"]).map((level) => <option value={level} key={level}>{level}</option>)}
       </select></label>
-      <details className="resource-settings"><summary><strong>Design guidance</strong><span>{agent.resources?.skills.filter((skill) => skill.loaded).length ?? 0} enabled</span></summary>
-        <p>Local guidance, matched to your request. Your terminal setup stays untouched.</p>
-        <div className="resource-actions"><button disabled={resourceBusy} onClick={() => run(() => window.mauxi!.agentImportResource({ workspaceId, kind: "skill" }))}>Import skill…</button><button disabled={resourceBusy} onClick={() => run(() => window.mauxi!.agentImportResource({ workspaceId, kind: "catalog" }))}>Choose visual library…</button></div>
-        {!agent.resources?.skills.length && <p className="resource-hint">Choose SKILL.md for apple-design, mobile-native, emil-design-eng or prototype. Review local content before approving.</p>}
-        {agent.resources?.skills.map((skill) => <article className="resource-row" key={skill.name}><label><input type="checkbox" checked={skill.enabled} disabled={resourceBusy} onChange={(event) => run(() => window.mauxi!.agentToggleResource({ workspaceId, name: skill.name, enabled: event.target.checked }))} /><span><strong>{skill.name}</strong><small>{skill.error ? "Needs attention" : skill.loaded ? "Ready · automatic" : "Disabled"}</small></span></label><button disabled={resourceBusy || !skill.loaded} onClick={() => onInvoke(skill.name)}>Use once</button><details><summary>Local source & version</summary><code>{skill.source}</code><small>SHA-256 · {skill.digest}</small><p>{skill.description}</p><small>Local-only import · redistribution not approved</small></details>{skill.error && <p role="alert" className="send-error">{skill.error}</p>}</article>)}
-        {agent.resources?.catalog && <article className="resource-row"><label><input type="checkbox" checked={agent.resources.catalog.enabled} disabled={resourceBusy} onChange={(event) => run(() => window.mauxi!.agentToggleResource({ workspaceId, name: "catalog", enabled: event.target.checked }))} /><span><strong>Visual library</strong><small>{agent.resources.catalog.count} reviewed entries</small></span></label><code>{agent.resources.catalog.path}</code>{agent.resources.catalog.error && <p role="alert" className="send-error">{agent.resources.catalog.error}</p>}</article>}
-        {agent.resources?.diagnostics.map((message) => <p className="send-error" role="alert" key={message}>{message}</p>)}
-        <details className="resource-hint"><summary>Tools & limits</summary><p>Host-owned tools: {agent.resources?.tools.join(", ") || "No guidance tools connected"}. Project reads and checkpointed writes are host-owned; commands and installs always need approval.</p><p>Executable extensions, package imports and terminal-only UI are unsupported. No code is loaded by importing Markdown. Disabled guidance can remain in conversation history; start a new conversation to remove that context.</p></details>
-      </details>
       <section className="provider-list"><div className="section-heading"><strong>Providers</strong><button disabled={busy} onClick={() => run(() => window.mauxi!.agentRefreshCatalog(workspaceId))}>Refresh catalog</button></div>
         {agent.providers.map((provider) => <article key={provider.id}><div><strong>{provider.name}</strong><span>{provider.authenticated ? `Connected${provider.authSource ? ` · ${provider.authSource}` : ""}` : "Not connected"}</span></div><div>
           {provider.authenticated && <button disabled={busy} onClick={() => run(() => window.mauxi!.agentLogout({ workspaceId, providerId: provider.id }))}>Log out</button>}
@@ -184,7 +174,7 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
         </div>
       </form>
     </SelectionComposer>
-    {settings && workspaceId && <AgentSettings agent={agent} workspaceId={workspaceId} error={sendError} busy={busy} run={run} onClose={() => setSettings(false)} onInvoke={(name) => { setDraft((current) => `/skill:${name} ${current.replace(/^\/(?:skill:)?[a-z-]+\s*/, "")}`); setSettings(false); requestAnimationFrame(() => document.getElementById("chat-message")?.focus()); }} />}
+    {settings && workspaceId && <AgentSettings agent={agent} workspaceId={workspaceId} error={sendError} busy={busy} run={run} onClose={() => setSettings(false)} />}
     {dialog && workspaceId && <AgentPromptDialog key={dialog.id} workspaceId={workspaceId} dialog={dialog} onClose={() => setDialog(null)} />}
   </>;
 }

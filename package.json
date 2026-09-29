@@ -73,6 +73,13 @@
       "dist-electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "design-references/library",
+        "to": "design-references/library",
+        "filter": ["catalog.json", "images/**/*.webp"]
+      }
+    ],
     "linux": {
       "target": [
         "AppImage"

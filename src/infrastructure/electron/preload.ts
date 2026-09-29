@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserOwner, BrowserState } from "../../application/browser-contract";
-import type { ResourceToggleRequest } from "../../application/design-resource-contract";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest, AgentUndoRequest } from "../../application/agent-contract";
@@ -31,8 +30,6 @@ contextBridge.exposeInMainWorld("mauxi", {
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
   },
-  agentImportResource(input: { workspaceId: string; kind: "skill" | "catalog" }): Promise<void> { return ipcRenderer.invoke("mauxi:agent-import-resource", input); },
-  agentToggleResource(input: ResourceToggleRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-toggle-resource", input); },
   agentBootstrap(): Promise<AgentSnapshot> { return ipcRenderer.invoke("mauxi:agent-bootstrap"); },
   agentLogin(input: AgentLoginRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-login", input); },
   agentLogout(input: { workspaceId: string; providerId: string }): Promise<void> { return ipcRenderer.invoke("mauxi:agent-logout", input); },
