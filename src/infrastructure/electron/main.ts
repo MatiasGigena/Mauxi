@@ -21,6 +21,9 @@ import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
+// Retired shell frames may still have a debounced layout save in flight.
+// They may no longer write state; only that obsolete request is a no-op.
+const retiredCanvasSenders = new WeakMap<Electron.WebContents, Electron.WebFrameMain>();
 let packagedRenderer: Awaited<ReturnType<typeof startRendererServer>> | undefined;
 let currentWorkspaceRoot: string | null = null;
 let manager: WorkspaceManager;
@@ -158,6 +161,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
       ...(partition ? { partition } : {}),
     },
   });
+  if (previous && !previous.isDestroyed()) retiredCanvasSenders.set(previous.webContents, previous.webContents.mainFrame);
   mainWindow = window;
   const activeWorkspace = manager.snapshot().active;
   if (workspaceRoot && activeWorkspace?.projectRoot === workspaceRoot) {
@@ -285,6 +289,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("mauxi:save-canvas", async (event, input: unknown) => {
+    if (event.senderFrame && retiredCanvasSenders.get(event.sender) === event.senderFrame) return;
     assertTrustedSender(event);
     if (!input || typeof input !== "object") throw new Error("Invalid canvas request");
     const value = input as Record<string, unknown>;
