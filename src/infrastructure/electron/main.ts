@@ -112,7 +112,11 @@ async function activeAgent(): Promise<PiAgentHost> {
     await previous?.dispose();
     const userData = app.getPath("userData");
     const captureRoot = process.env.MAUXI_EVIDENCE_DIR ?? path.join(userData, "captures");
-    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, activeBrowser());
+    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, activeBrowser(), async (target) => {
+      const url = new URL(target);
+      if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
+      await shell.openExternal(url.toString());
+    });
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
       if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) approvedAuthUrls.add(link.url);

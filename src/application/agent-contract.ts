@@ -88,11 +88,11 @@ export interface AgentSnapshot {
   error?: { kind: "auth" | "rate-limit" | "catalog" | "capability" | "runtime"; message: string };
 }
 
-export type AgentDialog =
+export type AgentDialog = { links?: Array<{ url: string; label?: string }>; warning?: string } & (
   | { id: string; kind: "text" | "secret" | "manual_code"; title: string; message: string; placeholder?: string }
   | { id: string; kind: "select"; title: string; message: string; options: Array<{ id: string; label: string; description?: string }> }
   | { id: string; kind: "approval"; title: string; message: string; operation: string; cwd: string; warnings: string[] }
-  | { id: string; kind: "info" | "progress"; title: string; message: string; links?: Array<{ url: string; label?: string }>; cancellable?: boolean };
+  | { id: string; kind: "info" | "progress"; title: string; message: string; cancellable?: boolean });
 
 export type AgentEvent =
   | { type: "snapshot"; snapshot: AgentSnapshot }

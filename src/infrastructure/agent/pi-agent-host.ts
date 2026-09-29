@@ -173,6 +173,7 @@ export class PiAgentHost {
   private providers: AgentProviderView[] = [];
   private activities = new Map<string, AgentToolActivityView>();
   private pendingDialogs = new Map<string, PendingDialog>();
+  private loginController?: AbortController;
   private runState: AgentRunState = "idle";
   private status = "Choose a provider and model to begin.";
   private lastError?: AgentSnapshot["error"];
@@ -200,6 +201,7 @@ export class PiAgentHost {
     captureRoot: string,
     private readonly suppliedModelRuntime?: ModelRuntime,
     private readonly browser?: BrowserPort,
+    private readonly openAuthUrl?: (url: string) => Promise<void>,
   ) {
     this.sessionDir = path.join(profileDir, "sessions", workspaceId.replace(/[^a-zA-Z0-9_-]/g, "_"));
     this.captureRoot = path.resolve(captureRoot);
@@ -212,6 +214,7 @@ export class PiAgentHost {
       this.listeners.delete(listener);
       if (!this.listeners.size) {
         this.browser?.revoke("Agent UI disconnected");
+        this.loginController?.abort();
         for (const pending of this.pendingDialogs.values()) pending.reject(new Error("Approval UI disconnected"));
         if (this.runtime?.session.isStreaming) void this.stop(this.workspaceId).catch(() => undefined);
       }
@@ -778,10 +781,9 @@ export class PiAgentHost {
     if (workspaceId !== this.workspaceId) throw new Error("Stale agent workspace");
   }
 
-  private requestDialog(dialog: AgentDialogInput, signal?: AbortSignal): Promise<string> {
+  private requestDialog(dialog: AgentDialogInput, signal?: AbortSignal, id = randomUUID()): Promise<string> {
     if (signal?.aborted) return Promise.reject(new Error("Dialog cancelled"));
     if (!this.listeners.size) return Promise.reject(new Error("No desktop dialog is connected. The operation was not approved."));
-    const id = randomUUID();
     const agentWasRunning = !!this.runtime?.session.isStreaming;
     if (agentWasRunning) { this.runState = "waiting"; this.status = "Waiting for your response…"; this.schedulePublish(); }
     return new Promise((resolve, reject) => {
@@ -818,45 +820,85 @@ export class PiAgentHost {
     const provider = this.modelRuntime!.getProvider(request.providerId);
     if (!provider) throw new Error("Unknown provider.");
     if (request.type === "oauth" ? !provider.auth.oauth : !provider.auth.apiKey?.login) throw new Error("This provider does not support that setup method.");
-    this.status = `Setting up ${provider.name}…`; this.lastError = undefined; await this.publish();
+    if (this.loginController) throw new Error("Provider setup is already in progress. Cancel it before trying again.");
     const controller = new AbortController();
-    const notices = new Set<string>();
-    const dismissNotice = (id: string) => {
-      notices.delete(id); this.pendingDialogs.delete(id);
-      for (const listener of this.listeners) listener({ type: "dialog-dismissed", id });
+    this.loginController = controller;
+    const noticeId = randomUUID();
+    let currentDialog: AgentDialog | undefined;
+    let promptId: string | undefined;
+    let links: AgentDialog["links"];
+    let warning: string | undefined;
+    let deviceMessage: string | undefined;
+    const show = (dialog: AgentDialog) => {
+      if (controller.signal.aborted) return;
+      currentDialog = { ...dialog, links, warning };
+      for (const listener of this.listeners) listener({ type: "dialog", dialog: currentDialog });
     };
+    this.pendingDialogs.set(noticeId, { resolve: () => controller.abort(), reject: () => controller.abort() });
     try {
+      this.status = `Setting up ${provider.name}…`; this.lastError = undefined; await this.publish();
       await this.modelRuntime!.login(request.providerId, request.type, {
         signal: controller.signal,
-        prompt: (prompt) => this.requestDialog({
-          kind: prompt.type,
-          title: provider.name,
-          message: prompt.message,
-          ...(prompt.type === "select" ? { options: [...prompt.options] } : { placeholder: prompt.placeholder }),
-        } as AgentDialogInput, prompt.signal),
-        notify: (event) => {
-          const dialog: AgentDialog = event.type === "auth_url"
-            ? { id: randomUUID(), kind: "info", title: provider.name, message: event.instructions ?? "Continue authentication in your browser.", links: [{ url: event.url, label: "Open sign-in" }], cancellable: true }
-            : event.type === "device_code"
-              ? { id: randomUUID(), kind: "info", title: provider.name, message: `Enter code ${event.userCode} at ${event.verificationUri}`, links: [{ url: event.verificationUri, label: "Open verification page" }], cancellable: true }
-              : { id: randomUUID(), kind: event.type === "progress" ? "progress" : "info", title: provider.name, message: event.message, links: event.type === "info" ? [...(event.links ?? [])] : undefined };
-          if (dialog.cancellable) {
-            notices.add(dialog.id);
-            this.pendingDialogs.set(dialog.id, { resolve: () => dismissNotice(dialog.id), reject: () => { dismissNotice(dialog.id); controller.abort(); } });
+        prompt: async (prompt) => {
+          const id = randomUUID();
+          promptId = id;
+          const dialog = {
+            kind: prompt.type, title: provider.name, message: prompt.message, links, warning,
+            ...(prompt.type === "select" ? { options: [...prompt.options] } : { placeholder: prompt.placeholder }),
+          } as AgentDialogInput;
+          currentDialog = { ...dialog, id } as AgentDialog;
+          // A callback may abort just the manual prompt; cancellation by the
+          // user must instead stop the entire login and its callback server.
+          const signal = prompt.signal ? AbortSignal.any([controller.signal, prompt.signal]) : controller.signal;
+          try { return await this.requestDialog(dialog, signal, id); }
+          catch (error) { if (!prompt.signal?.aborted) controller.abort(); throw error; }
+          finally {
+            if (promptId === id) promptId = undefined;
+            if (currentDialog?.id === id) currentDialog = undefined;
           }
-          for (const listener of this.listeners) listener({ type: "dialog", dialog });
+        },
+        notify: (event) => {
+          if (controller.signal.aborted) return;
+          if (event.type === "auth_url") links = [{ url: event.url, label: "Open sign-in" }];
+          else if (event.type === "device_code") {
+            links = [{ url: event.verificationUri, label: "Open verification page" }];
+            deviceMessage = `Enter code ${event.userCode} at ${event.verificationUri}`;
+          } else if (event.type === "info" && event.links?.length) links = [...event.links];
+          const message = event.type === "auth_url" ? "Complete sign-in in your browser, then return here. If it does not open, use Open sign-in."
+            : event.type === "device_code" ? deviceMessage!
+              : [deviceMessage, event.message].filter(Boolean).join("\n");
+          // Progress must not replace an outstanding input or erase its link.
+          if (promptId && currentDialog) show(currentDialog);
+          else show({ id: noticeId, kind: event.type === "progress" ? "progress" : "info", title: provider.name, message, cancellable: true });
+          if (event.type === "auth_url" && this.openAuthUrl) {
+            void Promise.resolve().then(() => {
+              if (!controller.signal.aborted) return this.openAuthUrl!(event.url);
+            }).catch(() => {
+              warning = "Could not open your default browser. Use Open sign-in to try again.";
+              if (currentDialog) show(currentDialog);
+            });
+          }
         },
       });
       await this.refreshProviderViews();
       this.status = `${provider.name} is connected.`;
     } catch (error) {
-      const cancelled = /cancel|abort/i.test(error instanceof Error ? error.message : String(error));
-      const failure: NonNullable<AgentSnapshot["error"]> = { kind: "auth", message: cancelled ? "Provider setup cancelled." : "Provider setup failed. Check the credential and try again." };
+      const reason = error instanceof Error ? error.message : String(error);
+      const cancelled = controller.signal.aborted || /cancel|abort/i.test(reason);
+      // Do not echo SDK response bodies: token errors can include credentials.
+      const message = /state mismatch/i.test(reason) ? "Sign-in expired or belongs to another attempt. Start again and use the newest browser tab."
+        : /fetch|network|ENOTFOUND|ECONN|timeout/i.test(reason) ? "Could not reach the provider. Check your connection and try again."
+          : /token exchange failed \((\d{3})\)/i.test(reason) ? `The provider rejected sign-in (HTTP ${reason.match(/token exchange failed \((\d{3})\)/i)![1]}). Start a new login attempt.`
+            : "Provider setup failed. Start a new login attempt and try again.";
+      const failure: NonNullable<AgentSnapshot["error"]> = { kind: "auth", message: cancelled ? "Provider setup cancelled." : message };
       this.lastError = failure;
       this.status = failure.message;
       throw new Error(this.status);
     } finally {
-      for (const id of [...notices]) dismissNotice(id);
+      controller.abort();
+      this.pendingDialogs.delete(noticeId);
+      for (const listener of this.listeners) listener({ type: "dialog-dismissed", id: noticeId });
+      if (this.loginController === controller) this.loginController = undefined;
       await this.publish();
     }
   }
@@ -1054,6 +1096,7 @@ export class PiAgentHost {
 
   async dispose(): Promise<void> {
     clearTimeout(this.runDeadline); this.browser?.revoke("Agent disconnected");
+    this.loginController?.abort();
     this.unsubscribe?.(); this.unsubscribe = undefined;
     for (const pending of this.pendingDialogs.values()) pending.reject(new Error("Workspace closed"));
     this.pendingDialogs.clear();
