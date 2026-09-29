@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, Settings2 } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, RefreshCw, Settings2 } from "lucide-react";
 import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
 import { SelectionComposer } from "./SelectionComposer";
@@ -11,15 +11,15 @@ const EMPTY_AGENT: AgentSnapshot = {
   thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Connecting to bundled pi SDK…",
 };
 
-function useModalFocus(onClose: () => void, trap = true) {
+function useModalFocus(onClose: () => void, trap = true, active = true) {
   const ref = useRef<HTMLElement>(null);
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const element = ref.current;
-    if (!element) return;
+    if (!active || !element) return;
     const focusable = () => [...element.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter((node) => node.getClientRects().length);
-    focusable()[0]?.focus();
+    (focusable()[0] ?? element).focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); close.current(); }
       if (event.key !== "Tab" || !trap) return;
@@ -29,64 +29,233 @@ function useModalFocus(onClose: () => void, trap = true) {
       else if (!event.shiftKey && (document.activeElement === last || !element.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
     };
     element.addEventListener("keydown", keydown);
-    return () => { element.removeEventListener("keydown", keydown); previous?.focus(); };
-  }, []);
+    return () => {
+      element.removeEventListener("keydown", keydown);
+      if (previous?.isConnected && !previous.closest("[inert]")) previous.focus({ preventScroll: true });
+    };
+  }, [active]);
   return ref;
 }
 
-function AgentPromptDialog({ workspaceId, dialog, onClose }: { workspaceId: string; dialog: AgentDialog; onClose: () => void }) {
+function AgentPromptDialog({ workspaceId, dialog, onClose, inline = false, active = true, providerLogin = false }: { workspaceId: string; dialog: AgentDialog; onClose: () => void; inline?: boolean; active?: boolean; providerLogin?: boolean }) {
   const [value, setValue] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const answering = useRef(false);
+  useEffect(() => { if (!active) setValue(""); }, [active]);
   const blocking = dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code" || dialog.kind === "select" || dialog.kind === "approval" || ((dialog.kind === "info" || dialog.kind === "progress") && !!dialog.cancellable);
   async function answer(cancelled: boolean, responseValue = value) {
-    if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
-    onClose();
+    if (!active || answering.current) return;
+    answering.current = true; setPending(true); setError("");
+    try {
+      if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
+      setValue("");
+      onClose();
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { answering.current = false; setPending(false); }
   }
   const browserApproval = dialog.kind === "approval" && dialog.title === "Approve browser action";
-  const focusRef = useModalFocus(() => void answer(true), !browserApproval);
-  return <div className={`agent-dialog-backdrop ${browserApproval ? "browser-approval" : ""}`} role="presentation">
-    <section ref={focusRef} className="agent-dialog" role="dialog" aria-modal={!browserApproval} aria-labelledby={`dialog-${dialog.id}`}>
+  const focusRef = useModalFocus(() => void answer(true), !inline && !browserApproval, active);
+  return <div className={inline ? "agent-dialog-inline" : `agent-dialog-backdrop ${browserApproval ? "browser-approval" : ""}`} role="presentation">
+    <section ref={focusRef} className="agent-dialog" tabIndex={-1} role="dialog" aria-modal={!inline && !browserApproval} aria-labelledby={`dialog-${dialog.id}`}>
       <header><h2 id={`dialog-${dialog.id}`}>{dialog.title}</h2>{!blocking && <button aria-label="Close" onClick={onClose}>×</button>}</header>
-      <p>{dialog.message}</p>
-      {dialog.kind === "select" && <div className="dialog-options">{dialog.options.map((option) => <button key={option.id} onClick={() => setValue(option.id)} aria-pressed={value === option.id}><strong>{option.label}</strong>{option.description && <span>{option.description}</span>}</button>)}</div>}
-      {(dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code") && <input autoFocus type={dialog.kind === "secret" ? "password" : "text"} autoComplete="off" placeholder={dialog.placeholder} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && value) void answer(false); }} />}
+      {!(inline && dialog.kind === "select" && (providerLogin || dialog.message.trim() === `Sign in to ${dialog.title}:`)) && <p>{dialog.message}</p>}
+      {(error || dialog.warning) && <p className="send-error" role="alert">{error || dialog.warning}</p>}
+      {dialog.kind === "select" && <div className="dialog-options" role="group" aria-label={dialog.message}>{dialog.options.map((option) => <button type="button" className={inline ? "settings-action login-option" : undefined} key={option.id} disabled={pending} onClick={() => setValue(option.id)} aria-pressed={value === option.id}>
+        {inline ? <><span>{option.label}</span>{value === option.id ? <Check size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}{option.description && <small>{option.description}</small>}</> : <><strong>{option.label}</strong>{option.description && <span>{option.description}</span>}</>}
+      </button>)}</div>}
+      {(dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code") && <input aria-label={dialog.message} readOnly={pending} type={dialog.kind === "secret" ? "password" : "text"} autoComplete="off" placeholder={dialog.placeholder} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && value) { event.preventDefault(); void answer(false); } }} />}
       {dialog.kind === "approval" && <section className="approval-detail"><strong>Exact operation</strong><pre>{dialog.operation}</pre>{dialog.warnings.map((warning) => <p key={warning}>⚠ {warning}</p>)}</section>}
-      {"links" in dialog && dialog.links?.map((link) => <button className="auth-link" key={link.url} onClick={() => void window.mauxi?.openAuthUrl(link.url)}>{link.label ?? "Open in browser"}</button>)}
-      {dialog.kind === "approval" ? <footer><button onClick={() => void answer(true)}>Deny</button><button className="primary" onClick={() => void answer(false, "approve")}>Approve once</button></footer> : blocking && <footer><button onClick={() => void answer(true)}>Cancel</button>{dialog.kind !== "info" && dialog.kind !== "progress" && <button className="primary" disabled={!value} onClick={() => void answer(false)}>Continue</button>}</footer>}
+      {"links" in dialog && dialog.links?.map((link) => <button className={inline ? "settings-action" : "auth-link"} key={link.url} onClick={() => { setError(""); void window.mauxi?.openAuthUrl(link.url).catch(() => setError("Could not open your default browser. Check your system browser settings and try again.")); }}><span>{link.label ?? "Open in browser"}</span>{inline && <ArrowUpRight size={12} aria-hidden="true" />}</button>)}
+      {dialog.kind === "approval" ? <footer><button disabled={pending} onClick={() => void answer(true)}>Deny</button><button className="primary" disabled={pending} onClick={() => void answer(false, "approve")}>Approve once</button></footer> : blocking && <footer className={inline ? "confirmation-actions" : undefined}><button className={inline ? "change-project" : undefined} disabled={pending} onClick={() => void answer(true)}>Cancel</button>{dialog.kind !== "info" && dialog.kind !== "progress" && <button className="primary" disabled={!value || pending} onClick={() => void answer(false)}><span>{pending ? "Continuing…" : "Continue"}</span>{inline && <ArrowUpRight size={16} aria-hidden="true" />}</button>}</footer>}
     </section>
   </div>;
 }
 
-function AgentSettings({ agent, workspaceId, busy, run, onClose, error }: {
-  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; onClose: () => void; error?: string;
+function ModelSelect({ agent, busy, onSelect, children }: {
+  agent: AgentSnapshot; busy: boolean; onSelect: (key: string) => void; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [keyboard, setKeyboard] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const activeFromPointer = useRef(false);
+  const typeahead = useRef({ text: "", time: 0 });
+  const selected = agent.models.find(model => model.key === agent.selectedModel);
+  const available = agent.models.filter(model => model.available);
+  const providerName = (provider: string) => agent.providers.find(item => item.id === provider)?.name ?? provider;
+  const matching = available.filter(model => `${model.name} ${model.id} ${providerName(model.provider)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const groups = [...new Set(matching.map(model => model.provider))].sort((a, b) => providerName(a).localeCompare(providerName(b)));
+  const options = groups.flatMap(provider => matching.filter(model => model.provider === provider));
+  const activeIndex = Math.min(active, Math.max(0, options.length - 1));
+
+  function setExpanded(next: boolean, fromKeyboard: boolean) {
+    if (next && !available.length) return;
+    setOpen(next); setKeyboard(fromKeyboard);
+    if (next) { activeFromPointer.current = false; setQuery(""); setActive(Math.max(0, options.findIndex(model => model.key === agent.selectedModel))); typeahead.current = { text: "", time: 0 }; }
+    else setQuery("");
+  }
+  function choose(key: string) {
+    if (busy) return;
+    setExpanded(false, keyboard); onSelect(key);
+    trigger.current?.focus({ preventScroll: true });
+  }
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setExpanded(false, false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  useLayoutEffect(() => {
+    const option = document.getElementById(`${id}-option-${activeIndex}`);
+    // Hovered rows are already under the pointer; scrolling them fully into view
+    // would make the options jump away from the cursor.
+    if (!open || activeFromPointer.current || !option || !list.current) return;
+    const item = option.getBoundingClientRect(); const bounds = list.current.getBoundingClientRect();
+    if (item.top < bounds.top) list.current.scrollTop -= bounds.top - item.top;
+    else if (item.bottom > bounds.bottom) list.current.scrollTop += item.bottom - bounds.bottom;
+  }, [open, activeIndex, query, id]);
+
+  function keys(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (busy || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setExpanded(false, true); return; }
+    if (event.key === "Tab") { if (open) setExpanded(false, true); return; }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault(); event.stopPropagation();
+      activeFromPointer.current = false;
+      if (!open) setExpanded(true, true);
+      else if (options.length) setActive((activeIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+    } else if (open && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault(); event.stopPropagation(); if (options.length) choose(options[activeIndex].key);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault(); event.stopPropagation();
+      activeFromPointer.current = false;
+      if (!open) setExpanded(true, true);
+      else setActive(event.key === "Home" ? 0 : options.length - 1);
+    } else if (event.key.length === 1 && event.key !== " ") {
+      event.preventDefault(); event.stopPropagation();
+      activeFromPointer.current = false;
+      const now = Date.now();
+      const text = (now - typeahead.current.time < 700 ? typeahead.current.text : "") + event.key.toLowerCase();
+      const prefix = [...text].every(char => char === text[0]) ? text[0] : text;
+      const candidates = options.map((_, offset) => (activeIndex + offset + 1) % options.length);
+      const index = candidates.find(index => options[index].name.toLowerCase().startsWith(prefix) || options[index].id.toLowerCase().startsWith(prefix));
+      if (!open) setExpanded(true, true);
+      else if (index !== undefined) setActive(index);
+      typeahead.current = { text, time: now };
+    }
+  }
+  return <div ref={root} className="script-control model-select" data-keyboard={keyboard} onBlur={event => {
+    if (open && !event.currentTarget.contains(event.relatedTarget)) setExpanded(false, keyboard);
+  }}>
+    <button ref={trigger} type="button" className="script-select-trigger" role="combobox" disabled={!available.length || busy}
+      aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-list` : undefined}
+      aria-label="Model" aria-activedescendant={open && options.length ? `${id}-option-${activeIndex}` : undefined}
+      onKeyDown={keys} onClick={event => setExpanded(!open, event.detail === 0)}>
+      <span id={`${id}-value`}>{selected ? `${providerName(selected.provider)} · ${selected.name}` : "Choose a model"}</span><ChevronDown size={15} aria-hidden="true" />
+    </button>
+    <div className="model-select-content">
+    {open && <div className="script-select-popup">
+      <input className="model-search" type="search" aria-label="Search models" placeholder="Search models or providers…" value={query} onChange={event => { activeFromPointer.current = false; setQuery(event.target.value); setActive(0); }} onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setExpanded(false, true); trigger.current?.focus({ preventScroll: true }); }
+        if (event.key === "ArrowDown" && options.length) { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); setActive(0); }
+      }} />
+      <div ref={list} className="script-select-options model-options" id={`${id}-list`} role="listbox" aria-label="Model">
+        {groups.map(provider => <div className="model-group" key={provider}>
+          <h3>{providerName(provider)}</h3>
+          {options.map((model, index) => model.provider === provider && <div role="option" id={`${id}-option-${index}`} className="script-select-option model-option" key={model.key}
+            aria-selected={model.key === agent.selectedModel} aria-label={`${model.name} (${providerName(provider)})`} data-active={index === activeIndex}
+            onPointerMove={event => { if (event.pointerType === "mouse") { activeFromPointer.current = true; setActive(index); } }} onMouseDown={event => event.preventDefault()} onClick={() => choose(model.key)}>
+            <span className="model-name"><strong>{model.name}</strong><small>{model.id}</small></span>
+            <span className="model-capability">{model.supportsImages ? "Image support" : "Text only"}</span>
+            {model.key === agent.selectedModel && <Check size={15} aria-hidden="true" />}
+          </div>)}
+        </div>)}
+        {!options.length && <p className="settings-hint" role="status">No models match “{query.trim()}”.</p>}
+      </div>
+    </div>}
+    <div className="model-details select-details" data-selector-open={open} data-selector-keyboard={keyboard} aria-hidden={open} inert={open}>
+      {children}
+    </div>
+    </div>
+    {!available.length && <p className="settings-hint">Connect a provider to choose a model.</p>}
+  </div>;
+}
+
+function ProviderScroller({ count, children }: { count: number; children: ReactNode }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const track = useRef<HTMLDivElement>(null);
+  const thumbNode = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ offset: number } | null>(null);
+  const [thumb, setThumb] = useState({ height: 0, top: 0, visible: false });
+
+  function sync() {
+    const node = viewport.current;
+    if (!node) return;
+    const { clientHeight, scrollHeight, scrollTop } = node;
+    const visible = scrollHeight > clientHeight + 1;
+    const height = visible ? Math.min(clientHeight, Math.max(96, clientHeight * clientHeight / scrollHeight)) : 0;
+    const top = visible ? scrollTop / (scrollHeight - clientHeight) * (clientHeight - height) : 0;
+    setThumb({ height, top, visible });
+  }
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(sync);
+    observer.observe(viewport.current!);
+    observer.observe(content.current!);
+    sync();
+    return () => observer.disconnect();
+  }, []);
+
+  function scrollToPointer(clientY: number, offset: number) {
+    const node = viewport.current;
+    const bar = track.current;
+    if (!node || !bar) return;
+    const travel = bar.clientHeight - thumb.height;
+    if (travel <= 0) return;
+    const position = Math.max(0, Math.min(travel, clientY - bar.getBoundingClientRect().top - offset));
+    node.scrollTop = position / travel * (node.scrollHeight - node.clientHeight);
+  }
+
+  return <div className="provider-scroll">
+    <div ref={viewport} className="provider-entries" role="region" aria-label="Provider list" tabIndex={count > 4 ? 0 : undefined} onScroll={sync}>
+      <div ref={content} className="provider-rows">{children}</div>
+    </div>
+    {thumb.visible && <div ref={track} className="provider-scrollbar" aria-hidden="true" onPointerDown={event => {
+      event.preventDefault();
+      const offset = thumbNode.current?.contains(event.target as Node) ? event.clientY - thumbNode.current.getBoundingClientRect().top : thumb.height / 2;
+      drag.current = { offset };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      scrollToPointer(event.clientY, offset);
+    }} onPointerMove={event => { if (drag.current) scrollToPointer(event.clientY, drag.current.offset); }}
+      onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}>
+      <div ref={thumbNode} className="provider-scrollbar-thumb" style={{ height: thumb.height, transform: `translateY(${thumb.top}px)` }} />
+    </div>}
+  </div>;
+}
+
+function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
+  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; login: (action: () => Promise<unknown>, trigger: HTMLElement) => void; onClose: () => void;
 }) {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
-  const [rename, setRename] = useState(agent.sessionName ?? "");
-  const focusRef = useModalFocus(onClose);
-  return <div className="agent-settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={focusRef} className="agent-settings" role="dialog" aria-modal="true" aria-label="Agent settings">
-      <header><div><span className="eyebrow">MAUXI</span><h2>Agent settings</h2></div><button aria-label="Close settings" onClick={onClose}>×</button></header>
-      {error && <p className="send-error" role="alert">{error}</p>}
-      <label><span>Model</span><select value={agent.selectedModel ?? ""} disabled={busy} onChange={(event) => run(() => window.mauxi!.agentSelectModel({ workspaceId, modelKey: event.target.value }))}>
-        <option value="">Choose an authenticated model…</option>
-        {agent.models.map((model) => <option key={model.key} value={model.key} disabled={!model.available}>{model.provider} · {model.name}{model.supportsImages ? " · images" : " · text only"}{model.available ? "" : " · sign in"}</option>)}
-      </select></label>
-      <label><span>Thinking</span><select value={agent.thinkingLevel} disabled={!selected || busy} onChange={(event) => run(() => window.mauxi!.agentSetThinking({ workspaceId, level: event.target.value as AgentSnapshot["thinkingLevel"] }))}>
-        {(selected?.thinkingLevels ?? ["off"]).map((level) => <option value={level} key={level}>{level}</option>)}
-      </select></label>
-      <section className="provider-list"><div className="section-heading"><strong>Providers</strong><button disabled={busy} onClick={() => run(() => window.mauxi!.agentRefreshCatalog(workspaceId))}>Refresh catalog</button></div>
-        {agent.providers.map((provider) => <article key={provider.id}><div><strong>{provider.name}</strong><span>{provider.authenticated ? `Connected${provider.authSource ? ` · ${provider.authSource}` : ""}` : "Not connected"}</span></div><div>
-          {provider.authenticated && <button disabled={busy} onClick={() => run(() => window.mauxi!.agentLogout({ workspaceId, providerId: provider.id }))}>Log out</button>}
-          {provider.authMethods.map((method) => <button className={provider.authenticated ? "" : "primary"} disabled={busy} key={method.type} onClick={() => run(() => window.mauxi!.agentLogin({ workspaceId, providerId: provider.id, type: method.type }))}>{provider.authenticated ? "Re-authenticate" : method.label}</button>)}
+  return <section className="chat-settings" aria-label="Models and providers">
+      <header><strong>Models & providers</strong><button type="button" aria-label="Close models and providers" onClick={onClose}>×</button></header>
+      <ModelSelect agent={agent} busy={busy} onSelect={modelKey => run(() => window.mauxi!.agentSelectModel({ workspaceId, modelKey }))}>
+      {selected && <div className="thinking-options" role="group" aria-label="Thinking level"><span>Thinking</span>{selected.thinkingLevels.map((level) => <button className="settings-action thinking-option" type="button" key={level} aria-pressed={agent.thinkingLevel === level} disabled={busy} onClick={() => run(() => window.mauxi!.agentSetThinking({ workspaceId, level }))}><span>{level}</span></button>)}</div>}
+      <section className="provider-list"><div className="section-heading"><strong>Providers</strong><button type="button" className="settings-action" disabled={busy} onClick={() => run(() => window.mauxi!.agentRefreshCatalog(workspaceId))}><span>Refresh catalog</span><RefreshCw size={12} aria-hidden="true" /></button></div>
+        <ProviderScroller count={agent.providers.length}>
+        {agent.providers.map(provider => <article key={provider.id}><div><strong>{provider.name}</strong><span>{provider.authenticated ? `Connected${provider.authSource ? ` · ${provider.authSource}` : ""}` : "Not connected"}</span></div><div>
+          {provider.authenticated && <button type="button" className="settings-action" disabled={busy} onClick={() => run(() => window.mauxi!.agentLogout({ workspaceId, providerId: provider.id }))}><span>Log out</span><ArrowUpRight size={12} aria-hidden="true" /></button>}
+          {provider.authMethods.map((method) => <button type="button" className="settings-action" disabled={busy} key={method.type} onClick={event => login(() => window.mauxi!.agentLogin({ workspaceId, providerId: provider.id, type: method.type }), event.currentTarget)}><span>{provider.authenticated ? "Re-authenticate" : method.label}</span><ArrowUpRight size={12} aria-hidden="true" /></button>)}
         </div></article>)}
+        </ProviderScroller>
       </section>
-      <section className="session-list"><div className="section-heading"><strong>Conversations</strong><button disabled={busy || agent.runState !== "idle"} onClick={() => run(() => window.mauxi!.agentNewSession(workspaceId))}>New</button></div>
-        <div className="rename-row"><input aria-label="Conversation name" value={rename} maxLength={120} placeholder="Name this conversation" onChange={(event) => setRename(event.target.value)} /><button disabled={busy || !rename.trim()} onClick={() => run(() => window.mauxi!.agentRenameSession({ workspaceId, name: rename }))}>Rename</button></div>
-        {agent.sessions.map((session) => <button className="session-row" disabled={busy || session.active || agent.runState !== "idle"} key={session.id} onClick={() => run(() => window.mauxi!.agentResumeSession({ workspaceId, sessionId: session.id }))}><strong>{session.name || session.firstMessage || "Empty conversation"}</strong><span>{session.active ? "Current" : new Date(session.updatedAt).toLocaleString()}</span></button>)}
-        <small>Resuming conversation history never restores project files.</small>
-      </section>
-      <p className="privacy-note">Provider credentials stay in Mauxi’s private pi profile. They are never returned to this window or stored in chat.</p>
-    </section>
-  </div>;
+      </ModelSelect>
+    </section>;
 }
 
 export function ChangeReview({ changeSets, idle, onUndo }: { changeSets: AgentChangeSetView[]; idle: boolean; onUndo: (id: string) => void }) {
@@ -118,6 +287,28 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   const [busy, setBusy] = useState(false);
   const running = agent.runState !== "idle" && agent.runState !== "error";
   const selectedModel = agent.models.find((model) => model.key === agent.selectedModel);
+  const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
+  const loginFocus = useRef<HTMLElement | null>(null);
+  // Capture the login context for the retained view, including its exit frame.
+  // Provider prompts use different wording; don't rely on matching one subtitle.
+  const providerLogin = loginFocus.current !== null;
+  useLayoutEffect(() => {
+    if (inlineDialog || busy || !loginFocus.current?.isConnected) return;
+    // The retained panel's visual entrance temporarily has visibility:hidden.
+    // Restore focus after it becomes interactive, without changing its scroll.
+    let frame = 0;
+    let attempts = 0;
+    const restore = () => {
+      const target = loginFocus.current;
+      if (!target?.isConnected) return;
+      if (!target.closest("[inert]") && getComputedStyle(target).visibility === "visible") {
+        target.focus({ preventScroll: true });
+        loginFocus.current = null;
+      } else if (++attempts < 40) frame = requestAnimationFrame(restore);
+    };
+    frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [inlineDialog, busy]);
 
   useEffect(() => {
     if (!workspaceId || !window.mauxi) return;
@@ -137,8 +328,18 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
     void action().catch((error) => setSendError(errorMessage(error))).finally(() => setBusy(false));
   }
 
+  function login(action: () => Promise<unknown>, trigger: HTMLElement) {
+    loginFocus.current = trigger;
+    run(action);
+  }
+
+  function dismissDialog(id: string) {
+    // An OAuth/manual-code step may arrive before the previous response resolves.
+    setDialog(current => current?.id === id ? null : current);
+  }
+
   async function submit(behavior: "prompt" | "steer" | "followUp") {
-    if (!workspaceId || !window.mauxi || !draft.trim() || busy) return;
+    if (!workspaceId || !window.mauxi || !draft.trim() || busy || settings || inlineDialog) return;
     const submittedDraft = draft;
     const text = submittedDraft.trim();
     setBusy(true); setSendError("");
@@ -157,24 +358,27 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   }
 
   return <>
-    <SelectionComposer selections={selections} onRemove={onRemove}>
+    <SelectionComposer selections={selections} onRemove={onRemove} expansion={dialog?.id ?? ""}
+      panel={settings && workspaceId ? <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} login={login} onClose={() => setSettings(false)} /> : null}
+      login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
       {(sendError || agent.error) && <p className="send-error" role="alert">{sendError || agent.error?.message}</p>}
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
-        <label className="sr-only" htmlFor="chat-message">Message</label>
-        <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={4} value={draft} onChange={(event) => setDraft(event.target.value)} />
-        <div className="composer-toolbar">
-          <button className="model-picker" type="button" aria-label="Models & providers" aria-haspopup="dialog" disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings(true)}>
+      <form className="composer" data-login={!!inlineDialog || undefined} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
+        <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
+          <label className="sr-only" htmlFor="chat-message">Message</label>
+          <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={4} value={draft} onChange={(event) => setDraft(event.target.value)} />
+        </div>
+        <div className="composer-toolbar" data-composer-motion="toolbar" data-retained-motion="" data-exiting={!!inlineDialog || undefined} inert={!!inlineDialog} aria-hidden={!!inlineDialog || undefined}>
+          <button className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
             <Settings2 size={16} aria-hidden="true" /><span>{selectedModel ? selectedModel.name : "Models & providers"}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <div className="send-actions">
             {running && <button type="button" className="stop-button" disabled={busy || agent.runState === "stopping"} onClick={() => run(() => window.mauxi!.agentStop(workspaceId!))}>Stop</button>}
-            {running && <button type="button" className="composer-secondary" disabled={!draft.trim() || busy} title="Deliver after the current tool turn" onClick={() => void submit("steer")}>Steer</button>}
-            <button className="primary" type="submit" disabled={!workspaceId || !draft.trim() || busy || !agent.selectedModel}><span>{busy ? "Checking…" : running ? "Follow up" : "Send"}</span><ArrowUpRight size={16} aria-hidden="true" /></button>
+            {running && <button type="button" className="composer-secondary" disabled={settings || !draft.trim() || busy} title="Deliver after the current tool turn" onClick={() => void submit("steer")}>Steer</button>}
+            <button className="primary" type="submit" disabled={settings || !workspaceId || !draft.trim() || busy || !agent.selectedModel}><span>{busy ? "Checking…" : running ? "Follow up" : "Send"}</span><ArrowUpRight size={16} aria-hidden="true" /></button>
           </div>
         </div>
       </form>
     </SelectionComposer>
-    {settings && workspaceId && <AgentSettings agent={agent} workspaceId={workspaceId} error={sendError} busy={busy} run={run} onClose={() => setSettings(false)} />}
-    {dialog && workspaceId && <AgentPromptDialog key={dialog.id} workspaceId={workspaceId} dialog={dialog} onClose={() => setDialog(null)} />}
+    {dialog && workspaceId && dialog.kind === "approval" && <AgentPromptDialog key={dialog.id} workspaceId={workspaceId} dialog={dialog} onClose={() => dismissDialog(dialog.id)} />}
   </>;
 }

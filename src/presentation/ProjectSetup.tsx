@@ -82,7 +82,7 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
         <ScriptSelect plans={discovery.plans} value={plan.id} disabled={busy || discovery.plans.length < 2}
           open={selectorState.open && configuring} keyboard={selectorState.keyboard} onOpenChange={onSelectorOpenChange}
           onChange={id => { motion.cancel(); onSelectPlan(id); }} />
-        <dl className="technical-details" data-selector-open={selectorState.open} data-selector-keyboard={selectorState.keyboard} aria-hidden={selectorState.open} inert={selectorState.open}>
+        <dl className="technical-details select-details" data-selector-open={selectorState.open} data-selector-keyboard={selectorState.keyboard} aria-hidden={selectorState.open} inert={selectorState.open}>
           <div><dt>App root</dt><dd>{plan.appRoot}</dd></div>
           <div><dt>Framework</dt><dd>{plan.framework === "vite" ? "React + Vite" : "Next.js"}</dd></div>
           <div><dt>Package manager</dt><dd>{plan.packageManager}</dd></div>

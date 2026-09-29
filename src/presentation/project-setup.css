@@ -27,10 +27,7 @@
 .project-setup .guided-inline-config, .project-setup .guided-inline-review { padding: 22px 10px 10px 54px; }
 .project-setup [data-guided-layer], .project-setup [data-file-layer] { transform-origin: top left; }
 .project-setup [data-guided-layer][aria-hidden="true"], .project-setup [data-file-layer][aria-hidden="true"] { position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none; visibility: hidden; }
-/* Keep the details in flow while the menu is open: no shift in the action row. */
-.project-setup .technical-details { display: grid; gap: 12px; margin: 24px 0 16px; opacity: 1; transform: translateY(0); transition: opacity 160ms cubic-bezier(.23,1,.32,1), transform 160ms cubic-bezier(.23,1,.32,1); }
-.project-setup .technical-details[data-selector-open="true"] { opacity: 0; transform: translateY(-6px); pointer-events: none; transition-duration: 90ms; }
-.project-setup .technical-details[data-selector-keyboard="true"] { transition: none; }
+.project-setup .technical-details { display: grid; gap: 12px; margin: 24px 0 16px; }
 .project-setup .technical-details > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; font-size: 11px; }
 .project-setup .technical-details dt { color: #747178; }
 .project-setup .technical-details dd { margin: 0; overflow-wrap: anywhere; }
@@ -77,7 +74,6 @@
   .project-setup .has-hover-copy .change-project-intent { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .project-setup .technical-details[data-selector-open] { transform: none; }
   .project-setup .has-hover-copy .change-project-copy > span, .project-setup .row-link-label { transform: none !important; }
   .project-setup .row-link, .project-setup .guided-file-trigger:active code { transform: none; }
 }

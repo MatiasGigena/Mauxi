@@ -1,20 +1,27 @@
-.project-setup .script-control { position: relative; width: 100%; max-width: 420px; min-width: 0; color: #24242a; }
-.project-setup .script-select-caption { margin-bottom: 10px; color: #747178; font-size: 11px; }
-.project-setup .script-select-trigger { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 4px 0 10px; border: 0; border-bottom: 1px solid #dedbd6; border-radius: 0; background: transparent; text-align: left; transition: transform 120ms cubic-bezier(.23,1,.32,1); }
-.project-setup .script-select-trigger > svg { margin-left: auto; flex: none; color: #747178; }
+:is(.project-setup, .chat-settings) .script-control { position: relative; width: 100%; max-width: 420px; min-width: 0; color: #24242a; }
+:is(.project-setup, .chat-settings) .script-select-caption { margin-bottom: 10px; color: #747178; font-size: 11px; }
+:is(.project-setup, .chat-settings) .script-select-trigger { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 4px 0 10px; border: 0; border-bottom: 1px solid #dedbd6; border-radius: 0; background: transparent; text-align: left; transition: transform 120ms cubic-bezier(.23,1,.32,1); }
+:is(.project-setup, .chat-settings) .script-select-trigger > svg { margin-left: auto; flex: none; color: #747178; }
 .project-setup .script-select-trigger code, .project-setup .script-select-option code { min-width: 0; font: 12px/1.6 ui-monospace, monospace; overflow-wrap: anywhere; }
-.project-setup .script-select-trigger:active:not(:disabled) { background: transparent; transform: scale(.985); }
-.project-setup .script-select-trigger:focus-visible { outline: none; box-shadow: 0 2px 0 #24242a; transition: none; }
-.project-setup .script-select-popup { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; width: 100%; padding: 6px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 6px 24px #24242a14, 0 2px 6px #24242a0a; transform-origin: top left; animation: script-select-enter 140ms cubic-bezier(.23,1,.32,1); }
+:is(.project-setup, .chat-settings) .script-select-trigger:active:not(:disabled) { background: transparent; box-shadow: none; transform: scale(.985); }
+:is(.project-setup, .chat-settings) .script-select-trigger:focus-visible { outline: none; box-shadow: 0 2px 0 #24242a; transition: none; }
+:is(.project-setup, .chat-settings) .script-select-popup { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; width: 100%; padding: 6px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 6px 24px #24242a14, 0 2px 6px #24242a0a; transform-origin: top left; animation: script-select-enter 140ms cubic-bezier(.23,1,.32,1); }
 @keyframes script-select-enter { from { opacity: 0; transform: translateY(-3px) scale(.99); } to { opacity: 1; transform: none; } }
-.project-setup .script-control[data-keyboard="true"] .script-select-popup { animation: none; }
-.project-setup .script-select-options { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
-.project-setup .script-select-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 12px; border-radius: 6px; cursor: pointer; }
-.project-setup .script-select-option[data-active="true"] { background: #f5f4f2; }
-.project-setup .script-select-option > svg { flex: none; }
+:is(.project-setup, .chat-settings) .script-control[data-keyboard="true"] .script-select-popup { animation: none; }
+:is(.project-setup, .chat-settings) .script-select-options { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+:is(.project-setup, .chat-settings) .script-select-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 12px; border-radius: 6px; cursor: pointer; }
+:is(.project-setup, .chat-settings) .script-select-option[data-active="true"] { background: #f5f4f2; }
+:is(.project-setup, .chat-settings) .script-select-option > svg { flex: none; }
+/* Both selects use the same reversible fade/slide for underlying details,
+   without a delayed height collapse or per-row stagger. */
+.select-details { opacity: 1; transform: translateY(0); transition: opacity 160ms cubic-bezier(.23,1,.32,1), transform 160ms cubic-bezier(.23,1,.32,1); }
+.select-details[data-selector-open="true"] { opacity: 0; transform: translateY(-6px); pointer-events: none; transition-duration: 90ms; }
+.select-details[data-selector-keyboard="true"] { transition: none; }
 @media (hover: hover) and (pointer: fine) {
-  .project-setup .script-select-trigger:hover:not(:disabled) { border-bottom-color: #747178; }
+  :is(.project-setup, .chat-settings) .script-select-trigger:hover:not(:disabled) { border-bottom-color: #747178; background: transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .project-setup .script-select-trigger:active:not(:disabled) { transform: none; }
+  .select-details[data-selector-open] { transform: none; }
+  :is(.project-setup, .chat-settings) .script-select-trigger:active:not(:disabled) { transform: none; }
+  :is(.project-setup, .chat-settings) .script-select-popup { animation: none; }
 }

@@ -25,13 +25,13 @@ test("references load in the background without design setup or controls", async
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();
-    await expect(page.locator(".agent-settings")).toBeVisible();
+    await expect(page.locator(".chat-settings")).toBeVisible();
     await expect(page.getByText(/Design guidance|Design direction|Local source & version/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Import skill|Choose visual library|Use once/ })).toHaveCount(0);
     await expect(page.locator(".resource-row")).toHaveCount(0);
     expect(await page.evaluate(() => "agentImportResource" in window.mauxi! || "agentToggleResource" in window.mauxi!)).toBe(false);
     await page.screenshot({ path: testInfo.outputPath("background-guidance-settings.png") });
-    await page.getByRole("button", { name: "Close settings" }).click();
+    await page.getByRole("button", { name: "Close models and providers" }).click();
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
     const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
     page = await welcome;

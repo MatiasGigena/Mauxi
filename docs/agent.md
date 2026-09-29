@@ -2,7 +2,7 @@
 
 ## Providers and conversations
 
-Open **Models & providers** in chat to authenticate and select a model and supported reasoning level. Provider-owned text, secret, browser, device-code, and manual-code steps use temporary dialogs. Cancelling is never approval. Authentication links are limited to exact HTTPS URLs from the active provider flow. Catalog refresh retains cached models if it fails.
+Open **Models & providers** in chat to authenticate and select a model and supported reasoning level. Provider-owned text, secret, device-code, and manual-code steps appear inside the expanded chatbox. Cancelling is never approval. Authentication links are limited to exact HTTPS URLs from the active provider flow. Catalog refresh retains cached models if it fails.
 
 Mauxi ships its pinned agent SDK as a production dependency; there is no separate CLI or agent service to install. The host owns one agent runtime for the active workspace. New/resumed conversations do not restart the project server. Closing the workspace disposes the agent before project cleanup.
 

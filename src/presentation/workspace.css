@@ -1,11 +1,11 @@
 .workspace { height: 100%; display: flex; flex-direction: column; background: #e9e8e5; font-size: .875rem; }
-.workspace button, .preview-tools button { padding: .45rem .65rem; border-radius: .5rem; background: #eae9e6; font-weight: 600; line-height: 1.3; }
+.workspace button, .preview-tools button { padding: .45rem .65rem; border-radius: .5rem; background: #eae9e6; font-weight: 500; line-height: 1.5; }
 .workspace button:hover:not(:disabled), .preview-tools button:hover:not(:disabled) { background: #dfddd9; }
 .workspace button:active:not(:disabled), .preview-tools button:active:not(:disabled) { background: #cdc8ed; box-shadow: inset 0 0 0 1px #8177b2; }
 .workspace button[aria-pressed=true] { background: #e7e2fb; color: #4932a5; box-shadow: inset 0 0 0 1px #c5b9ed; }
 .topbar { z-index: 20; display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .6rem 1rem; background: #fafaf9; border-bottom: 1px solid #cdcac5; }
 .brand { display: flex; align-items: center; gap: .5rem; min-width: 0; }
-.brand strong { max-width: 10rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.brand strong { font-weight: 500; max-width: 10rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .fixture-switch, .canvas-actions { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
 .zoom { display: flex; align-items: center; gap: .4rem; padding: 0 .3rem; font-variant-numeric: tabular-nums; }
 .zoom span { width: 2.5rem; text-align: right; }
@@ -20,7 +20,7 @@
 .artboard { position: absolute; }
 .artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .4rem; background: #fafaf9; border: 1px solid #c8c5c0; border-radius: .6rem .6rem 0 0; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
-.board-grip strong { font-size: .8rem; line-height: 1.3; }.board-grip span { font-size: .75rem; font-weight: 400; white-space: nowrap; color: #635f68; }
+.board-grip strong { font-size: .8rem; font-weight: 500; line-height: 1.5; }.board-grip span { font-size: .75rem; font-weight: 400; white-space: nowrap; color: #635f68; }
 .board-grip .bridge-ready::before { content: ""; display: inline-block; width: .35rem; height: .35rem; border-radius: 50%; background: #287b49; margin-right: .3rem; vertical-align: middle; }
 .artboard-actions { display: flex; gap: .2rem; }
 .artboard-actions button { display: grid; place-items: center; min-width: 2rem; height: 2rem; padding: .25rem; font-size: 1rem; }
@@ -44,7 +44,14 @@
 .chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: 0 12px 40px #28252012, 0 2px 6px #28252008; transform-origin: bottom center; pointer-events: none; }
 .chat-content { position: relative; max-height: inherit; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
 .chat-content > .send-error { margin: 0; font-size: 12px; }
-.composer { display: flex; flex-direction: column; gap: 8px; }
+.composer { position: relative; display: flex; flex-direction: column; gap: 8px; }
+.composer-message { min-width: 0; transform-origin: top left; }
+/* Remove the field's space immediately; its inert visual exit doesn't delay
+   the panel layout. Keep it mounted so toggling settings never loses a draft. */
+[data-retained-motion][data-exiting=true] { position: absolute; visibility: hidden; opacity: 0; pointer-events: none; }
+.composer[data-login=true] { display: contents; }
+.composer-login, .composer-toolbar { transform-origin: top left; }
+.composer-login { flex: none; min-width: 0; }
 .composer textarea { display: block; width: 100%; height: 36px; min-height: 36px; resize: none; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: #24242a; line-height: 1.75; }
 .composer textarea::placeholder { color: #949096; }
 .composer textarea:focus-visible { outline: none; }
@@ -83,7 +90,8 @@
 .selection-exits { position: absolute; inset: 0; pointer-events: none; }
 /* The animation temporarily reveals the ghost. Its resting state must remain
    hidden when WAAPI finishes/cancels, before React commits its removal. */
-.selection-exits .selection-ghost { position: absolute; opacity: 0; }
+.selection-exits .selection-ghost, .composer-panel-ghost { position: absolute; opacity: 0; }
+.composer-panel { flex: none; min-width: 0; transform-origin: top left; }
 @media (hover: hover) and (pointer: fine) {
   .workspace .selection-chip button:hover:not(:disabled) { background: #e8e5e1; color: #24242a; }
 }
@@ -97,11 +105,123 @@
 .tool-buttons { display: grid; gap: .5rem; }.tool-buttons small { font-size: .8rem; color: #645b6d; }
 .viewport-settings { margin: 1rem 0; }.viewport-settings fieldset { display: flex; flex-wrap: wrap; gap: .75rem; border: 1px solid #cdc7d4; border-radius: .5rem; }.viewport-settings legend { padding: 0 .25rem; }.viewport-settings label { flex: 1; min-width: 5rem; display: flex; flex-direction: column; gap: .25rem; }.viewport-settings input { width: 100%; padding: .3rem; border: 1px solid #aaa3b6; border-radius: .3rem; }.viewport-settings button { flex-basis: 100%; }
 .preview-tools details { margin: 1rem 0; }.preview-tools summary { cursor: pointer; padding: .25rem; }.preview-tools dt { font-weight: 650; }.preview-tools dd { margin: .2rem 0 .75rem; overflow-wrap: anywhere; }.preview-tools pre { white-space: pre-wrap; font-size: .75rem; }
-.agent-settings-backdrop, .agent-dialog-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 1rem; background: #211a3038; }.agent-settings, .agent-dialog { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid #aaa3b6; border-radius: .9rem; background: #fafaf9; box-shadow: 0 24px 80px #15102035; }.agent-settings > header, .agent-dialog > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }.agent-settings h2, .agent-dialog h2 { margin: .2rem 0 .8rem; font-size: 1.2rem; }.agent-settings .eyebrow { color: #6256d2; font-size: .62rem; font-weight: 800; letter-spacing: .12em; }.agent-settings > label { display: grid; grid-template-columns: 7rem minmax(0, 1fr); align-items: center; gap: .7rem; margin: .55rem 0; font-weight: 650; }.agent-settings select, .agent-settings input, .agent-dialog input { width: 100%; padding: .5rem .6rem; border: 1px solid #bdb7c5; border-radius: .5rem; background: white; color: inherit; }.provider-list, .session-list { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #d8d4da; }.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: .45rem; }.provider-list article { display: flex; align-items: center; justify-content: space-between; gap: .7rem; padding: .55rem 0; border-bottom: 1px solid #e2dfe4; }.provider-list article > div { display: flex; align-items: center; gap: .35rem; }.provider-list article > div:first-child { flex-direction: column; align-items: flex-start; }.provider-list article span, .session-row span, .privacy-note, .session-list small { color: #6e6872; font-size: .75rem; }.rename-row { display: flex; gap: .4rem; margin-bottom: .45rem; }.session-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: .25rem 0; text-align: left; }.session-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.privacy-note { margin: 1rem 0 0; padding: .65rem; border-radius: .5rem; background: #f0eef3; }.agent-dialog { width: min(30rem, calc(100vw - 2rem)); }.agent-dialog p { white-space: pre-wrap; }.agent-dialog footer { display: flex; justify-content: flex-end; gap: .4rem; margin-top: 1rem; }.dialog-options { display: grid; gap: .4rem; }.dialog-options button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }.dialog-options button span { color: #6e6872; font-size: .75rem; }.auth-link { color: #4932a5; background: #e7e2fb !important; }
+
+.agent-dialog-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 1rem; background: #211a3038; }
+.agent-dialog { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid #aaa3b6; border-radius: .9rem; background: #fafaf9; box-shadow: 0 24px 80px #15102035; }
+.agent-dialog > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.agent-dialog h2 { margin: .2rem 0 .8rem; font-size: 1.2rem; }
+.agent-dialog input { width: 100%; padding: .5rem .6rem; border: 1px solid #bdb7c5; border-radius: .5rem; background: white; color: inherit; }
+.agent-dialog p { white-space: pre-wrap; }
+.agent-dialog footer { display: flex; justify-content: flex-end; gap: .4rem; margin-top: 1rem; }
+.dialog-options { display: grid; gap: .4rem; }
+.dialog-options button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
+.dialog-options button span { color: #6e6872; font-size: .75rem; }
+.auth-link { color: #4932a5; background: #e7e2fb !important; }
+.chat-dock:has(.chat-content .chat-settings, .agent-dialog-inline) { max-height: 75vh; }
+.chat-settings { flex: none; max-height: min(60vh, 36rem); overflow: auto; padding: 0 2px 12px; scrollbar-width: thin; }
+.chat-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.chat-settings > header > strong, .chat-settings .section-heading > strong { font-size: 12px; font-weight: 500; }
+.chat-settings > header button { padding: 3px 8px; background: transparent; font-size: 18px; }
+.thinking-options { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.chat-settings .script-control.model-select { max-width: none; }
+.chat-settings .model-select .script-select-trigger { min-width: 0; color: #24242a; }
+.model-select .script-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+/* The open menu owns the height. Keep details only as an inert exit layer,
+   clipped to the menu so a long provider list cannot extend the chat's scroll area. */
+.model-select-content { position: relative; display: grid; }
+.model-select-content > * { grid-area: 1 / 1; align-self: start; min-width: 0; }
+.model-details[data-selector-open="true"] { position: absolute; inset: 0 0 auto; max-height: 100%; overflow: clip; }
+.chat-settings .model-select .script-select-popup { position: relative; top: auto; margin-top: 6px; }
+.model-search { width: 100%; min-width: 0; margin-bottom: 8px; padding: 9px 11px; border: 1px solid #e1dfe3; border-radius: 8px; background: #fff; font: inherit; font-size: 12px; }
+.model-options { max-height: min(16rem, 34vh); scrollbar-width: thin; }
+.model-group + .model-group { margin-top: 12px; }
+.model-group h3 { margin: 0; padding: 6px 10px; color: #706c73; font-size: 11px; font-weight: 500; }
+.model-select .model-option { gap: 10px; min-width: 0; padding: 9px 10px; text-align: left; }
+.model-name { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.model-option strong, .provider-list article > div > strong { font-size: 12px; font-weight: 500; line-height: 1.5; }
+.model-option small, .model-capability { color: #747178; font-size: 11px; font-weight: 400; }
+.model-capability { flex: none; }
+.settings-hint { margin: 0; color: #706c73; font-size: 11px; }
+.thinking-options { margin-top: 10px; font-size: 11px; }
+.thinking-options > span { margin-right: 3px; color: #706c73; }
+.provider-list { margin-top: 12px; padding-top: 8px; }
+.provider-scroll { position: relative; }
+.provider-entries { max-height: 216px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.provider-entries::-webkit-scrollbar { display: none; }
+.provider-rows { padding-right: 12px; }
+.provider-scrollbar { position: absolute; inset: 0 0 0 auto; width: 8px; cursor: pointer; touch-action: none; }
+.provider-scrollbar-thumb { position: absolute; top: 0; right: 2px; width: 4px; border-radius: 999px; background: #c4c0bb; }
+.provider-scrollbar:hover .provider-scrollbar-thumb { background: #858089; }
+.provider-entries:focus-visible { outline: 2px solid #218f90; outline-offset: -2px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 5px; font-size: 11px; }
+.provider-list article { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 54px; padding: 6px 0; border-bottom: 1px solid #efedee; }
+.provider-list article:last-child { border-bottom: 0; }
+.provider-list article > div { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 16px; }
+.provider-list article > div:first-child { flex-direction: column; align-items: flex-start; }
+.provider-list article > div:first-child > span { color: #747178; font-size: 11px; }
+.workspace .settings-action { --settings-accent: #147a7a; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 2px; border-radius: 3px; background: transparent; color: #625e66; box-shadow: none; font-size: 11px; font-weight: 500; text-align: left; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+/* Alternate paired actions with a text-safe shade of Mauxi coral. */
+.provider-list article > div > .settings-action:nth-child(even), .dialog-options > .settings-action:nth-child(even) { --settings-accent: #b94e38; }
+.workspace .settings-action:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
+.settings-action > span { position: relative; }
+.settings-action > span::after { content: ""; position: absolute; inset: auto 0 -3px; height: 1px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform 160ms cubic-bezier(.23,1,.32,1); }
+.settings-action > svg { flex: none; transition: transform 160ms cubic-bezier(.23,1,.32,1); }
+.workspace .settings-action:active:not(:disabled) { transform: scale(.97); }
+.workspace .settings-action:focus-visible { color: var(--settings-accent); outline: 2px solid currentColor; outline-offset: 3px; transition: none; }
+.workspace .settings-action:focus-visible, .settings-action:focus-visible > svg { transform: none; }
+.settings-action:focus-visible > span::after { transform: scaleX(1); transition: none; }
+@media (hover: hover) and (pointer: fine) {
+  .workspace .settings-action:hover:not(:disabled) { color: var(--settings-accent); }
+  .settings-action:hover:not(:disabled) > span::after { transform: scaleX(1); }
+  .settings-action:hover:not(:disabled):not(:focus-visible) > .lucide-arrow-up-right { transform: translate(2px, -2px); }
+  .settings-action:hover:not(:disabled):not(:focus-visible) > .lucide-refresh-cw { transform: rotate(30deg); }
+  .login-option:hover:not(:disabled):not(:focus-visible) > .lucide-arrow-right { transform: translateX(2px); }
+}
+@media (hover: none), (pointer: coarse) {
+  .workspace .settings-action { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace .settings-action:active:not(:disabled), .settings-action > svg { transform: none !important; }
+}
+/* Let the chat surface own scrolling; a second vh cap adds a scrollbar even
+   when a short sign-in form fits inside the available chat space. */
+.agent-dialog-inline .agent-dialog { width: 100%; max-height: none; overflow: visible; box-shadow: none; padding: 4px; border: 0; border-radius: 0; background: transparent; }
+.agent-dialog-inline .agent-dialog h2 { margin: 0; font-size: 13px; font-weight: 500; }
+.agent-dialog-inline .agent-dialog > p { margin: 20px 0 12px; font-size: 12px; color: #625e66; }
+.agent-dialog-inline .agent-dialog > .send-error { color: #8b3d2f; }
+.agent-dialog-inline .agent-dialog input { padding: 10px 12px; border-color: #d8d4da; border-radius: 8px; background: transparent; font-size: 13px; }
+.agent-dialog-inline .agent-dialog input:focus-visible { outline-color: #218f90; }
+.agent-dialog-inline .dialog-options { justify-items: start; gap: 4px; padding: 2px; }
+.agent-dialog-inline .agent-dialog > header + .dialog-options { margin-top: 10px; }
+.agent-dialog-inline .login-option { display: grid; grid-template-columns: minmax(0, 1fr) 14px; align-items: center; max-width: 100%; column-gap: 8px; row-gap: 4px; }
+.dialog-options .login-option > span { color: inherit; font: inherit; overflow-wrap: anywhere; }
+.login-option > small { grid-column: 1 / -1; color: #706c73; font-size: 10px; font-weight: 400; }
+.workspace .login-option[aria-pressed=true] { background: transparent; color: var(--settings-accent); box-shadow: none; }
+.login-option[aria-pressed=true] > span::after, .thinking-option[aria-pressed=true] > span::after { transform: scaleX(1); }
+.workspace .thinking-option[aria-pressed=true] { background: transparent; color: var(--settings-accent); box-shadow: none; }
+.dialog-options:has(:focus-visible) .login-option, .dialog-options:has(:focus-visible) .login-option > span::after { transition: none; }
+.agent-dialog-inline .confirmation-actions { gap: 18px; margin-top: 12px; padding-top: 0; }
+.workspace :is(.composer, .confirmation-actions) .primary { font-weight: 700; }
+.agent-dialog-inline .confirmation-actions > .primary { padding: 9px 18px; animation: none; white-space: nowrap; }
+.agent-dialog-inline .confirmation-actions > .change-project { flex: none; padding: 8px 0; background: transparent; box-shadow: none; color: #747178; font-size: 11px; font-weight: 500; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+.agent-dialog-inline .confirmation-actions > .change-project:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
+.agent-dialog-inline .change-project:focus-visible { outline-color: #218f90; transition: none; }
+.agent-dialog-inline .change-project:active:not(:disabled):not(:focus-visible) { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) {
+  .agent-dialog-inline .change-project:hover:not(:disabled) { color: #24242a; }
+}
+@media (hover: none), (pointer: coarse) {
+  .agent-dialog-inline .confirmation-actions > button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-dialog-inline .change-project:active:not(:disabled) { transform: none; }
+}
+@media (max-width: 600px) {
+  .provider-entries { max-height: min(324px, 35vh); }
+  .provider-list article { align-items: flex-start; flex-direction: column; min-height: 78px; gap: 0; }
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 @media (prefers-contrast: more) { .workspace, .preview-tools { color: #161218; }.topbar, .chat-surface, .selection-chip, .artboard-header, .preview-tools { border-color: #38313e; }.workspace button, .preview-tools button { outline: 1px solid #63576f; } }
 @media (prefers-reduced-transparency: reduce) { .preview-tools::backdrop { background: #dfdbe3; } }
-.agent-dialog-backdrop { z-index: 130; }
-.agent-settings button:focus-visible, .agent-settings summary:focus-visible, .agent-settings input:focus-visible { outline: 2px solid #5c46b6; outline-offset: 3px; }
 /* Camera, focus and resizing are intentionally immediate: there is no animation
    to wait for, cancel, or disable when reduced motion is requested. */
