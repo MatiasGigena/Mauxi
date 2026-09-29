@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { LaunchPlan, ProjectDiscovery } from "../../src/application/project-contract";
+import type { ActiveWorkspace, LaunchPlan, ProjectDiscovery } from "../../src/application/project-contract";
 
 export function discovery(): ProjectDiscovery {
   const vite: LaunchPlan = {
@@ -30,18 +30,39 @@ export async function selectScript(page: Page, command: string) {
 }
 
 export async function mockDesktop(page: Page) {
+  // These are shell UI tests, not live project tests. Avoid loading whatever
+  // happens to be running on Vite's default port (and its animations/network).
+  // Individual page.route fixtures still take priority over this fallback.
+  await page.context().route("http://127.0.0.1:5173/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Test preview</title><body>Test preview</body>" }));
   await page.addInitScript((initial) => {
-    const state = { next: initial as typeof initial | null, calls: 0, confirms: [] as unknown[], pending: false, release: null as null | (() => void) };
+    const state = { next: initial as typeof initial | null, calls: 0, confirms: [] as unknown[], pending: false, release: null as null | (() => void), confirmPending: false, confirmRelease: null as null | (() => void), confirmError: false, agentListeners: [] as Array<(event: unknown) => void> };
     (window as unknown as { setupTest: typeof state }).setupTest = state;
     window.mauxi = {
       getBootstrap: async () => ({ mode: "project", active: null, recoveryConflicts: [] }),
       onWorkspaceEvent: () => () => {},
+      onAgentEvent: (listener: (event: unknown) => void) => { state.agentListeners.push(listener); return () => { state.agentListeners = state.agentListeners.filter((item) => item !== listener); }; },
+      agentBootstrap: () => new Promise(() => {}),
+      onBrowserState: () => () => {},
+      browserState: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
+      browserHeartbeat: async () => {},
+      browserOwner: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
+      saveCanvas: async () => {},
       openProject: async () => {
         state.calls++;
         if (state.pending) await new Promise<void>(resolve => { state.release = resolve; });
         return state.next;
       },
-      confirmProject: async (request: unknown) => { state.confirms.push(request); },
+      confirmProject: async (request: unknown) => {
+        state.confirms.push(request);
+        if (state.confirmPending) await new Promise<void>(resolve => { state.confirmRelease = resolve; });
+        if (state.confirmError) throw new Error("Setup failed");
+        return {
+          workspaceId: "test-workspace", projectRoot: "/projects/rondo", appRoot: "/projects/rondo",
+          framework: "vite", packageManager: "npm", commandDisplay: "npm run dev", origin: "http://127.0.0.1:5173",
+          ownership: "owned", status: "connecting-previews", statusDetail: "Waiting for previews…",
+          logs: [], connectedPreviews: [], cleanupConflicts: [],
+        } satisfies ActiveWorkspace;
+      },
     } as unknown as typeof window.mauxi;
   }, discovery());
   await page.goto("/");

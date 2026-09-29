@@ -55,9 +55,6 @@ test("approved setup uses actual plans, commands, integration files and native I
   await expect(page.locator(".change-project")).toBeEnabled();
   await expect(page.locator(".configure-trigger")).toContainText("pnpm run start");
   await expect(page.locator(".project-path")).toHaveText("/projects/rondo/storefront");
-  await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
-  expect(await page.evaluate(() => (window as any).setupTest.confirms)).toEqual([{ discoveryId: "first-discovery", planId: "next-start", mode: "start", startPath: "/" }]);
-
   const replacement = discovery();
   replacement.discoveryId = "replacement";
   replacement.plans[0].label = "other-project — dev";
@@ -65,7 +62,29 @@ test("approved setup uses actual plans, commands, integration files and native I
   await page.locator(".change-project").click();
   await expect(page.locator(".guided-intro")).toContainText("other-project.");
   await expect(page.locator(".project-setup")).toHaveAttribute("data-view", "overview");
+  await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).setupTest.confirms)).toEqual([{ discoveryId: "replacement", planId: "vite-dev", mode: "start", startPath: "/" }]);
+  await expect(page.locator(".project-setup")).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("confirmation stays preparing until the workspace opens", async ({ page }) => {
+  await mockDesktop(page);
+  await page.evaluate(() => { (window as any).setupTest.confirmPending = true; });
+  const confirm = page.getByRole("button", { name: "Confirm & start", exact: true });
+  await confirm.click();
+  await expect(page.getByRole("button", { name: "Preparing…", exact: true })).toBeDisabled();
+  await page.evaluate(() => { (window as any).setupTest.confirmRelease(); });
+  await expect(page.locator(".project-setup")).toHaveCount(0);
+  await expect(page.locator(".workspace")).toBeVisible();
+});
+
+test("failed confirmation restores the button for retry", async ({ page }) => {
+  await mockDesktop(page);
+  await page.evaluate(() => { (window as any).setupTest.confirmError = true; });
+  await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Setup failed");
+  await expect(page.getByRole("button", { name: "Confirm & start", exact: true })).toBeEnabled();
 });
 
 test("keeps diagnostics visible and blocks invalid plans", async ({ page }) => {
