@@ -66,6 +66,8 @@ describe("bundled pi host", () => {
 
   it("streams a fake provider, adapts a structured question, queues input, stops, and resumes", async () => {
     let requests = 0; let expired = false;
+    let holdFirstText = true;
+    let releaseFirstResponse: (() => void) | undefined;
     const server = createServer((request, response) => {
       let body = "";
       request.on("data", (chunk) => { body += String(chunk); });
@@ -89,11 +91,18 @@ describe("bundled pi host", () => {
         const text = hasToolResult ? "You chose blue." : userText.includes("slow response") ? "This should be stopped." : `Fake response ${requests}`;
         push({ ...base, choices: [{ index: 0, delta: { content: text.slice(0, 4) }, finish_reason: null }] });
         const delay = userText.includes("slow response") ? 1_000 : 25;
-        setTimeout(() => {
+        const finish = () => {
           push({ ...base, choices: [{ index: 0, delta: { content: text.slice(4) }, finish_reason: null }] });
           push({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } });
           if (!response.destroyed) response.end("data: [DONE]\n\n");
-        }, delay);
+        };
+        if (holdFirstText) {
+          // A 25ms pause can coalesce both chunks under load. Hold the first
+          // response until a public partial snapshot actually arrives.
+          holdFirstText = false;
+          const timeout = setTimeout(finish, 5_000);
+          releaseFirstResponse = () => { clearTimeout(timeout); finish(); };
+        } else setTimeout(finish, delay);
       });
     });
     servers.push(server);
@@ -115,6 +124,9 @@ describe("bundled pi host", () => {
         latest = event.snapshot;
         sawWorking ||= event.snapshot.runState === "working";
         sawPartial ||= event.snapshot.messages.some((message) => message.pending && message.role === "assistant" && message.text.length > 0);
+        if (sawPartial && releaseFirstResponse) {
+          const release = releaseFirstResponse; releaseFirstResponse = undefined; release();
+        }
       }
       if (event.type === "dialog" && event.dialog.kind === "select") {
         sawQuestion = true;
@@ -133,10 +145,9 @@ describe("bundled pi host", () => {
     await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/fake" });
     expect(await host.send({ workspaceId: "workspace-1", text: "Run a structured question", behavior: "prompt", selections: [] })).toEqual({ accepted: true });
     await waitFor(() => latest.runState === "idle" && latest.messages.some((message) => message.text.includes("You chose blue")));
-    // SDK still streams internally; the quiet shell shows only a working status
-    // until final text is available, not thinking or tool-loading commentary.
+    // Public snapshots expose response text as it streams, never reasoning.
     expect(sawWorking).toBe(true);
-    expect(sawPartial).toBe(false);
+    expect(sawPartial).toBe(true);
     expect(sawQuestion).toBe(true);
 
     expect(await host.send({ workspaceId: "workspace-1", text: "queue work", behavior: "prompt", selections: [] })).toEqual({ accepted: true });

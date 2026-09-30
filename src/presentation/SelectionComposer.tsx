@@ -6,7 +6,7 @@ const easeOut = "cubic-bezier(0.23, 1, 0.32, 1)";
 const easeMove = "cubic-bezier(0.77, 0, 0.175, 1)";
 type Entry = { item: StoredSelection; exiting: boolean };
 type LoginView = (active: boolean) => ReactNode;
-type Props = { selections: StoredSelection[]; onRemove: (id: string) => void; expansion?: string; panel?: ReactNode; login?: LoginView; children: ReactNode };
+type Props = { selections: StoredSelection[]; onRemove: (id: string) => void; expansion?: string; contentSize?: string; panel?: ReactNode; login?: LoginView; children: ReactNode };
 type State = { source: StoredSelection[]; entries: Entry[]; panel?: ReactNode; panelExiting?: boolean; login?: LoginView; loginExiting?: boolean };
 type Appearance = { rect: DOMRect; opacity: number };
 type Snapshot = { surface: DOMRect; items: Map<string, Appearance>; focusedIndex: number; panelFocused: boolean; editorFocused?: boolean };
@@ -42,13 +42,14 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
   componentDidMount() {
     this.preference = matchMedia("(prefers-reduced-motion: reduce)");
     this.preference.addEventListener("change", this.settle);
-    window.addEventListener("resize", this.settle);
+    window.addEventListener("resize", this.resize);
+    this.fitEditor();
   }
 
   componentWillUnmount() {
     this.cancel();
     this.preference?.removeEventListener("change", this.settle);
-    window.removeEventListener("resize", this.settle);
+    window.removeEventListener("resize", this.resize);
   }
 
   private cancel = () => {
@@ -62,9 +63,19 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
     this.setState(state => ({ entries: state.entries.filter(entry => !entry.exiting), panel: state.panelExiting ? undefined : state.panel, panelExiting: false, login: state.loginExiting ? undefined : state.login, loginExiting: false }));
   };
 
+  private fitEditor = () => {
+    const editor = this.root.current?.querySelector<HTMLTextAreaElement>(".composer textarea");
+    if (!editor || editor.closest("[inert]")) return;
+    // Reset before measuring so deletions shrink as well as additions grow.
+    editor.style.height = "0px";
+    editor.style.height = `${editor.scrollHeight}px`;
+  };
+
+  private resize = () => { this.fitEditor(); this.settle(); };
+
   getSnapshotBeforeUpdate(previousProps: Props, previous: State): Snapshot | null {
     const panelChanged = !!previousProps.panel !== !!this.props.panel || !!previousProps.login !== !!this.props.login;
-    if ((activeIds(previous) === activeIds(this.state) && !panelChanged && previousProps.expansion === this.props.expansion) || !this.root.current || !this.surface.current) return null;
+    if ((activeIds(previous) === activeIds(this.state) && !panelChanged && previousProps.expansion === this.props.expansion && previousProps.contentSize === this.props.contentSize) || !this.root.current || !this.surface.current) return null;
     const items = new Map<string, Appearance>();
     this.root.current.querySelectorAll<HTMLElement>("[data-composer-motion]").forEach(node => {
       const opacity = Number(getComputedStyle(node).opacity);
@@ -89,12 +100,15 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
   }
 
   componentDidUpdate(_props: Props, previous: State, before: Snapshot | null) {
-    if (!before || !this.root.current || !this.surface.current) return;
+    if (!before || !this.root.current || !this.surface.current) { this.fitEditor(); return; }
     const root = this.root.current;
     const active = this.state.entries.filter(entry => !entry.exiting);
     const previousIds = new Set(previous.entries.filter(entry => !entry.exiting).map(id));
     const added = active.filter(entry => !previousIds.has(id(entry)));
-    const instant = this.preference?.matches || (added.length ? added.some(entry => entry.item.interaction === "keyboard") : this.keyboard);
+    const contentChanged = _props.contentSize !== this.props.contentSize;
+    // Text growth is explicitly animated, including typing. Keep existing
+    // keyboard-driven badge/panel interactions immediate.
+    const instant = this.preference?.matches || (added.length ? added.some(entry => entry.item.interaction === "keyboard") : this.keyboard && !contentChanged);
     this.cancel();
     root.querySelectorAll<HTMLElement>("[data-retained-motion]").forEach(node => {
       if (node.dataset.exiting !== "true") {
@@ -102,6 +116,8 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
         Object.assign(node.style, { position: "", left: "", top: "", width: "", height: "" });
       }
     });
+
+    this.fitEditor();
 
     // Removing a focused badge should not strand keyboard focus on the document.
     if (before.focusedIndex >= 0 && !root.contains(document.activeElement)) {
@@ -149,7 +165,10 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
             : { ...state, entries: state.entries.filter(entry => `badge:${id(entry)}` !== key || !entry.exiting) }));
       } else {
         const to = node.getBoundingClientRect();
-        const transform = from ? `translate(${from.rect.left - to.left}px, ${from.rect.top - to.top}px) scale(${from.rect.width / to.width}, ${from.rect.height / to.height})` : "translateY(15%) scale(.97)";
+        const textLayer = key === "editor" || key === "exchange" || key === "toolbar";
+        const transform = from
+          ? `translate(${from.rect.left - to.left}px, ${from.rect.top - to.top}px)${textLayer ? "" : ` scale(${from.rect.width / to.width}, ${from.rect.height / to.height})`}`
+          : key === "exchange" ? "translateY(8px)" : "translateY(15%) scale(.97)";
         if (!from || from.opacity < 1 || Math.abs(from.rect.left - to.left) > .5 || Math.abs(from.rect.top - to.top) > .5) {
           this.animate(node, [{ opacity: from?.opacity ?? 0, transform }, { opacity: 1, transform: "none" }], 160, easeOut);
         }

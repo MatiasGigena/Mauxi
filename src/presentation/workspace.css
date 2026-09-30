@@ -40,14 +40,28 @@
 .browser-evidence-popover img { display: block; width: 100%; height: auto; }
 .agent-dialog-backdrop.browser-approval { pointer-events: none; background: transparent; }
 .browser-approval .agent-dialog { pointer-events: auto; max-height: min(60vh, 36rem); }
-.chat-dock { flex: 0 0 auto; position: relative; z-index: 20; width: min(70rem, calc(100% - 48px)); max-height: 55vh; margin-inline: auto; border: 1px solid transparent; border-radius: 20px; }
+.chat-dock { --chat-max-height: 55vh; flex: 0 0 auto; position: relative; z-index: 20; width: min(70rem, calc(100% - 48px)); max-height: var(--chat-max-height); margin-inline: auto; border: 1px solid transparent; border-radius: 20px; }
 /* Chat overlays the preview; its height must never shrink the canvas or
    trigger a camera refit when selections, settings, or login views change. */
 .canvas-surface > .chat-dock { position: absolute; inset: auto 0 32px; }
 .chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: 0 12px 40px #28252012, 0 2px 6px #28252008; transform-origin: bottom center; pointer-events: none; }
-.chat-content { position: relative; max-height: inherit; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
-.chat-content > .send-error { margin: 0; font-size: 12px; }
-.composer { position: relative; display: flex; flex-direction: column; gap: 8px; }
+.chat-content { position: relative; max-height: calc(var(--chat-max-height) - 2px); padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
+.chat-content > .send-error { flex: none; margin: 0; font-size: 12px; }
+/* Keep the prompt, draft and toolbar available at the cap; scroll the output. */
+.chat-content:has(.chat-exchange:not([data-exiting=true])) { overflow: hidden; }
+.chat-exchange { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; transform-origin: top left; }
+.chat-prompt, .chat-response { min-width: 0; padding: 2px; }
+.chat-prompt { flex: none; max-height: 14vh; overflow: auto; }
+.chat-response { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; margin-top: 14px; padding-top: 14px; border-top: 1px solid #e8e5e1; }
+.chat-response-output { flex: 0 1 auto; min-height: 0; overflow: auto; }
+.chat-prompt, .chat-response-output { overscroll-behavior: contain; scrollbar-width: thin; }
+.chat-role { display: block; flex: none; margin-bottom: 5px; color: #747178; font-size: 11px; font-weight: 500; }
+.chat-response .chat-role { color: #147a7a; }
+.chat-exchange p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+.chat-response p + p { margin-top: 10px; }
+.chat-response-status { color: #949096; font-size: 12px; }
+.chat-exchange :focus-visible { outline-color: #218f90; outline-offset: -2px; }
+.composer { flex: none; position: relative; display: flex; flex-direction: column; gap: 8px; }
 .composer-message { min-width: 0; transform-origin: top left; }
 /* Remove the field's space immediately; its inert visual exit doesn't delay
    the panel layout. Keep it mounted so toggling settings never loses a draft. */
@@ -55,7 +69,7 @@
 .composer[data-login=true] { display: contents; }
 .composer-login, .composer-toolbar { transform-origin: top left; }
 .composer-login { flex: none; min-width: 0; }
-.composer textarea { display: block; width: 100%; height: 36px; min-height: 36px; resize: none; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: #24242a; line-height: 1.75; }
+.composer textarea { display: block; width: 100%; height: 36px; min-height: 36px; max-height: 20vh; overflow-y: auto; resize: none; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: #24242a; line-height: 1.75; }
 .composer textarea::placeholder { color: #949096; }
 .composer textarea:focus-visible { outline: none; }
 .chat-dock:has(textarea:focus-visible) .chat-surface { border-color: #218f90; box-shadow: 0 0 0 2px #218f9020, 0 12px 40px #28252012; }
@@ -120,7 +134,7 @@
 .dialog-options button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
 .dialog-options button span { color: #6e6872; font-size: .75rem; }
 .auth-link { color: #4932a5; background: #e7e2fb !important; }
-.chat-dock:has(.chat-content .chat-settings, .agent-dialog-inline) { max-height: 75vh; }
+.chat-dock:has(.chat-content .chat-settings, .agent-dialog-inline) { --chat-max-height: 75vh; }
 .chat-settings { flex: none; max-height: min(60vh, 36rem); overflow: auto; padding: 0 2px 12px; scrollbar-width: thin; }
 .chat-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .chat-settings > header > strong, .chat-settings .section-heading > strong { font-size: 12px; font-weight: 500; }

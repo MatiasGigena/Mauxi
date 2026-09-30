@@ -718,9 +718,9 @@ export class PiAgentHost {
       if (value.role !== "user" && value.role !== "assistant") return [];
       const text = messageText(message);
       if (!text && !value.errorMessage && message !== streaming) return [];
-      // Hide reasoning, resource loading and intermediate assistant commentary.
-      // Structured questions/errors still have their own visible desktop surfaces.
-      if (value.role === "assistant" && !value.errorMessage && (message === streaming || value.stopReason === "toolUse")) return [];
+      // messageText excludes reasoning and tool payloads. Expose streaming text
+      // so the latest response can grow as it arrives, but omit completed tool turns.
+      if (value.role === "assistant" && !value.errorMessage && value.stopReason === "toolUse") return [];
       const visibleText = value.role === "user" ? visibleUserText(text) : text;
       return [{
         id: `${session.sessionId}:${message === streaming ? "streaming" : index}`,

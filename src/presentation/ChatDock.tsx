@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpRight, Check, ChevronDown, RefreshCw, Settings2 } fr
 import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
 import { SelectionComposer } from "./SelectionComposer";
+import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
@@ -285,8 +286,19 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   const [settings, setSettings] = useState(false);
   const [sendError, setSendError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [accepted, setAccepted] = useState<(AcceptedPrompt & { workspaceId: string; sessionId?: string }) | undefined>();
+  const exchange = latestExchange(agent.messages, accepted && accepted.workspaceId === workspaceId && accepted.sessionId === agent.sessionId ? accepted : undefined);
+  useEffect(() => {
+    if (!accepted) return;
+    if (accepted.workspaceId !== workspaceId || accepted.sessionId !== agent.sessionId || agent.messages.some(message => message.role === "user" && message.text === accepted.text && !accepted.previousUserIds.includes(message.id))) {
+      // Once delivered, the transcript is authoritative (including compaction).
+      setAccepted(undefined);
+    }
+  }, [accepted, workspaceId, agent.sessionId, agent.messages]);
   const running = agent.runState !== "idle" && agent.runState !== "error";
   const selectedModel = agent.models.find((model) => model.key === agent.selectedModel);
+  const error = sendError || agent.error?.message || "";
+  const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
   const loginFocus = useRef<HTMLElement | null>(null);
   // Capture the login context for the retained view, including its exit frame.
@@ -347,8 +359,10 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
       const result = await onBeforeSend();
       if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending."); return; }
       const attached = result.selections ?? [];
+      const previousUserIds = agent.messages.filter(message => message.role === "user").map(message => message.id);
       const response = await window.mauxi.agentSend({ workspaceId, text, behavior, selections: attached });
       if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept."); return; }
+      setAccepted({ text, previousUserIds, workspaceId, sessionId: agent.sessionId });
       // Sending is asynchronous and the composer remains editable. Clear only
       // the exact draft that was accepted; preserve text typed for the next turn.
       setDraft((current) => current === submittedDraft ? "" : current);
@@ -359,13 +373,15 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
 
   return <>
     <SelectionComposer selections={selections} onRemove={onRemove} expansion={dialog?.id ?? ""}
+      contentSize={JSON.stringify([draft, exchange, running, sendError, agent.error?.message])}
       panel={settings && workspaceId ? <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} login={login} onClose={() => setSettings(false)} /> : null}
       login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
-      {(sendError || agent.error) && <p className="send-error" role="alert">{sendError || agent.error?.message}</p>}
+      {exchange && <ChatExchange exchange={exchange} running={running} hidden={settings || !!inlineDialog} />}
+      {showError && <p className="send-error" role="alert">{error}</p>}
       <form className="composer" data-login={!!inlineDialog || undefined} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
         <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
           <label className="sr-only" htmlFor="chat-message">Message</label>
-          <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={4} value={draft} onChange={(event) => setDraft(event.target.value)} />
+          <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} />
         </div>
         <div className="composer-toolbar" data-composer-motion="toolbar" data-retained-motion="" data-exiting={!!inlineDialog || undefined} inert={!!inlineDialog} aria-hidden={!!inlineDialog || undefined}>
           <button className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
