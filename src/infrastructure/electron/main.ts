@@ -1,9 +1,9 @@
 import { startRendererServer } from "./renderer-server";
 import { installPreviewHeaders } from "./preview-headers";
-import { writeCapture } from "../storage/artifact-budget";
+import { CaptureCache, CAPTURE_RETENTION } from "../storage/capture-cache";
+import { selectionCapturePaths } from "../../application/selection-state";
 import { app, BrowserWindow, dialog, ipcMain, shell, type Rectangle } from "electron";
 import { createHash } from "node:crypto";
-import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
@@ -37,6 +37,12 @@ const approvedAuthUrls = new Set<string>();
 let browserControl: BrowserControl | undefined;
 let visibleBrowser: ElectronVisibleBrowser | undefined;
 let browserHeartbeat = 0;
+let captures: CaptureCache;
+let captureCleanupTimer: ReturnType<typeof setInterval> | undefined;
+function cleanupCaptureCache(): void {
+  try { captures.cleanup(); }
+  catch (error) { console.warn("Screenshot cache cleanup needs attention", error); }
+}
 const heartbeatTimer = setInterval(() => {
   if (browserControl?.state().owner === "agent" && Date.now() - browserHeartbeat > 4000) {
     browserControl.revoke("Preview UI disconnected");
@@ -111,7 +117,7 @@ async function activeAgent(): Promise<PiAgentHost> {
     const previous = agentHost; agentHost = null;
     await previous?.dispose();
     const userData = app.getPath("userData");
-    const captureRoot = process.env.MAUXI_EVIDENCE_DIR ?? path.join(userData, "captures");
+    const captureRoot = captures.root;
     const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, activeBrowser(), async (target) => {
       const url = new URL(target);
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
@@ -167,6 +173,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   });
   if (previous && !previous.isDestroyed()) retiredCanvasSenders.set(previous.webContents, previous.webContents.mainFrame);
   mainWindow = window;
+  captures.clearDrafts(); cleanupCaptureCache();
   const activeWorkspace = manager.snapshot().active;
   if (workspaceRoot && activeWorkspace?.projectRoot === workspaceRoot) {
     installPreviewHeaders(window, {
@@ -184,7 +191,11 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   });
   window.on("minimize", () => { if (window === mainWindow) browserControl?.revoke("Window minimized; browser control returned"); });
   window.on("hide", () => { if (window === mainWindow) browserControl?.revoke("Window hidden; browser control returned"); });
-  window.webContents.on("render-process-gone", () => { browserControl?.revoke("Renderer disconnected"); if (agentHost) void agentHost.stop(agentHost.workspaceId); });
+  window.webContents.on("render-process-gone", () => {
+    if (window !== mainWindow) return;
+    captures.clearDrafts(); cleanupCaptureCache();
+    browserControl?.revoke("Renderer disconnected"); if (agentHost) void agentHost.stop(agentHost.workspaceId);
+  });
   window.webContents.on("unresponsive", () => browserControl?.revoke("Renderer unresponsive"));
   window.webContents.setWindowOpenHandler(() => { browserControl?.revoke("Popup blocked; control suspended"); return { action: "deny" }; });
   window.webContents.on("will-navigate", (event, target) => {
@@ -392,7 +403,14 @@ function registerIpc(): void {
     if (!Array.isArray(value.selections) || value.selections.length > 8) throw new Error("Invalid selections");
     let selectionSize = 0; try { selectionSize = JSON.stringify(value.selections).length; } catch { throw new Error("Invalid selections"); }
     if (selectionSize > 256_000) throw new Error("Attached context is too large");
-    return (await activeAgent()).send(value as unknown as AgentSendRequest);
+    const request = value as unknown as AgentSendRequest;
+    const imagePaths = selectionCapturePaths(request.selections);
+    const release = captures.protectInputs(imagePaths);
+    try {
+      const result = await (await activeAgent()).send(request);
+      if (result.accepted) captures.releaseDrafts(imagePaths);
+      return result;
+    } finally { release(); cleanupCaptureCache(); }
   });
 
   ipcMain.handle("mauxi:agent-stop", async (event, workspaceId: unknown) => {
@@ -447,6 +465,13 @@ function registerIpc(): void {
     await shell.openExternal(url.toString());
   });
 
+  ipcMain.handle("mauxi:release-captures", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!Array.isArray(input) || input.length > 8 || !input.every(file => typeof file === "string" && file.length > 0 && file.length <= 4_096)) throw new Error("Invalid capture release");
+    // Releasing only affects app-held draft pins, never arbitrary file paths.
+    captures.releaseDrafts(input); cleanupCaptureCache();
+  });
+
   ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (!mainWindow) throw new Error("Window unavailable");
@@ -456,11 +481,10 @@ function registerIpc(): void {
     if (process.env.MAUXI_PROOF !== "1" && (!active || input.workspaceId !== active.workspaceId)) throw new Error("Stale capture workspace");
     const rect = { x: Math.floor(input.x), y: Math.floor(input.y), width: Math.ceil(input.width), height: Math.ceil(input.height) };
     const image = await mainWindow.webContents.capturePage(rect);
-    const outputDirectory = process.env.MAUXI_EVIDENCE_DIR ?? path.join(app.getPath("userData"), "captures");
-    await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
-    const suffix = input.selectionId ? `-selection-${input.selectionId}` : "";
-    const outputPath = path.join(outputDirectory, `${input.previewId}${suffix}-${Date.now()}.png`);
-    writeCapture(outputPath, image.toPNG());
+    // capturePage is asynchronous: an obsolete shell must not leave new pins.
+    assertTrustedSender(event);
+    if (manager.snapshot().active?.workspaceId !== active?.workspaceId) throw new Error("Workspace changed during capture");
+    const outputPath = captures.write(input.previewId, image.toPNG(), input.selectionId);
     const size = image.getSize();
     return { path: outputPath, width: size.width, height: size.height };
   });
@@ -469,6 +493,10 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   if (!process.env.MAUXI_RENDERER_URL) packagedRenderer = await startRendererServer(path.join(__dirname, "../dist/renderer"));
   const userData = app.getPath("userData");
+  captures = new CaptureCache(process.env.MAUXI_EVIDENCE_DIR ?? path.join(userData, "captures"));
+  cleanupCaptureCache();
+  captureCleanupTimer = setInterval(cleanupCaptureCache, CAPTURE_RETENTION.cleanupIntervalMs);
+  captureCleanupTimer.unref();
   projectPickerLocation = new ProjectPickerLocation(path.join(userData, "project-picker.json"));
   manager = new WorkspaceManager(
     new JournalStore(process.env.MAUXI_STATE_DIR ?? path.join(userData, "recovery")),
@@ -510,4 +538,4 @@ app.on("before-quit", (event) => {
 
 app.on("window-all-closed", () => app.quit());
 
-app.on("will-quit", () => { void packagedRenderer?.close(); });
+app.on("will-quit", () => { clearInterval(captureCleanupTimer); void packagedRenderer?.close(); });

@@ -47,6 +47,7 @@ export async function mockDesktop(page: Page) {
       browserHeartbeat: async () => {},
       browserOwner: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
       saveCanvas: async () => {},
+      releaseCaptures: async () => {},
       openProject: async () => {
         state.calls++;
         if (state.pending) await new Promise<void>(resolve => { state.release = resolve; });

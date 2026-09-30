@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange } from "../../src/application/selection-state";
+import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths } from "../../src/application/selection-state";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
 import { selectionCropToShell } from "../../src/application/selection-geometry";
 
@@ -36,6 +36,17 @@ describe("selection crop geometry", () => {
 });
 
 describe("selection freshness", () => {
+  it("tracks unique captured PNGs, including stale draft chips, but not pending/unavailable captures", () => {
+    const captured = capture();
+    const pending = { ...capture(), screenshot: { ...capture().screenshot, status: "pending" as const } };
+    const unavailable = { ...capture(), screenshot: { ...capture().screenshot, status: "unavailable" as const } };
+    expect(selectionCapturePaths([
+      { capture: captured, status: "current" }, { capture: captured, status: "stale" },
+      { capture: pending, status: "current" }, { capture: unavailable, status: "current" },
+    ])).toEqual(["/capture.png"]);
+    expect(selectionCapturePaths([])).toEqual([]);
+  });
+
   it("requires source and rendered identity to match", () => {
     expect(fingerprintsMatch(fingerprint, { ...fingerprint })).toBe(true);
     expect(fingerprintsMatch(fingerprint, { ...fingerprint, text: "Different instance" })).toBe(false);

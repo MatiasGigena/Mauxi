@@ -31,6 +31,7 @@ declare global {
       resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
+      releaseCaptures(files: string[]): Promise<void>;
       agentBootstrap(): Promise<AgentSnapshot>;
       agentLogin(input: AgentLoginRequest): Promise<void>;
       agentLogout(input: { workspaceId: string; providerId: string }): Promise<void>;

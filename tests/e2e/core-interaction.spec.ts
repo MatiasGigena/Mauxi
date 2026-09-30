@@ -77,7 +77,7 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   await expect(page.locator(".connection")).toContainText(`Captured desktop only · ${Math.ceil(frameBounds!.width)}×${Math.ceil(frameBounds!.height)}`);
   const created = (await readdir(evidenceDirectory)).filter((file) => !before.has(file));
   expect(created).toHaveLength(1);
-  expect(created[0]).toMatch(/^desktop-\d+\.png$/);
+  expect(created[0]).toMatch(/^desktop-\d+-[0-9a-f-]{36}\.png$/);
   const evidenceName = fixture === "Vite" ? "vite-desktop-fit.png" : "next-desktop-fit.png";
   await rename(path.join(evidenceDirectory, created[0]), path.join(evidenceDirectory, evidenceName));
 }

@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("mauxi", {
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
   },
+  releaseCaptures(files: string[]): Promise<void> { return ipcRenderer.invoke("mauxi:release-captures", files); },
   agentBootstrap(): Promise<AgentSnapshot> { return ipcRenderer.invoke("mauxi:agent-bootstrap"); },
   agentLogin(input: AgentLoginRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-login", input); },
   agentLogout(input: { workspaceId: string; providerId: string }): Promise<void> { return ipcRenderer.invoke("mauxi:agent-logout", input); },

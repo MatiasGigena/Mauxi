@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
 import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, HEADER_WIDTH, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
-import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, type StoredSelection } from "../application/selection-state";
+import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
@@ -14,6 +14,10 @@ const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } 
 type Fixture = keyof typeof URLS;
 type Command = ShellToBridgeMessage extends infer T ? T extends ShellToBridgeMessage ? Omit<T, "protocol" | "session" | "generation"> : never : never;
 interface Runtime { generation: string; ready: boolean; route: string; safe: boolean }
+function releaseDraftCaptures(files: string[]): void {
+  if (!files.length || !window.mauxi) return;
+  void window.mauxi.releaseCaptures(files).catch(error => console.warn("Could not release selection captures", error));
+}
 const emptyRuntimes = (): Record<PreviewId, Runtime> => ({ desktop: { generation: "", ready: false, route: "", safe: false }, mobile: { generation: "", ready: false, route: "", safe: false } });
 function previewUrl(base: string, id: PreviewId, session: string): string {
   const url = new URL(base);
@@ -37,6 +41,17 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const runtimeRef = useRef(runtimes);
   const [selections, setSelections] = useState<StoredSelection[]>([]);
   const selectionsRef = useRef(selections); selectionsRef.current = selections;
+  const previousCapturePaths = useRef<string[]>([]);
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    const paths = selectionCapturePaths(selections);
+    releaseDraftCaptures(previousCapturePaths.current.filter(file => !paths.includes(file)));
+    previousCapturePaths.current = paths;
+  }, [selections]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; releaseDraftCaptures(previousCapturePaths.current); };
+  }, []);
   const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
   const [bridgeDetail, setBridgeDetail] = useState("Preparing instrumented previews…");
@@ -273,6 +288,13 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         workspaceId: active?.workspaceId, previewId: capture.previewId, selectionId: capture.selectionId,
         ...converted.shell,
       });
+      // A chip can be removed/evicted while capturePage is still in flight.
+      if (!mounted.current || !selectionsRef.current.some(item => item.capture.selectionId === capture.selectionId)) {
+        releaseDraftCaptures([result.path]); return;
+      }
+      // Track the returned file before committing it. If a queued removal wins
+      // that state update, the next layout pass still releases the unused PNG.
+      previousCapturePaths.current = [...new Set([...previousCapturePaths.current, result.path])];
       finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
     } catch (error) {
       finish({ ...capture.screenshot, status: "unavailable", reason: String(error) });

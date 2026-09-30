@@ -10,6 +10,10 @@ export interface StoredSelection {
   requiresRepick?: boolean;
 }
 
+export function selectionCapturePaths(selections: readonly StoredSelection[]): string[] {
+  return [...new Set(selections.flatMap(({ capture }) => capture.screenshot.status === "captured" && capture.screenshot.path ? [capture.screenshot.path] : []))];
+}
+
 export function fingerprintsMatch(original: ElementFingerprint, current: ElementFingerprint): boolean {
   if (original.instanceKey !== current.instanceKey || original.tag !== current.tag) return false;
   if (original.sourceKey !== current.sourceKey) return false;

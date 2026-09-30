@@ -8,30 +8,41 @@ export const ARTIFACT_LIMITS = {
   journals: { files: 128, bytes: 128 * 1024 * 1024 },
 } satisfies Record<string, ArtifactBudget>;
 
-// Synchronous admission + write is serialized by the Electron main thread.
-// These are application admission budgets, not physical disk quotas. External
-// writers can exceed them; no user history or recovery data is ever evicted.
-export function assertArtifactCapacity(root: string, limits: ArtifactBudget, addedBytes: number, addedFiles = 0): void {
-  let bytes = 0; let files = 0; let visited = 0;
-  const full = () => new Error(`Storage capacity at ${root}: ${files} files / ${bytes} bytes; admission limit ${limits.files} files / ${limits.bytes} bytes (requested +${addedFiles} files / +${addedBytes} bytes). Stop Mauxi, back up and review this directory, then manually remove only unneeded captures, completed clean journals, or explicitly chosen conversations. Never delete unfinished recovery records. See docs/private-alpha.md.`);
+export interface StorageArtifact { file: string; size: number; mtimeMs: number; dev: number; ino: number }
+
+// Scan completely before deleting anything, including when already over budget.
+// Unknown regular files count toward admission; symlinks/special entries fail closed.
+export function scanArtifacts(root: string): StorageArtifact[] {
+  const artifacts: StorageArtifact[] = []; let visited = 0;
   const visit = (directory: string) => {
     let entries;
-    try { entries = readdirSync(directory, { withFileTypes: true }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && directory === root) return; throw error; }
-    for (const entry of entries) {
-      if (++visited > 4096) throw full();
-      const file = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(file);
+    try {
+      if (!lstatSync(directory).isDirectory()) throw new Error(`Unexpected storage directory at ${directory}; review it manually before writing.`);
+      entries = readdirSync(directory);
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && directory === root) return; throw error; }
+    for (const name of entries) {
+      if (++visited > 4096) throw new Error(`Storage capacity scan at ${root} exceeds 4,096 entries; review it manually before writing.`);
+      const file = path.join(directory, name); const info = lstatSync(file);
+      if (info.isDirectory()) visit(file);
       else {
-        const info = lstatSync(file);
         if (!info.isFile()) throw new Error(`Unexpected storage entry at ${file}; review it manually before writing.`);
-        files++; bytes += info.size;
-        if (files + addedFiles > limits.files || bytes + addedBytes > limits.bytes) throw full();
+        artifacts.push({ file, size: info.size, mtimeMs: info.mtimeMs, dev: info.dev, ino: info.ino });
       }
     }
   };
   visit(root);
-  if (files + addedFiles > limits.files || bytes + addedBytes > limits.bytes) throw full();
+  return artifacts;
+}
+
+// Synchronous admission + write is serialized by the Electron main thread.
+// These are application admission budgets, not physical disk quotas. External
+// writers can exceed them; no user history or recovery data is ever evicted.
+export function assertArtifactCapacity(root: string, limits: ArtifactBudget, addedBytes: number, addedFiles = 0): void {
+  const artifacts = scanArtifacts(root);
+  const bytes = artifacts.reduce((sum, item) => sum + item.size, 0); const files = artifacts.length;
+  if (files + addedFiles > limits.files || bytes + addedBytes > limits.bytes) {
+    throw new Error(`Storage capacity at ${root}: ${files} files / ${bytes} bytes; admission limit ${limits.files} files / ${limits.bytes} bytes (requested +${addedFiles} files / +${addedBytes} bytes). Stop Mauxi, back up and review this directory, then manually remove only unneeded captures, completed clean journals, or explicitly chosen conversations. Never delete unfinished recovery records. See docs/private-alpha.md.`);
+  }
 }
 
 export function writeCapture(file: string, data: Buffer): void {

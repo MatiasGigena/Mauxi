@@ -42,7 +42,7 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 - **Viewports:** initially desktop 1440×900 and mobile 390×844 CSS pixels. **Actions → Viewport** changes iframe dimensions, within 240–3840 wide and 240–2160 high. Camera zoom does not change responsive breakpoints.
 - **Focus:** fits one board and hides, rather than remounts, the other. Unfocus restores the previous camera and positions. Page state survives.
 - **Chat:** stays anchored to the window. Drag its separator or use Up/Down/Home/End on the focused separator to resize it.
-- **Actions:** reload, viewport, screenshot, route copy, and diagnostics. Screenshot capture requires Electron and the entire preview to be visible; it captures presentation-space pixels, not a zoom-independent native-size export.
+- **Actions:** reload, viewport, screenshot, route copy, and diagnostics. Screenshot capture requires Electron and the entire preview to be visible; it captures presentation-space pixels, not a zoom-independent native-size export. Capture paths are temporary (24-hour expiry, possibly earlier under capacity pressure); copy files elsewhere for permanent exports. Element-selection PNGs are discarded after accepted submission/removal, while submitted images remain in conversation history. See [capture retention](private-alpha.md#automatic-screenshot-cleanup).
 
 Layout, viewport sizes, focus restore state, chat height, and route-link preference are saved with the workspace. Live element handles and preview generations are not persisted.
 
