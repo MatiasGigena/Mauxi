@@ -25,9 +25,9 @@ test("model setup expands inside chat and the send border keeps moving", async (
   const send = page.locator(".composer button[type=submit]");
   await expect(send).toBeDisabled();
   await expect(send).toHaveCSS("opacity", "0.48");
-  await expect.poll(() => send.evaluate((button) => getComputedStyle(button, "::before").animationPlayState)).toBe("running");
-  const firstTransform = await send.evaluate((button) => getComputedStyle(button, "::before").transform);
-  await expect.poll(() => send.evaluate((button) => getComputedStyle(button, "::before").transform)).not.toBe(firstTransform);
+  await expect.poll(() => send.evaluate((button) => getComputedStyle(button.querySelector(".send-action-surface")!, "::before").animationPlayState)).toBe("running");
+  const firstTransform = await send.evaluate((button) => getComputedStyle(button.querySelector(".send-action-surface")!, "::before").transform);
+  await expect.poll(() => send.evaluate((button) => getComputedStyle(button.querySelector(".send-action-surface")!, "::before").transform)).not.toBe(firstTransform);
   const message = page.getByRole("textbox", { name: "Message", exact: true });
   await message.fill("Keep this draft while choosing a model");
   const dock = page.locator(".chat-dock");

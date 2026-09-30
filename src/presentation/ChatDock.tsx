@@ -4,6 +4,7 @@ import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../applicat
 import type { StoredSelection } from "../application/selection-state";
 import { SelectionComposer } from "./SelectionComposer";
 import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
+import { ComposerAction } from "./ComposerAction";
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
@@ -286,6 +287,7 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   const [settings, setSettings] = useState(false);
   const [sendError, setSendError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [stopPending, setStopPending] = useState(false);
   const [accepted, setAccepted] = useState<(AcceptedPrompt & { workspaceId: string; sessionId?: string }) | undefined>();
   const exchange = latestExchange(agent.messages, accepted && accepted.workspaceId === workspaceId && accepted.sessionId === agent.sessionId ? accepted : undefined);
   useEffect(() => {
@@ -297,6 +299,10 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   }, [accepted, workspaceId, agent.sessionId, agent.messages]);
   const running = agent.runState !== "idle" && agent.runState !== "error";
   const selectedModel = agent.models.find((model) => model.key === agent.selectedModel);
+  const keyboardAction = useRef(false);
+  const stopping = stopPending || agent.runState === "stopping";
+  const stopAction = stopping || (running && !draft.trim());
+  const action = stopping ? "stopping" : busy ? "checking" : stopAction ? "stop" : running ? "followUp" : "send";
   const error = sendError || agent.error?.message || "";
   const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
@@ -350,8 +356,14 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
     setDialog(current => current?.id === id ? null : current);
   }
 
-  async function submit(behavior: "prompt" | "steer" | "followUp") {
-    if (!workspaceId || !window.mauxi || !draft.trim() || busy || settings || inlineDialog) return;
+  function stop() {
+    if (!workspaceId || !window.mauxi || !running || busy || settings || inlineDialog || stopping) return;
+    setStopPending(true);
+    run(() => window.mauxi!.agentStop(workspaceId).finally(() => setStopPending(false)));
+  }
+
+  async function submit(behavior: "prompt" | "followUp") {
+    if (!workspaceId || !window.mauxi || !draft.trim() || busy || settings || inlineDialog || stopping) return;
     const submittedDraft = draft;
     const text = submittedDraft.trim();
     setBusy(true); setSendError("");
@@ -378,7 +390,8 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
       login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
       {exchange && <ChatExchange exchange={exchange} running={running} hidden={settings || !!inlineDialog} />}
       {showError && <p className="send-error" role="alert">{error}</p>}
-      <form className="composer" data-login={!!inlineDialog || undefined} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
+      <form className="composer" data-login={!!inlineDialog || undefined}
+        onKeyDownCapture={() => { keyboardAction.current = true; }} onPointerDownCapture={() => { keyboardAction.current = false; }} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
         <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
           <label className="sr-only" htmlFor="chat-message">Message</label>
           <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} />
@@ -388,9 +401,10 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
             <Settings2 size={16} aria-hidden="true" /><span>{selectedModel ? selectedModel.name : "Models & providers"}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <div className="send-actions">
-            {running && <button type="button" className="stop-button" disabled={busy || agent.runState === "stopping"} onClick={() => run(() => window.mauxi!.agentStop(workspaceId!))}>Stop</button>}
-            {running && <button type="button" className="composer-secondary" disabled={settings || !draft.trim() || busy} title="Deliver after the current tool turn" onClick={() => void submit("steer")}>Steer</button>}
-            <button className="primary" type="submit" disabled={settings || !workspaceId || !draft.trim() || busy || !agent.selectedModel}><span>{busy ? "Checking…" : running ? "Follow up" : "Send"}</span><ArrowUpRight size={16} aria-hidden="true" /></button>
+            <ComposerAction action={action} instant={keyboardAction.current} type={stopAction ? "button" : "submit"}
+              disabled={settings || !!inlineDialog || !workspaceId || busy || stopping || (!stopAction && (!draft.trim() || !agent.selectedModel))}
+              title={stopAction ? "Stop agent work" : running ? "Send after the current response" : "Send message"}
+              onClick={stopAction ? stop : undefined} />
           </div>
         </div>
       </form>

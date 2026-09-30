@@ -24,13 +24,23 @@ button { border: 0; color: inherit; cursor: pointer; } button:active:not(:disabl
 :is(.launch-entry, .confirmation-actions, .composer) .primary::after { content: ""; position: absolute; inset: 2px; border-radius: 7px; background: #181b22; pointer-events: none; }
 :is(.launch-entry, .confirmation-actions, .composer) .primary > svg, :is(.launch-entry, .confirmation-actions, .composer) .primary > span { position: relative; z-index: 1; }
 .composer .primary { animation: none; white-space: nowrap; }
+/* This surface alone changes width visually; labels keep their natural size. */
+.composer .primary.send-action { overflow: visible; background: transparent; box-shadow: none; }
+.composer .primary.send-action::before, .composer .primary.send-action::after { display: none; }
+.composer .primary.send-action > .send-action-surface { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; background: #181b22; box-shadow: 0 6px 18px rgba(24,27,34,.18); transform-origin: right center; pointer-events: none; }
+.send-action-surface::before { content: ""; position: absolute; top: 50%; left: 50%; width: 200%; aspect-ratio: 1; background: conic-gradient(transparent 0deg 220deg, #218f90 238deg, #f4785d 265deg, #ffc870 292deg, transparent 312deg 360deg); transform: translate(-50%, -50%) rotate(0deg); animation: launch-border-spin 2.2s linear infinite; }
+.send-action-surface::after { content: ""; position: absolute; inset: 2px; border-radius: 7px; background: #181b22; }
 @keyframes launch-border-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 @media (hover: hover) and (pointer: fine) {
   :is(.launch-entry, .confirmation-actions, .composer) .primary:hover:not(:disabled) { background: #292c34; transform: translateY(-2px); }
   :is(.launch-entry, .confirmation-actions, .composer) .primary:hover:not(:disabled)::after { background: #292c34; }
+  .composer .primary.send-action:hover:not(:disabled) { background: transparent; }
+  .send-action:hover:not(:disabled) .send-action-surface::after { background: #292c34; }
 }
 :is(.launch-entry, .confirmation-actions, .composer) .primary:active:not(:disabled) { background: #101218; transform: scale(.97); }
 :is(.launch-entry, .confirmation-actions, .composer) .primary:active:not(:disabled)::after { background: #101218; }
+.composer .primary.send-action:active:not(:disabled) { background: transparent; }
+.send-action:active:not(:disabled) .send-action-surface::after { background: #101218; }
 :is(.launch-entry, .confirmation-actions, .composer) .primary:focus-visible { outline-color: #218f90; }
 .launch-setup { width: 100%; padding-bottom: 40px; }
 .primary { padding: 9px 15px; border-radius: 9px; background: #5f54d4; color: white; font-size: 12px; font-weight: 700; box-shadow: 0 4px 12px rgba(95,84,212,.23); }.primary:disabled, button:disabled { opacity: .48; cursor: default; transform: none; }

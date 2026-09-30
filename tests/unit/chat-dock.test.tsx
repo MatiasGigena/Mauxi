@@ -16,7 +16,11 @@ describe("minimal canvas composer", () => {
     expect(html).toContain('class="model-picker"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('aria-haspopup="dialog"');
-    expect(html).toContain('class="primary" type="submit" disabled=""');
+    expect(html).toMatch(/class="primary send-action"[^>]*type="submit"/);
+    expect(html).toContain('aria-label="Send"');
+    expect(html).toMatch(/class="primary send-action"[^>]*disabled=""/);
+    expect(html).not.toContain("stop-button");
+    expect(html).not.toContain("Steer");
     expect(html).not.toContain("Conversation");
     expect(html).not.toContain('role="log"');
     expect(html).not.toContain("Resize chat");
