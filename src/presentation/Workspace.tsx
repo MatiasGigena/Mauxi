@@ -6,6 +6,7 @@ import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, sele
 import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
+import { CanvasBackground } from "./CanvasBackground";
 import { PreviewTools } from "./PreviewTools";
 import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
 import logo from "./assets/logo-mauxi.png";
@@ -406,6 +407,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       <div className="connection"><span className={allReady && !serverFailed ? "online" : ""} aria-hidden="true">●</span><span className="status-text" role="status" title={`${active?.statusDetail ?? bridgeDetail}\n${notice}`}>{statusText}</span>{active && <button onClick={() => { void persist(layoutRef.current).then(onClose); }}>Close project</button>}</div>
     </header>
     <div className="canvas-surface">
+    <CanvasBackground />
     <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
       onPointerDown={(event) => { if (event.target === event.currentTarget || hand) startDrag(null, event); }}

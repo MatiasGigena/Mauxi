@@ -13,7 +13,7 @@
 .connection { margin-left: auto; display: flex; align-items: center; gap: .4rem; min-width: 0; color: #59555f; font-size: .8rem; }
 .connection > span:first-child { color: #97621d; }.connection > .online:first-child { color: #287b49; }
 .status-text { max-width: 17rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: radial-gradient(#bebbb6 .8px, transparent .8px) 0 0 / 24px 24px, #dedcd8; }
+.canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: #fff; }
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
 .hand-mode, .input-shield { cursor: grab; }.dragging, .dragging * { cursor: grabbing !important; }
@@ -24,7 +24,7 @@
 .board-grip .bridge-ready::before { content: ""; display: inline-block; width: .35rem; height: .35rem; border-radius: 50%; background: #287b49; margin-right: .3rem; vertical-align: middle; }
 .artboard-actions { display: flex; gap: .2rem; }
 .artboard-actions button { display: grid; place-items: center; min-width: 2rem; height: 2rem; padding: .25rem; font-size: 1rem; }
-.preview-surface { position: relative; background: white; box-shadow: 0 10px 30px #28252020; }
+.preview-surface { position: relative; background: white; box-shadow: 0 0 0 1px #181b2208, 0 2px 6px #181b2208, 0 14px 36px #181b2212; }
 .preview-surface iframe { display: block; border: 0; background: white; transform-origin: 0 0; }
 .input-shield { position: absolute; inset: 0; touch-action: none; }
 .browser-shield { cursor: default; }
@@ -44,7 +44,7 @@
 /* Chat overlays the preview; its height must never shrink the canvas or
    trigger a camera refit when selections, settings, or login views change. */
 .canvas-surface > .chat-dock { position: absolute; inset: auto 0 32px; }
-.chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: 0 12px 40px #28252012, 0 2px 6px #28252008; transform-origin: bottom center; pointer-events: none; }
+.chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: 0 2px 6px #181b220a, 0 16px 48px #181b2217; transform-origin: bottom center; pointer-events: none; }
 .chat-content { position: relative; max-height: calc(var(--chat-max-height) - 2px); padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
 .chat-content > .send-error { flex: none; margin: 0; font-size: 12px; }
 /* Keep the prompt, draft and toolbar available at the cap; scroll the output. */
@@ -72,7 +72,7 @@
 .composer textarea { display: block; width: 100%; height: 36px; min-height: 36px; max-height: 20vh; overflow-y: auto; resize: none; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: #24242a; line-height: 1.75; }
 .composer textarea::placeholder { color: #949096; }
 .composer textarea:focus-visible { outline: none; }
-.chat-dock:has(textarea:focus-visible) .chat-surface { border-color: #218f90; box-shadow: 0 0 0 2px #218f9020, 0 12px 40px #28252012; }
+.chat-dock:has(textarea:focus-visible) .chat-surface { border-color: #218f90; box-shadow: 0 0 0 2px #218f9020, 0 2px 6px #181b220a, 0 16px 48px #181b2217; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .workspace .model-picker { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 0; background: transparent; color: #747178; font-size: 11px; font-weight: 500; transition: color 120ms, transform 120ms cubic-bezier(.23,1,.32,1); }
 .model-picker span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
