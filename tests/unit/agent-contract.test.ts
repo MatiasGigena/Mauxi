@@ -64,6 +64,55 @@ describe("bundled pi host", () => {
     await host.dispose();
   });
 
+  it("restores the last selected provider/model after restart and across workspaces", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-model-restart-")); temporary.push(root);
+    const profile = path.join(root, "profile"); await mkdir(profile);
+    const model = (id: string) => ({ id, name: id, reasoning: false, input: ["text"], contextWindow: 10_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+    await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: {
+      fake: { baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-only", api: "openai-completions", models: [model("one"), model("vendor/two")] },
+      other: { baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-only", api: "openai-completions", models: [model("vendor/two")] },
+    } }));
+    const createHost = (workspace: string) => new PiAgentHost(workspace, process.cwd(), profile, path.join(root, "captures"));
+    const host = createHost("workspace-1");
+    try {
+      await host.initialize();
+      await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/vendor/two" });
+    } finally { await host.dispose(); }
+    const restarted = createHost("workspace-2");
+    try {
+      await restarted.initialize();
+      expect((await restarted.snapshot()).selectedModel).toBe("fake/vendor/two");
+      await restarted.newSession("workspace-2");
+      expect((await restarted.snapshot()).selectedModel).toBe("fake/vendor/two");
+      await expect(restarted.selectModel({ workspaceId: "workspace-2", modelKey: "fake/missing" })).rejects.toThrow(/Authenticate/);
+      await restarted.selectModel({ workspaceId: "workspace-2", modelKey: "other/vendor/two" });
+    } finally { await restarted.dispose(); }
+    const latest = createHost("workspace-1");
+    try {
+      await latest.initialize();
+      expect((await latest.snapshot()).selectedModel).toBe("other/vendor/two");
+      await expect(latest.selectModel({ workspaceId: "workspace-1", modelKey: "fake/missing" })).rejects.toThrow(/Authenticate/);
+    } finally { await latest.dispose(); }
+    const afterInvalidChoice = createHost("workspace-1");
+    try {
+      await afterInvalidChoice.initialize();
+      expect((await afterInvalidChoice.snapshot()).selectedModel).toBe("other/vendor/two");
+    } finally { await afterInvalidChoice.dispose(); }
+  });
+
+  it("falls back safely when the saved model is unavailable without erasing the preference", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-model-unavailable-")); temporary.push(root);
+    const profile = path.join(root, "profile"); await mkdir(profile);
+    await writeFile(path.join(profile, "model-preference.json"), JSON.stringify({ defaultProvider: "missing", defaultModel: "missing" }));
+    const host = new PiAgentHost("workspace-1", process.cwd(), profile, path.join(root, "captures"));
+    try {
+      await host.initialize();
+      expect((await host.snapshot()).selectedModel).toBeUndefined();
+    } finally { await host.dispose(); }
+    const { loadModelPreference } = await import("../../src/infrastructure/agent/model-preference");
+    expect(await loadModelPreference(profile)).toEqual({ defaultProvider: "missing", defaultModel: "missing" });
+  });
+
   it("streams a fake provider, adapts a structured question, queues input, stops, and resumes", async () => {
     let requests = 0; let expired = false;
     let holdFirstText = true;

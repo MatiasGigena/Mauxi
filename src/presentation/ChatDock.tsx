@@ -246,7 +246,7 @@ function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
   return <section className="chat-settings" aria-label="Models and providers">
       <header><strong>Models & providers</strong><button type="button" aria-label="Close models and providers" onClick={onClose}>×</button></header>
-      <ModelSelect agent={agent} busy={busy} onSelect={modelKey => run(() => window.mauxi!.agentSelectModel({ workspaceId, modelKey }))}>
+      <ModelSelect agent={agent} busy={busy} onSelect={modelKey => run(async () => { await window.mauxi!.agentSelectModel({ workspaceId, modelKey }); onClose(); })}>
       {selected && <div className="thinking-options" role="group" aria-label="Thinking level"><span>Thinking</span>{selected.thinkingLevels.map((level) => <button className="settings-action thinking-option" type="button" key={level} aria-pressed={agent.thinkingLevel === level} disabled={busy} onClick={() => run(() => window.mauxi!.agentSetThinking({ workspaceId, level }))}><span>{level}</span></button>)}</div>}
       <section className="provider-list"><div className="section-heading"><strong>Providers</strong><button type="button" className="settings-action" disabled={busy} onClick={() => run(() => window.mauxi!.agentRefreshCatalog(workspaceId))}><span>Refresh catalog</span><RefreshCw size={12} aria-hidden="true" /></button></div>
         <ProviderScroller count={agent.providers.length}>

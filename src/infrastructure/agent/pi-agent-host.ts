@@ -1,4 +1,5 @@
 import { guardSessionStorage } from "./session-budget";
+import { loadModelPreference, saveModelPreference } from "./model-preference";
 import { ARTIFACT_LIMITS, assertArtifactCapacity } from "../storage/artifact-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -466,7 +467,7 @@ export class PiAgentHost {
         modelRuntime: this.modelRuntime!,
         // In-memory settings prevent ambient project/global package resolution,
         // including installs that happen before noExtensions is applied.
-        settingsManager: SettingsManager.inMemory({ enableSkillCommands: false, retry: { enabled: true, maxRetries: 1 } }),
+        settingsManager: SettingsManager.inMemory({ ...await loadModelPreference(this.profileDir), enableSkillCommands: false, retry: { enabled: true, maxRetries: 1 } }),
         resourceLoaderOptions: {
           noExtensions: true,
           noSkills: true,
@@ -934,6 +935,7 @@ export class PiAgentHost {
     const available = this.modelRuntime!.getAvailableSnapshot().some((item) => item.provider === model?.provider && item.id === model?.id);
     if (!model || !available) throw new Error("Authenticate this provider before selecting the model.");
     await this.runtime!.session.setModel(model);
+    await saveModelPreference(this.profileDir, model.provider, model.id);
     this.status = `Using ${model.name}`; this.lastError = undefined;
     await this.publish();
   }

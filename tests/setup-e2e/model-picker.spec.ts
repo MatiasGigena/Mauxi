@@ -131,7 +131,13 @@ for (const width of [1500, 390]) {
     await trigger.press("ArrowDown");
     await expect(trigger).toHaveAttribute("aria-activedescendant", /option-1$/);
     await trigger.press("Enter");
-    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    const picker = page.getByRole("button", { name: "Models & providers", exact: true });
+    await expect(picker).toHaveAttribute("aria-expanded", "false");
+    await expect(picker).toContainText("GPT-6 Luna");
+    await expect(settings).toHaveCount(0);
+    await expect(picker).toBeFocused();
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+    await picker.click();
     await expect(trigger).toContainText("GPT-6 Luna");
     await expect(details).not.toHaveAttribute("inert", "");
 
@@ -147,5 +153,24 @@ for (const width of [1500, 390]) {
     await expect(settings.locator(".script-select-popup")).toHaveCSS("animation-name", "none");
     await trigger.click();
     await expect(details).toHaveCSS("opacity", "1");
+
+    // Pointer selection uses the same full-panel close path, including animation.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await trigger.click();
+    await models.getByRole("option", { name: /Claude Opus/ }).click();
+    await expect(picker).toHaveAttribute("aria-expanded", "false");
+    await expect(picker).toContainText("Claude Opus 5.5");
+    await expect(settings).toHaveCount(0);
+    await expect(picker).toBeFocused();
+
+    // Failed selections keep the panel available to retry and surface the error.
+    await picker.click();
+    await page.evaluate(() => { window.mauxi!.agentSelectModel = async () => { throw new Error("Model selection failed"); }; });
+    await trigger.click();
+    await models.getByRole("option", { name: /GPT-6 Sol/ }).click();
+    await expect(picker).toHaveAttribute("aria-expanded", "true");
+    await expect(settings).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveText("Model selection failed");
+    await expect(trigger).toContainText("Claude Opus 5.5");
   });
 }

@@ -45,6 +45,11 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await page.getByRole("combobox", { name: /Model/ }).click();
   await page.getByRole("option", { name: /Model One/ }).click();
   await expect.poll(() => page.evaluate(() => (window as any).setupTest.selectedModel)).toBe("fake/one");
+  await expect(page.locator(".chat-settings")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Models & providers" })).toHaveAttribute("aria-expanded", "false");
+  await expect(message).toHaveValue("Keep this draft while choosing a model");
+  await expect(send).toBeEnabled();
+  await page.getByRole("button", { name: "Models & providers" }).click();
   await expect(page.getByRole("group", { name: "Thinking level" })).toBeVisible();
   await expect(send).toBeDisabled();
   await page.getByRole("button", { name: "Close models and providers" }).click();
