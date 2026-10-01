@@ -6,7 +6,7 @@ const easeOut = "cubic-bezier(0.23, 1, 0.32, 1)";
 const easeMove = "cubic-bezier(0.77, 0, 0.175, 1)";
 type Entry = { item: StoredSelection; exiting: boolean };
 type LoginView = (active: boolean) => ReactNode;
-type Props = { selections: StoredSelection[]; onRemove: (id: string) => void; expansion?: string; contentSize?: string; panel?: ReactNode; login?: LoginView; children: ReactNode };
+type Props = { selections: StoredSelection[]; onRemove: (id: string) => void; onActivate?: () => void; expansion?: string; contentSize?: string; panel?: ReactNode; login?: LoginView; children: ReactNode };
 type State = { source: StoredSelection[]; entries: Entry[]; panel?: ReactNode; panelExiting?: boolean; login?: LoginView; loginExiting?: boolean };
 type Appearance = { rect: DOMRect; opacity: number };
 type Snapshot = { surface: DOMRect; items: Map<string, Appearance>; focusedIndex: number; panelFocused: boolean; editorFocused?: boolean };
@@ -195,7 +195,8 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
 
   render() {
     const active = this.state.entries.filter(entry => !entry.exiting);
-    return <section ref={this.root} className="chat-dock" aria-label="Chat" onKeyDownCapture={() => { this.keyboard = true; }} onPointerDownCapture={() => { this.keyboard = false; }}>
+    return <section ref={this.root} className="chat-dock" aria-label="Chat" onKeyDownCapture={() => { this.keyboard = true; }}
+      onPointerDownCapture={() => { this.keyboard = false; this.props.onActivate?.(); }} onFocusCapture={() => this.props.onActivate?.()}>
       <div ref={this.surface} className="chat-surface" aria-hidden="true" />
       <div className="chat-content">
         {active.length > 0 && <div className="selection-list" data-testid="selection-list" aria-label="Selected elements">{active.map(entry => this.badge(entry))}</div>}

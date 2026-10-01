@@ -54,6 +54,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, []);
   const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
+  const [chatMinimizeRequest, setChatMinimizeRequest] = useState(0);
+  const minimizeChat = useCallback(() => setChatMinimizeRequest(request => request + 1), []);
   const [bridgeDetail, setBridgeDetail] = useState("Preparing instrumented previews…");
   const [dragging, setDragging] = useState(false);
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
@@ -61,6 +63,19 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const initialFit = useRef(!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT, headerWidth: HEADER_WIDTH });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
+  // Pointer events inside cross-origin previews do not bubble to the canvas.
+  // Detect iframe focus without installing an overlay or intercepting page input.
+  useEffect(() => {
+    let frame = 0;
+    const previewFocus = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (document.hasFocus() && PREVIEW_IDS.some(id => frames.current[id] === document.activeElement)) minimizeChat();
+      });
+    };
+    window.addEventListener("blur", previewFocus);
+    return () => { window.removeEventListener("blur", previewFocus); cancelAnimationFrame(frame); };
+  }, [minimizeChat]);
   const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : URLS[fixture];
   const origin = new URL(baseUrl).origin;
   const routes = useMemo(() => new RouteLink(origin), [origin, session]);
@@ -392,6 +407,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </header>
     <div className="canvas-surface">
     <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
+      onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
       onPointerDown={(event) => { if (event.target === event.currentTarget || hand) startDrag(null, event); }}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
       onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Escape") { setLayout(unfocus); setHand(false); setSelecting(null); } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
@@ -414,7 +430,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock workspaceId={active?.workspaceId} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    <ChatDock workspaceId={active?.workspaceId} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
     </div>
     {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
   </div>;

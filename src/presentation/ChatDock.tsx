@@ -275,13 +275,20 @@ export function ChangeReview({ changeSets, idle, onUndo }: { changeSets: AgentCh
   </details>)}</>;
 }
 
-export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSelectionsSent }: {
-  workspaceId?: string; selections: StoredSelection[];
+export function ChatDock({ workspaceId, minimizeRequest = 0, selections, onRemove, onBeforeSend, onSelectionsSent }: {
+  workspaceId?: string; minimizeRequest?: number; selections: StoredSelection[];
   onRemove: (id: string) => void;
   onBeforeSend: () => Promise<{ ok: boolean; message?: string; selections?: StoredSelection[] }>;
   onSelectionsSent: (ids: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [minimized, setMinimized] = useState(false);
+  const editor = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!minimizeRequest) return;
+    setMinimized(true);
+    editor.current?.blur();
+  }, [minimizeRequest]);
   const [agent, setAgent] = useState<AgentSnapshot>(EMPTY_AGENT);
   const [dialog, setDialog] = useState<AgentDialog | null>(null);
   const [settings, setSettings] = useState(false);
@@ -371,7 +378,7 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
     if (!workspaceId || !window.mauxi || !agent.selectedModel || !draft.trim() || busy || settings || inlineDialog || stopping) return;
     const submittedDraft = draft;
     const text = submittedDraft.trim();
-    setSendingDraft(submittedDraft); setBusy(true); setSendError("");
+    setMinimized(false); setSendingDraft(submittedDraft); setBusy(true); setSendError("");
     try {
       const result = await onBeforeSend();
       if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending."); return; }
@@ -389,17 +396,17 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   }
 
   return <>
-    <SelectionComposer selections={selections} onRemove={onRemove} expansion={dialog?.id ?? ""}
-      contentSize={JSON.stringify([draft, exchange, working, sendError, agent.error?.message])}
+    <SelectionComposer selections={selections} onRemove={onRemove} onActivate={() => setMinimized(false)} expansion={dialog?.id ?? ""}
+      contentSize={JSON.stringify([draft, exchange, working, minimized, sendError, agent.error?.message])}
       panel={settings && workspaceId ? <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} login={login} onClose={() => setSettings(false)} /> : null}
       login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
-      {exchange && <ChatExchange exchange={exchange} running={running} hidden={settings || !!inlineDialog} />}
-      {showError && <p className="send-error" role="alert">{error}</p>}
+      {exchange && <ChatExchange exchange={exchange} running={running} hidden={minimized || settings || !!inlineDialog} />}
+      {showError && <p className="send-error" role="alert" data-composer-motion="error" data-retained-motion="" data-exiting={minimized || undefined} inert={minimized} aria-hidden={minimized || undefined}>{error}</p>}
       <form className="composer" data-login={!!inlineDialog || undefined}
         onKeyDownCapture={() => { keyboardAction.current = true; }} onPointerDownCapture={() => { keyboardAction.current = false; }} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
         <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
           <label className="sr-only" htmlFor="chat-message">Message</label>
-          <textarea id="chat-message" placeholder={working ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)}
+          <textarea ref={editor} id="chat-message" placeholder={working ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)}
             onKeyDown={event => {
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               event.preventDefault();

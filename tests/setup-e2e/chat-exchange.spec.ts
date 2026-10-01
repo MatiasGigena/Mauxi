@@ -222,3 +222,131 @@ test("settings retain the latest exchange and compaction doesn't revive an accep
   });
   await expect(page.locator(".chat-exchange")).toHaveCount(0);
 });
+
+for (const { viewport, reducedMotion } of [
+  { viewport: { width: 1280, height: 800 }, reducedMotion: "no-preference" },
+  { viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" },
+  { viewport: { width: 390, height: 800 }, reducedMotion: "no-preference" },
+] as const) {
+  test(`canvas click minimizes and chat click restores with ${reducedMotion} at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion });
+    await start(page);
+    const editor = page.getByRole("textbox", { name: "Message", exact: true });
+    const dock = page.locator(".chat-dock");
+    const canvas = page.getByTestId("canvas");
+    const initial = (await dock.boundingBox())!;
+    const canvasBounds = await canvas.boundingBox();
+    await editor.fill("Hi");
+    await editor.press("Enter");
+    await output(page, "Hi! What would you like help with?", false);
+    await settled(page);
+    await page.evaluate(() => {
+      (window as any).minimizeAnimations = [];
+      (window as any).exchangeNode = document.querySelector(".chat-exchange");
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (...args) {
+        if (this.matches(".chat-surface, .chat-exchange")) (window as any).minimizeAnimations.push({ className: this.className, options: args[1] });
+        return animate.apply(this, args);
+      };
+    });
+    await canvas.click({ position: { x: 5, y: 5 } });
+    await expect(page.getByRole("region", { name: "Latest exchange" })).toHaveCount(0);
+    await expect(page.locator(".chat-exchange")).toHaveAttribute("inert", "");
+    await expect(editor).not.toBeFocused();
+    await settled(page);
+    const minimized = (await dock.boundingBox())!;
+    expect(minimized.height).toBeCloseTo(initial.height, 0);
+    expect(minimized.y + minimized.height).toBeCloseTo(initial.y + initial.height, 0);
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await editor.click();
+    await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Hi! What would you like help with?");
+    await settled(page);
+    expect(await page.locator(".chat-exchange").evaluate(node => node === (window as any).exchangeNode)).toBe(true);
+    expect(await canvas.boundingBox()).toEqual(canvasBounds);
+    const animations = await page.evaluate(() => (window as any).minimizeAnimations);
+    if (reducedMotion === "reduce") expect(animations).toEqual([]);
+    else {
+      expect(animations.filter((item: any) => item.className === "chat-surface").map((item: any) => item.options.duration)).toEqual([160, 200]);
+      expect(animations.filter((item: any) => item.className === "chat-exchange").map((item: any) => item.options.duration)).toEqual([110, 160]);
+    }
+  });
+}
+
+test("minimized streaming preserves the draft, history and manual response scroll", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Show a long response");
+  await editor.press("Enter");
+  const lines = Array.from({ length: 50 }, (_, i) => `Line ${i}`).join("\n");
+  await output(page, lines);
+  await settled(page);
+  await page.getByRole("log", { name: "Agent response" }).evaluate(node => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
+  await editor.fill("Next draft\nKeep this line");
+  await page.getByTestId("canvas").click({ position: { x: 5, y: 5 } });
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
+  await output(page, lines + "\nStill working while minimized");
+  await settled(page);
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
+  await expect(editor).toHaveValue("Next draft\nKeep this line");
+  await expect(page.getByRole("button", { name: "Follow up", exact: true })).toBeEnabled();
+  await editor.focus();
+  await expect(page.getByRole("log", { name: "Agent response" })).toContainText("Still working while minimized");
+  await settled(page);
+  expect(await page.getByRole("log", { name: "Agent response" }).evaluate(node => node.scrollTop)).toBe(0);
+  expect(await page.evaluate(() => (window as any).setupTest.agentSnapshot.messages.filter((message: any) => message.role === "user").length)).toBe(1);
+  await editor.fill("");
+  await page.getByTestId("canvas").click({ position: { x: 5, y: 5 } });
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
+});
+
+test("clicking inside a preview minimizes, unrelated shell clicks do not", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Keep this conversation");
+  await editor.press("Enter");
+  await output(page, "Completed response", false);
+  await settled(page);
+  await page.getByRole("button", { name: "Routes linked", exact: true }).click();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
+  await editor.focus();
+  await page.frameLocator('[data-testid="desktop-preview"]').getByText("Test preview", { exact: true }).click();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
+  await editor.focus();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await settled(page);
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
+});
+
+test("rapid minimize and reopen reverses retained motion without duplicate exchanges", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Keep the same exchange");
+  await editor.press("Enter");
+  await output(page, "Retained response", false);
+  await settled(page);
+  await page.evaluate(async () => {
+    const target = document.querySelector('[aria-label="Focus Desktop"]')!;
+    const editor = document.querySelector<HTMLTextAreaElement>("#chat-message")!;
+    const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    (window as any).exchangeNode = document.querySelector(".chat-exchange");
+    for (let i = 0; i < 4; i++) {
+      // A child control avoids the canvas drag's pointer-capture requirement.
+      target.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+      await frame();
+      editor.focus();
+      await frame();
+    }
+  });
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Retained response");
+  await settled(page);
+  expect(await page.locator(".chat-exchange").evaluate(node => node === (window as any).exchangeNode)).toBe(true);
+  await page.getByTestId("canvas").click({ position: { x: 5, y: 5 } });
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
+  await settled(page);
+  expect(await page.locator(".chat-content").evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+  await editor.click();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Retained response");
+});
