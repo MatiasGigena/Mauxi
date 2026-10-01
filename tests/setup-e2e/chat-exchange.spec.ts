@@ -101,6 +101,9 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByRole("region", { name: "User prompt" })).toHaveText("YouMake the hero simpler");
     await expect(editor).toHaveValue("");
+    await settled(page);
+    const workingExchange = (await page.locator(".chat-exchange").boundingBox())!;
+    expect((await editor.boundingBox())!.y - (workingExchange.y + workingExchange.height)).toBeCloseTo(20, 0);
     await output(page, "I’m simplifying the hero.");
     await settled(page);
     const short = (await page.locator(".chat-dock").boundingBox())!;
@@ -114,6 +117,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     const response = (await page.locator(".chat-response").boundingBox())!;
     expect(prompt.y).toBeGreaterThanOrEqual(capped.y);
     expect(prompt.y + prompt.height).toBeLessThan(response.y);
+    const exchange = (await page.locator(".chat-exchange").boundingBox())!;
+    expect((await editor.boundingBox())!.y - (exchange.y + exchange.height)).toBeCloseTo(20, 0);
     await expect(editor).toBeVisible();
     await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
     expect(await page.getByTestId("canvas").boundingBox()).toEqual(canvas);
