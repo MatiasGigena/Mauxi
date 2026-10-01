@@ -287,6 +287,7 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   const [settings, setSettings] = useState(false);
   const [sendError, setSendError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sendingDraft, setSendingDraft] = useState<string | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const [accepted, setAccepted] = useState<(AcceptedPrompt & { workspaceId: string; sessionId?: string }) | undefined>();
   const exchange = latestExchange(agent.messages, accepted && accepted.workspaceId === workspaceId && accepted.sessionId === agent.sessionId ? accepted : undefined);
@@ -301,8 +302,12 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   const selectedModel = agent.models.find((model) => model.key === agent.selectedModel);
   const keyboardAction = useRef(false);
   const stopping = stopPending || agent.runState === "stopping";
-  const stopAction = stopping || (running && !draft.trim());
-  const action = stopping ? "stopping" : busy ? "checking" : stopAction ? "stop" : running ? "followUp" : "send";
+  const working = running || sendingDraft !== null;
+  // The submitted draft stays recoverable until acceptance, but is no longer
+  // a new follow-up. Only text edited during that wait changes Stop to Follow up.
+  const hasNewDraft = !!draft.trim() && draft !== sendingDraft;
+  const stopAction = stopping || (working && !hasNewDraft);
+  const action = stopping ? "stopping" : stopAction ? "stop" : working ? "followUp" : "send";
   const error = sendError || agent.error?.message || "";
   const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
@@ -363,10 +368,10 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
   }
 
   async function submit(behavior: "prompt" | "followUp") {
-    if (!workspaceId || !window.mauxi || !draft.trim() || busy || settings || inlineDialog || stopping) return;
+    if (!workspaceId || !window.mauxi || !agent.selectedModel || !draft.trim() || busy || settings || inlineDialog || stopping) return;
     const submittedDraft = draft;
     const text = submittedDraft.trim();
-    setBusy(true); setSendError("");
+    setSendingDraft(submittedDraft); setBusy(true); setSendError("");
     try {
       const result = await onBeforeSend();
       if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending."); return; }
@@ -380,12 +385,12 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
       setDraft((current) => current === submittedDraft ? "" : current);
       onSelectionsSent(attached.map((item) => item.capture.selectionId));
     } catch (error) { setSendError(errorMessage(error)); }
-    finally { setBusy(false); }
+    finally { setSendingDraft(null); setBusy(false); }
   }
 
   return <>
     <SelectionComposer selections={selections} onRemove={onRemove} expansion={dialog?.id ?? ""}
-      contentSize={JSON.stringify([draft, exchange, running, sendError, agent.error?.message])}
+      contentSize={JSON.stringify([draft, exchange, working, sendError, agent.error?.message])}
       panel={settings && workspaceId ? <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} login={login} onClose={() => setSettings(false)} /> : null}
       login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
       {exchange && <ChatExchange exchange={exchange} running={running} hidden={settings || !!inlineDialog} />}
@@ -394,7 +399,12 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
         onKeyDownCapture={() => { keyboardAction.current = true; }} onPointerDownCapture={() => { keyboardAction.current = false; }} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
         <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
           <label className="sr-only" htmlFor="chat-message">Message</label>
-          <textarea id="chat-message" placeholder={running ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} />
+          <textarea id="chat-message" placeholder={working ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              event.preventDefault();
+              if (!event.repeat) event.currentTarget.form?.requestSubmit();
+            }} />
         </div>
         <div className="composer-toolbar" data-composer-motion="toolbar" data-retained-motion="" data-exiting={!!inlineDialog || undefined} inert={!!inlineDialog} aria-hidden={!!inlineDialog || undefined}>
           <button className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
@@ -403,7 +413,7 @@ export function ChatDock({ workspaceId, selections, onRemove, onBeforeSend, onSe
           <div className="send-actions">
             <ComposerAction action={action} instant={keyboardAction.current} type={stopAction ? "button" : "submit"}
               disabled={settings || !!inlineDialog || !workspaceId || busy || stopping || (!stopAction && (!draft.trim() || !agent.selectedModel))}
-              title={stopAction ? "Stop agent work" : running ? "Send after the current response" : "Send message"}
+              title={stopAction ? "Stop agent work" : working ? "Send after the current response" : "Send message"}
               onClick={stopAction ? stop : undefined} />
           </div>
         </div>

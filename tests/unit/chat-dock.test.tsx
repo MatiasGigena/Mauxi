@@ -21,6 +21,7 @@ describe("minimal canvas composer", () => {
     expect(html).toMatch(/class="primary send-action"[^>]*disabled=""/);
     expect(html).not.toContain("stop-button");
     expect(html).not.toContain("Steer");
+    expect(html).not.toContain("Checking");
     expect(html).not.toContain("Conversation");
     expect(html).not.toContain('role="log"');
     expect(html).not.toContain("Resize chat");

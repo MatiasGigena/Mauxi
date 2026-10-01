@@ -15,8 +15,12 @@ async function start(page: Page) {
     state.emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } }));
     state.sent = [];
     state.stops = 0;
+    state.sendMode = "accept";
     window.mauxi!.agentSend = async request => {
       state.sent.push(request);
+      if (state.sendMode === "delayed") await new Promise<void>(resolve => { state.releaseSend = resolve; });
+      if (state.sendMode === "reject") return { accepted: false };
+      if (state.sendMode === "throw") throw new Error("Send failed");
       state.agentSnapshot.messages = [...state.agentSnapshot.messages, { id: String(state.sent.length), role: "user", text: request.text }];
       state.agentSnapshot.runState = "working";
       state.emit();
@@ -36,6 +40,93 @@ async function start(page: Page) {
 async function settled(page: Page) {
   await page.locator(".send-action").evaluate(async node => {
     await Promise.all(node.getAnimations({ subtree: true }).filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
+  });
+}
+
+test("Enter sends prompts and follow-ups; Shift+Enter inserts line breaks", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  const action = page.locator(".send-action");
+  await editor.fill("First line");
+  await editor.press("Shift+Enter");
+  await editor.pressSequentially("Second line");
+  await expect(editor).toHaveValue("First line\nSecond line");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+  await editor.press("Enter");
+  await expect(editor).toHaveValue("");
+  await expect(action).toHaveAccessibleName("Stop");
+  await editor.press("Enter");
+  expect(await page.evaluate(() => (window as any).setupTest.stops)).toBe(0);
+  await editor.fill("Follow-up line");
+  await editor.press("Shift+Enter");
+  await editor.pressSequentially("More details");
+  await expect(action).toHaveAccessibleName("Follow up");
+  await editor.press("Enter");
+  await expect(editor).toHaveValue("");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.map((request: any) => ({ text: request.text, behavior: request.behavior })))).toEqual([
+    { text: "First line\nSecond line", behavior: "prompt" },
+    { text: "Follow-up line\nMore details", behavior: "followUp" },
+  ]);
+});
+
+test("Enter does not send while composing with an IME or without a selected model", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Composed text");
+  for (const composing of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }]) {
+    await editor.evaluate((node, composing) => node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...composing })), composing);
+  }
+  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+  await page.evaluate(() => {
+    const state = (window as any).setupTest;
+    state.agentSnapshot.selectedModel = undefined;
+    state.emit();
+  });
+  await expect(page.locator(".send-action")).toBeDisabled();
+  await editor.press("Enter");
+  await expect(editor).toHaveValue("Composed text");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+});
+
+test("sending switches directly to Stop and only new typing switches to Follow up", async ({ page }) => {
+  await start(page);
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  const action = page.locator(".send-action");
+  await page.evaluate(() => { (window as any).setupTest.sendMode = "delayed"; });
+  await editor.fill("Submitted draft");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(action).toHaveAccessibleName("Stop");
+  await expect(action).toBeDisabled();
+  await expect(action).not.toContainText("Checking");
+  await expect.poll(() => page.evaluate(() => !!(window as any).setupTest.releaseSend)).toBe(true);
+  await editor.press("Enter");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(1);
+  await editor.fill("Next draft\nKeep this line");
+  await expect(action).toHaveAccessibleName("Follow up");
+  await expect(action).toBeDisabled();
+  await editor.press("Enter");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(1);
+  await page.evaluate(() => (window as any).setupTest.releaseSend());
+  await expect(action).toBeEnabled();
+  await expect(action).toHaveAccessibleName("Follow up");
+  await expect(editor).toHaveValue("Next draft\nKeep this line");
+  await page.evaluate(() => { (window as any).setupTest.sendMode = "accept"; });
+  await editor.press("Enter");
+  await expect(action).toHaveAccessibleName("Stop");
+  expect(await page.evaluate(() => (window as any).setupTest.sent.map((request: any) => request.behavior))).toEqual(["prompt", "followUp"]);
+});
+
+for (const sendMode of ["reject", "throw"]) {
+  test(`failed ${sendMode} sends restore Send and retain the draft`, async ({ page }) => {
+    await start(page);
+    await page.evaluate(sendMode => { (window as any).setupTest.sendMode = sendMode; }, sendMode);
+    const editor = page.getByRole("textbox", { name: "Message", exact: true });
+    await editor.fill("Keep this draft");
+    await editor.press("Enter");
+    await expect(page.getByRole("alert")).toContainText(sendMode === "reject" ? "not accepted" : "Send failed");
+    await expect(page.locator(".send-action")).toHaveAccessibleName("Send");
+    await expect(page.locator(".send-action")).toBeEnabled();
+    await expect(editor).toHaveValue("Keep this draft");
   });
 }
 

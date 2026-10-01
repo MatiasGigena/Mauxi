@@ -1,7 +1,7 @@
 import { Component, createRef, type ButtonHTMLAttributes } from "react";
 import { ArrowUpRight, Square } from "lucide-react";
 
-export const ACTION_LABELS = { send: "Send", followUp: "Follow up", stop: "Stop", checking: "Checking…", stopping: "Stopping…" } as const;
+export const ACTION_LABELS = { send: "Send", followUp: "Follow up", stop: "Stop", stopping: "Stopping…" } as const;
 type Action = keyof typeof ACTION_LABELS;
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & { action: Action; instant: boolean };
 
