@@ -107,6 +107,8 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     expect(callback.error).toContain("Unsupported");
     const disconnected = await grant();
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.debugger.detach(); });
+    await expect(page.getByRole("button", { name: "Interact with Desktop preview", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await expect(page.getByTestId("desktop-preview")).not.toHaveAttribute("inert");
     await expect(run({ ...disconnected, operation: "scroll", y: 100 })).rejects.toThrow();
     await page.getByLabel("Message", { exact: true }).fill("Chat remains reachable after disconnect");

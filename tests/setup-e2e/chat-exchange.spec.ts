@@ -311,6 +311,7 @@ test("clicking inside a preview minimizes, unrelated shell clicks do not", async
   await page.getByRole("button", { name: "Routes linked", exact: true }).click();
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
   await editor.focus();
+  await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await page.frameLocator('[data-testid="desktop-preview"]').getByText("Test preview", { exact: true }).click();
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
   await editor.focus();

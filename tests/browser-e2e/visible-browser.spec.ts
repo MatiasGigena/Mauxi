@@ -32,6 +32,7 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const desktop = page.frameLocator('[data-testid="desktop-preview"]');
     const mobile = page.frameLocator('[data-testid="mobile-preview"]');
     // State exists before the tool ever connects. A duplicate browser would read zero.
+    await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await desktop.getByTestId("known-target").click();
     await expect(desktop.getByTestId("click-count")).toHaveText("Underlying clicks: 1");
     await expect(mobile.getByTestId("click-count")).toHaveText("Underlying clicks: 0");
@@ -91,6 +92,8 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await page.getByRole("button", { name: "Take back control", exact: true }).click();
     expect((await result(page)).error).toBeTruthy();
     await expect(page.getByRole("dialog", { name: "Approve browser action" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Interact with Desktop preview", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await expect(page.getByTestId("desktop-preview")).not.toHaveAttribute("inert");
     await page.getByText(/^Checks ·/).click();
     await expect(page.getByAltText("Actual desktop preview capture")).toBeVisible();

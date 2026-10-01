@@ -13,7 +13,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
 });
 test.afterAll(async () => { await application?.close(); });
-test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); await observeSelections(page); });
+test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); await observeSelections(page); await button("Interact with Desktop preview").click(); });
 
 async function route(side: "desktop" | "mobile") {
   const owner = await page.getByTestId(`${side}-preview`).elementHandle();
@@ -85,6 +85,7 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
     expect(after!.x - before!.x).toBeCloseTo(37, 0); expect(after!.y - before!.y).toBeCloseTo(29, 0);
   }
   await button("Fit both").click();
+  await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
   await desktop().locator("body").evaluate(() => scrollTo(0, 0));
   const frame = await page.getByTestId("desktop-preview").boundingBox();
   await page.mouse.move(frame!.x + 100, frame!.y + 100); await page.mouse.wheel(0, 220);
@@ -107,12 +108,15 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
   await expect(desktop().getByTestId("submit-count")).toHaveText("Submissions: 0");
   await page.keyboard.press("Escape");
   await expect(button("Select in Desktop")).toHaveAttribute("aria-pressed", "false");
-  // Pointer cancellation/lost capture must not leave an interception shield behind.
+  // Pointer cancellation removes transient shielding, leaving the inactive peer shielded.
+  await button("Interact with Desktop preview").click();
   const grip = await board.locator(".board-grip").boundingBox();
   await page.mouse.move(grip!.x + 10, grip!.y + 10); await page.mouse.down();
+  await page.mouse.move(grip!.x + 15, grip!.y + 15);
   await expect(page.locator(".input-shield")).toHaveCount(2);
   await board.locator(".board-grip").dispatchEvent("pointercancel", { pointerId: 1 });
-  await expect(page.locator(".input-shield")).toHaveCount(0);
+  await expect(page.locator(".input-shield")).toHaveCount(1);
+  await expect(board).toHaveAttribute("data-interacting", "true");
   const cancelled = await board.boundingBox();
   await page.mouse.move(grip!.x + 80, grip!.y + 30); await page.mouse.up();
   expect(await board.boundingBox()).toEqual(cancelled);
@@ -130,6 +134,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
       deltaX: targetBounds.x + targetBounds.width / 2 - (canvasBounds.x + canvasBounds.width / 2),
       deltaY: targetBounds.y + targetBounds.height / 2 - (canvasBounds.y + canvasBounds.height / 2),
     });
+    await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
     await target.click();
     await expect(desktop().getByTestId("click-count")).toContainText("0");
     await expect(page.locator(".selection-chip")).toHaveCount(1);
@@ -163,6 +168,8 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await button("Select in Desktop").click();
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
+  // Keep the fixed bottom portal above the floating chat dock.
+  await page.getByLabel("Camera zoom").fill("0.5");
   for (const fixtureTarget of ["scrolled-target", "viewport", "portal-target"] as const) {
     await button("Select in Desktop").click();
     await desktop().getByTestId(fixtureTarget).click();
@@ -320,7 +327,7 @@ test("SPA route changes invalidate only that preview's selections and require a 
   await expect(sourceChip).toHaveClass(/current/);
   await desktop().locator("body").evaluate(() => history.pushState(null, "", "/different-page"));
   await expect(sourceChip).toHaveClass(/stale/);
-  await expect(sourceChip.getByRole("button", { name: "Pick again", exact: true })).toBeDisabled();
+  await expect(sourceChip).toHaveAttribute("title", /Select again before sending/);
   await expect(peerChip).toHaveClass(/current/);
   expect(await desktop().locator("body").getAttribute("data-instance")).toBe(marker);
   // Matching controls on the new route (or navigating back) must not make an

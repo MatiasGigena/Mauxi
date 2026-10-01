@@ -34,6 +34,7 @@ function saveBootstrap() {
 saveBootstrap();
 const generation = crypto.randomUUID();
 let selectionEnabled = false;
+let canvasControlsEnabled = false;
 let pickerHidden = false;
 let hoverTarget: Element | null = null;
 let hoverBase: Element | null = null;
@@ -310,6 +311,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (message.session !== session) return;
   if (message.kind === "connect") { reportReady(); return; }
   if (message.generation !== generation) return;
+  if (message.kind === "canvas-controls") { canvasControlsEnabled = message.enabled; return; }
   if (message.kind === "reload") { location.reload(); return; }
   if (message.kind === "navigate") {
     const route = supportedRoute(message.route, location.origin); if (!route) return;
@@ -368,7 +370,25 @@ HTMLFormElement.prototype.submit = function () {
   try { return nativeSubmit.call(this); } catch (error) { unsafeRoute = previousUnsafe; saveBootstrap(); throw error; }
 };
 document.addEventListener("submit", (event) => { if (selectionEnabled) { cancelPageAction(event); return; } markFormNavigation(); }, true);
+document.addEventListener("keyup", (event) => {
+  if (canvasControlsEnabled && event.code === "Space") send({ kind: "canvas-shortcut", action: "space-end" });
+}, true);
+document.addEventListener("wheel", (event) => {
+  if (!canvasControlsEnabled || (!event.ctrlKey && !event.metaKey)) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  send({ kind: "canvas-zoom", deltaY: event.deltaY, deltaMode: event.deltaMode, clientX: event.clientX, clientY: event.clientY });
+}, { capture: true, passive: false });
 document.addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  if (canvasControlsEnabled && event.key === "Escape" && !selectionEnabled) {
+    event.preventDefault(); event.stopImmediatePropagation(); send({ kind: "canvas-shortcut", action: "exit" }); return;
+  }
+  if (canvasControlsEnabled && event.code === "Space" && !event.ctrlKey && !event.metaKey && !event.altKey
+    && !(event.target instanceof Element && event.target.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="textbox"]'))) {
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (!event.repeat) send({ kind: "canvas-shortcut", action: "space" });
+    return;
+  }
   if (!selectionEnabled) return;
   if (event.key === "Escape") { cancelPageAction(event); send({ kind: "selection-cancelled" }); return; }
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {

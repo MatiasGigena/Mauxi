@@ -7,6 +7,7 @@ import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
 import { CanvasBackground } from "./CanvasBackground";
+import { useCanvasNavigation } from "./useCanvasNavigation";
 import { PreviewTools } from "./PreviewTools";
 import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
 import logo from "./assets/logo-mauxi.png";
@@ -64,6 +65,22 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const initialFit = useRef(!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT, headerWidth: HEADER_WIDTH });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
+  const dragMoved = useRef(false);
+  const navigation = useCanvasNavigation({ canvas, frames, locked: browser.locked, onExit: () => {
+    setHand(false); setSelecting(null);
+    if (active && selecting) void browser.owner("human");
+  } });
+  const navigationRef = useRef({ ...navigation, selecting });
+  navigationRef.current = { ...navigation, selecting };
+  const navigationHeld = hand || navigation.space;
+  const applyWheel = useCallback((event: Pick<WheelEvent, "deltaMode" | "deltaX" | "deltaY" | "ctrlKey" | "metaKey" | "clientX" | "clientY">) => {
+    const element = canvas.current;
+    if (!element || browserLocked.current) return;
+    navigationRef.current.beginWheel();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
+    const rect = element.getBoundingClientRect();
+    setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
+  }, []);
   // Pointer events inside cross-origin previews do not bubble to the canvas.
   // Detect iframe focus without installing an overlay or intercepting page input.
   useEffect(() => {
@@ -138,7 +155,19 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       }
       if (message.generation !== runtimeRef.current[id].generation) return;
       if (browserLocked.current && ["selection", "selection-cancelled", "revalidation"].includes(message.kind)) return;
-      if (message.kind === "selection-cancelled") { setSelecting(null); if (active) void browser.owner("human"); return; }
+      if (message.kind === "canvas-shortcut" || message.kind === "canvas-zoom") {
+        const nav = navigationRef.current;
+        if (browserLocked.current || (nav.interactive !== id && nav.selecting !== id)) return;
+        if (message.kind === "canvas-shortcut") {
+          if (message.action === "exit") nav.exit(); else if (message.action === "space") nav.startSpace(id); else nav.endSpace();
+        } else {
+          const frame = frames.current[id]; if (!frame) return;
+          const rect = frame.getBoundingClientRect();
+          applyWheel({ ...message, deltaX: 0, ctrlKey: true, metaKey: false, clientX: rect.x + message.clientX * rect.width / Number(frame.width), clientY: rect.y + message.clientY * rect.height / Number(frame.height) });
+        }
+        return;
+      }
+      if (message.kind === "selection-cancelled") { navigationRef.current.exit(); return; }
       if (message.kind === "navigation-blocked") { if (active) void browser.owner("human"); setNotice("External navigation blocked. Browser control returned; previews stay within the approved project origin."); return; }
       if (message.kind === "route") {
         const route = projectRoute(message.url, origin);
@@ -208,23 +237,24 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [active, fixture, origin, session, routes, navigate]);
+  }, [active, fixture, origin, session, routes, navigate, applyWheel]);
 
-  useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "selection-mode", enabled: selecting === id && !hand }); }, [selecting, hand, runtimes, send]);
+  useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "selection-mode", enabled: selecting === id && !navigationHeld }); }, [selecting, navigationHeld, runtimes, send]);
+  useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "canvas-controls", enabled: !browser.locked && (navigation.interactive === id || selecting === id) }); }, [navigation.interactive, selecting, browser.locked, runtimes, send]);
   useEffect(() => {
-    if (!selecting || hand) return;
+    if (!selecting || navigationHeld) return;
     const onPickerKey = (event: KeyboardEvent) => {
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable)) return;
       const action = event.key === "ArrowUp" ? "parent" : event.key === "ArrowDown" ? "child"
         : event.key === "]" ? "overlap-next" : event.key === "[" ? "overlap-previous" : event.key === "Enter" ? "attach" : null;
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSelecting(null); if (active) void browser.owner("human"); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); navigation.exit(); return; }
       if (!action) return;
       event.preventDefault(); event.stopPropagation(); send(selecting, { kind: "picker-refine", action });
     };
     window.addEventListener("keydown", onPickerKey, true);
     return () => window.removeEventListener("keydown", onPickerKey, true);
-  }, [selecting, hand, send]);
+  }, [selecting, navigationHeld, send, navigation.exit]);
 
   function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
     setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }; });
@@ -245,31 +275,32 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!element) return;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
-      if (browserLocked.current) return;
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
-      const rect = element.getBoundingClientRect();
-      setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
+      applyWheel(event);
     };
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
-  }, []);
+  }, [applyWheel]);
 
   function startDrag(id: PreviewId | null, event: ReactPointerEvent) {
     if (browserLocked.current || (event.button !== 0 && event.button !== 1)) return;
     event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    dragMoved.current = false;
     drag.current = { id, x: event.clientX, y: event.clientY, state: layoutRef.current };
-    setDragging(true); if (id) setActivePreview(id);
+    if (id) setActivePreview(id);
   }
   function moveDrag(event: ReactPointerEvent) {
+    if (browserLocked.current) { endDrag(); return; }
     const start = drag.current; if (!start) return;
     const delta = { x: event.clientX - start.x, y: event.clientY - start.y };
+    if (!dragMoved.current && Math.hypot(delta.x, delta.y) < 4) return;
+    dragMoved.current = true; setDragging(true);
     setLayout((current) => start.id ? { ...current, boards: { ...current.boards, [start.id]: dragBoard(start.state.boards[start.id], delta, start.state.camera.zoom) } } : { ...current, camera: { ...start.state.camera, x: start.state.camera.x + delta.x, y: start.state.camera.y + delta.y } });
   }
   function endDrag() { drag.current = null; setDragging(false); }
   function switchFixture(next: Fixture) {
     if (next === fixture) return;
-    setFixture(next); setSelecting(null); setTools(null); setSelections([]);
+    navigation.exit(); setFixture(next); setSelecting(null); setTools(null); setSelections([]);
     runtimeRef.current = emptyRuntimes(); setRuntimes(runtimeRef.current); setNotice(""); setBridgeDetail("Connecting previews…");
   }
   function connectFrame(id: PreviewId) {
@@ -392,7 +423,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
       {!active && <div className="fixture-switch" aria-label="Fixture"><button aria-pressed={fixture === "vite"} onClick={() => switchFixture("vite")}>Vite</button><button aria-pressed={fixture === "next"} onClick={() => switchFixture("next")}>Next.js</button></div>}
       <div className="canvas-actions" aria-label="Canvas controls" inert={browser.locked}>
-        <button aria-pressed={hand} onClick={() => { setHand(!hand); setSelecting(null); if (active && selecting) void browser.owner("human"); }}>{hand ? "Hand on" : "Hand"}</button>
+        <button aria-pressed={hand} title="Pan anywhere · hold Space temporarily" onClick={() => { navigation.exit(); setHand(!hand); }}>{hand ? "Hand on" : "Hand"}</button>
         <button onClick={() => fit()}>Fit both</button><button onClick={() => { setLayout((current) => ({ ...unfocus(current), camera: { x: 24, y: 24, zoom: 1 } })); }}>Reset</button>
         <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
         <button aria-pressed={layout.linked} title="Link same-project routes, never clicks or forms. Unlink for custom action routes." onClick={() => setLayout((current) => ({ ...current, linked: !current.linked }))}>{layout.linked ? "Routes linked" : "Routes unlinked"}</button>
@@ -408,26 +439,38 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </header>
     <div className="canvas-surface">
     <CanvasBackground />
-    <main ref={canvas} className={`canvas ${hand ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" aria-label="Preview canvas" tabIndex={0}
+    <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
-      onPointerDown={(event) => { if (event.target === event.currentTarget || hand) startDrag(null, event); }}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) { if (!browserLocked.current && !navigationHeld) navigation.exit(); startDrag(null, event); }
+        else if (navigationHeld) startDrag(null, event);
+      }}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
-      onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Escape") { setLayout(unfocus); setHand(false); setSelecting(null); } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return; if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
-        return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: `max(15rem, ${board.width * zoom}px)`, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
-          <header className="artboard-header" inert={browser.locked} onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(id, event); }}>
-            <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
+        const interacting = navigation.interactive === id && !selecting && !navigationHeld;
+        const shielded = navigationHeld || dragging || navigation.wheeling || (selecting !== id && !interacting);
+        return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} data-interacting={interacting && !shielded && !browser.locked} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: `max(15rem, ${board.width * zoom}px)`, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
+          <header className="artboard-header" inert={browser.locked} onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(navigationHeld ? null : id, event); }}>
+            <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}{interacting && !shielded && !browser.locked && <span className="preview-interaction-label"> · Interacting</span>}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
             <div className="artboard-actions">
-              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { const next = selecting === id ? null : id; setSelecting(next); setHand(false); if (active) void browser.owner(next ? "picker" : "human"); }}>↖</button>
+              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { const next = selecting === id ? null : id; navigation.exit(false); setSelecting(next); setHand(false); if (active) void browser.owner(next ? "picker" : "human"); }}>↖</button>
               <button aria-label={`${layout.focus?.previewId === id ? "Unfocus" : "Focus"} ${LABELS[id]}`} aria-pressed={layout.focus?.previewId === id} onClick={() => focus(id)}>⛶</button>
               <button aria-label={`${LABELS[id]} actions`} aria-haspopup="dialog" onClick={() => { setTools(id); setActivePreview(id); }}>•••</button>
             </div>
           </header>
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
-            <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={hand || browser.locked ? -1 : 0} inert={browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
             {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
-            {(hand || dragging) && <div className="input-shield" aria-hidden="true" onPointerDown={(event) => startDrag(null, event)} />}
+            {!browser.locked && shielded && <button type="button" className="input-shield preview-activate" aria-label={`Interact with ${LABELS[id]} preview`} title="Click to interact · scroll to pan · pinch to zoom" tabIndex={navigationHeld || dragging || navigation.wheeling ? -1 : 0}
+              onPointerDown={(event) => startDrag(null, event)}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (navigationHeld || navigation.wheeling || (dragMoved.current && event.detail !== 0)) return;
+                navigation.activate(id); setActivePreview(id); setSelecting(null);
+                if (active && selecting) void browser.owner("human");
+              }} />}
           </div>
         </section>;
       })}

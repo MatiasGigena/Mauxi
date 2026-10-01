@@ -28,6 +28,10 @@
 .preview-surface iframe { display: block; border: 0; background: white; transform-origin: 0 0; }
 .input-shield { position: absolute; inset: 0; touch-action: none; }
 .browser-shield { cursor: default; }
+.workspace .preview-activate, .workspace .preview-activate:hover:not(:disabled), .workspace .preview-activate:active:not(:disabled) { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.preview-activate:focus-visible { outline: 2px solid #5c46b6; outline-offset: -3px; }
+.artboard[data-interacting=true] .preview-surface { outline: 2px solid #5c46b6; outline-offset: 1px; }
+.board-grip .preview-interaction-label { color: #5c46b6; font-size: .7rem; }
 .browser-control { position: relative; display: flex; align-items: center; gap: .45rem; min-width: 0; font-size: .75rem; }
 .browser-control > [role=status] { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace .take-back { background: #e7e2fb; color: #4932a5; }
