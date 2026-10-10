@@ -10,6 +10,13 @@ export interface StoredSelection {
   requiresRepick?: boolean;
 }
 
+/** Mark only live draft attachments in their original preview document. */
+export function selectionMarkerIds(selections: readonly StoredSelection[], previewId: string, generation: string): string[] {
+  return selections.filter(item => item.status === "current" && !item.requiresRepick
+    && item.capture.previewId === previewId && item.capture.documentGeneration === generation)
+    .slice(0, 8).map(item => item.capture.selectionId);
+}
+
 export function selectionCapturePaths(selections: readonly StoredSelection[]): string[] {
   return [...new Set(selections.flatMap(({ capture }) => capture.screenshot.status === "captured" && capture.screenshot.path ? [capture.screenshot.path] : []))];
 }

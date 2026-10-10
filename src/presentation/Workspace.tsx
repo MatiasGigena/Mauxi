@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
 import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
-import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, type StoredSelection } from "../application/selection-state";
+import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
 import type { ActiveWorkspace } from "../application/project-contract";
 import { ChatDock } from "./ChatDock";
@@ -55,6 +55,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     mounted.current = true;
     return () => { mounted.current = false; releaseDraftCaptures(previousCapturePaths.current); };
   }, []);
+  const hiddenPickerCaptures = useRef(new Map<string, number>());
   const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
   const [chatMinimizeRequest, setChatMinimizeRequest] = useState(0);
@@ -241,6 +242,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, [active, fixture, origin, session, routes, navigate, applyWheel]);
 
   useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "selection-mode", enabled: selecting === id && !navigationHeld }); }, [selecting, navigationHeld, runtimes, send]);
+  useEffect(() => {
+    for (const id of PREVIEW_IDS) send(id, { kind: "selection-markers", selectionIds: browser.locked ? [] : selectionMarkerIds(selections, id, runtimes[id].generation) });
+  }, [selections, runtimes, browser.locked, send]);
   useEffect(() => { for (const id of PREVIEW_IDS) send(id, { kind: "canvas-controls", enabled: !browser.locked && (navigation.interactive === id || selecting === id) }); }, [navigation.interactive, selecting, browser.locked, runtimes, send]);
   useEffect(() => {
     if (!selecting || navigationHeld) return;
@@ -319,40 +323,58 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const frame = frames.current[id]?.getBoundingClientRect(); const area = canvas.current?.getBoundingClientRect();
     return !!frame && !!area && frame.x >= area.x && frame.y >= area.y && frame.right <= area.right + .5 && frame.bottom <= area.bottom + .5;
   }
+  async function withoutPickerChrome<T>(id: PreviewId, capture: () => Promise<T>): Promise<T> {
+    const generation = runtimeRef.current[id].generation;
+    const key = `${session}:${id}:${generation}`;
+    const pending = hiddenPickerCaptures.current;
+    pending.set(key, (pending.get(key) ?? 0) + 1);
+    send(id, { kind: "picker-visibility", hidden: true });
+    try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      if (runtimeRef.current[id].generation !== generation) throw new Error("The preview document changed before capture.");
+      return await capture();
+    } finally {
+      const remaining = (pending.get(key) ?? 1) - 1;
+      if (remaining) pending.set(key, remaining);
+      else {
+        pending.delete(key);
+        if (runtimeRef.current[id].generation === generation) send(id, { kind: "picker-visibility", hidden: false });
+      }
+    }
+  }
   async function captureSelectionScreenshot(capture: SelectionCapture) {
     const finish = (screenshot: SelectionCapture["screenshot"]) => setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
       ? { ...item, capture: { ...item.capture, screenshot } }
       : item));
     const frame = frames.current[capture.previewId];
     const area = canvas.current;
-    if (!frame || !area || !window.mauxi) {
+    const host = window.mauxi;
+    if (!frame || !area || !host) {
       finish({ ...capture.screenshot, status: "unavailable", reason: "Selection crops require the trusted Electron capture host." });
       return;
     }
-    send(capture.previewId, { kind: "picker-visibility", hidden: true });
     try {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      if (runtimeRef.current[capture.previewId].generation !== capture.documentGeneration) throw new Error("The document changed before its crop was captured.");
-      const frameRect = frame.getBoundingClientRect();
-      const canvasRect = area.getBoundingClientRect();
-      const converted = selectionCropToShell(capture.screenshot.crop, capture.viewport, frameRect, canvasRect, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
-      if (!converted) throw new Error("The selected region is outside the visible canvas.");
-      const result = await window.mauxi.capturePreview({
-        workspaceId: active?.workspaceId, previewId: capture.previewId, selectionId: capture.selectionId,
-        ...converted.shell,
+      await withoutPickerChrome(capture.previewId, async () => {
+        if (runtimeRef.current[capture.previewId].generation !== capture.documentGeneration) throw new Error("The document changed before its crop was captured.");
+        const frameRect = frame.getBoundingClientRect();
+        const canvasRect = area.getBoundingClientRect();
+        const converted = selectionCropToShell(capture.screenshot.crop, capture.viewport, frameRect, canvasRect, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
+        if (!converted) throw new Error("The selected region is outside the visible canvas.");
+        const result = await host.capturePreview({
+          workspaceId: active?.workspaceId, previewId: capture.previewId, selectionId: capture.selectionId,
+          ...converted.shell,
+        });
+        // A chip can be removed/evicted while capturePage is still in flight.
+        if (!mounted.current || !selectionsRef.current.some(item => item.capture.selectionId === capture.selectionId)) {
+          releaseDraftCaptures([result.path]); return;
+        }
+        // Track the returned file before committing it. If a queued removal wins
+        // that state update, the next layout pass still releases the unused PNG.
+        previousCapturePaths.current = [...new Set([...previousCapturePaths.current, result.path])];
+        finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
       });
-      // A chip can be removed/evicted while capturePage is still in flight.
-      if (!mounted.current || !selectionsRef.current.some(item => item.capture.selectionId === capture.selectionId)) {
-        releaseDraftCaptures([result.path]); return;
-      }
-      // Track the returned file before committing it. If a queued removal wins
-      // that state update, the next layout pass still releases the unused PNG.
-      previousCapturePaths.current = [...new Set([...previousCapturePaths.current, result.path])];
-      finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
     } catch (error) {
       finish({ ...capture.screenshot, status: "unavailable", reason: String(error) });
-    } finally {
-      send(capture.previewId, { kind: "picker-visibility", hidden: false });
     }
   }
   async function revalidateSelection(item: StoredSelection): Promise<boolean> {
@@ -415,8 +437,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const frame = frames.current[id];
     if (!frame || !window.mauxi || !fullyVisible(id)) { setNotice("Fit the full viewport before capturing."); return; }
     try {
-      const bounds = frame.getBoundingClientRect();
-      const result = await window.mauxi.capturePreview({ workspaceId: active?.workspaceId, previewId: id, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      const host = window.mauxi;
+      const result = await withoutPickerChrome(id, async () => {
+        if (!fullyVisible(id)) throw new Error("Fit the full viewport before capturing.");
+        const bounds = frame.getBoundingClientRect();
+        return host.capturePreview({ workspaceId: active?.workspaceId, previewId: id, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      });
       setNotice(`Captured ${id} only · ${result.width}×${result.height} · ${result.path}`);
     } catch (error) { setNotice(`Capture failed: ${String(error)}`); }
   }

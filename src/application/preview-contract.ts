@@ -88,6 +88,7 @@ export type ShellToBridgeMessage =
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "navigate"; session: string; generation: string; route: string; navigationId: string }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "reload"; session: string; generation: string }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-mode"; session: string; generation: string; enabled: boolean }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-markers"; session: string; generation: string; selectionIds: string[] }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "picker-visibility"; session: string; generation: string; hidden: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "picker-refine"; session: string; generation: string; action: "parent" | "child" | "overlap-next" | "overlap-previous" | "attach" }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidate"; session: string; generation: string; selectionId: string; fingerprint: ElementFingerprint };
@@ -233,6 +234,8 @@ export function isShellMessage(value: unknown): value is ShellToBridgeMessage {
   if (r.protocol !== BRIDGE_PROTOCOL || !boundedString(r.session, 128) || !boundedString(r.generation, 128)) return false;
   if (r.kind === "selection-mode" || r.kind === "canvas-controls") return typeof r.enabled === "boolean";
   if (r.kind === "picker-visibility") return typeof r.hidden === "boolean";
+  if (r.kind === "selection-markers") return Array.isArray(r.selectionIds) && r.selectionIds.length <= 8
+    && r.selectionIds.every(id => boundedString(id, 128) && id.length > 0) && new Set(r.selectionIds).size === r.selectionIds.length;
   if (r.kind === "picker-refine") return ["parent", "child", "overlap-next", "overlap-previous", "attach"].includes(String(r.action));
   if (r.kind === "reload" || r.kind === "connect") return true;
   if (r.kind === "navigate") return boundedString(r.route, 4096) && boundedString(r.navigationId, 128);

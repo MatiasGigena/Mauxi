@@ -13,6 +13,7 @@ import {
   type SourceLocation,
 } from "../../application/preview-contract";
 import { supportedRoute } from "../../application/route-link";
+import { SelectionOverlay } from "./selection-overlay";
 
 const params = new URLSearchParams(location.search);
 // Frame-local bootstrap survives ordinary same-origin document navigation. This
@@ -46,23 +47,12 @@ let pointer = { x: 0, y: 0 };
 let trackingPicker = false;
 const instanceKeys = new WeakMap<Element, string>();
 const selectedElements = new Map<string, Element>();
+let markedSelections: string[] = [];
 const childFrameShields = new Map<HTMLIFrameElement, HTMLDivElement>();
 const frameShieldOwners = new WeakMap<Element, HTMLIFrameElement>();
 
-const overlay = document.createElement("div");
-overlay.dataset.mauxiOverlay = "true";
-Object.assign(overlay.style, {
-  position: "fixed", zIndex: "2147483647", pointerEvents: "none", display: "none",
-  border: "2px solid #6d5dfc", borderRadius: "4px", background: "rgba(109, 93, 252, .10)", boxSizing: "border-box",
-});
-const pickerLabel = document.createElement("div");
-pickerLabel.dataset.mauxiOverlay = "true";
-Object.assign(pickerLabel.style, {
-  position: "fixed", zIndex: "2147483647", pointerEvents: "none", display: "none", maxWidth: "min(32rem, calc(100vw - 1rem))",
-  padding: "6px 9px", borderRadius: "6px", background: "#241f2d", color: "white", font: "600 12px/1.35 system-ui, sans-serif",
-  boxShadow: "0 3px 14px #0005", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-});
-document.documentElement.append(overlay, pickerLabel);
+const selectionOverlay = new SelectionOverlay();
+
 
 function send(message: Record<string, unknown>): void {
   if (!session || window.parent === window) return;
@@ -134,19 +124,16 @@ function instanceKey(element: Element): string {
   return key;
 }
 
+function drawSelectionChrome(): void {
+  const selected = markedSelections.flatMap(id => {
+    const element = selectedElements.get(id);
+    return element?.isConnected ? [element] : [];
+  });
+  selectionOverlay.render(selectionEnabled && hoverTarget ? { element: hoverTarget, index: refinementIndex, depth: refinementPath.length } : null, selected, pickerHidden);
+}
 function drawOutline(element: Element | null): void {
   hoverTarget = element;
-  if (!element || !selectionEnabled || pickerHidden || !element.isConnected) {
-    overlay.style.display = "none"; pickerLabel.style.display = "none"; return;
-  }
-  const bounds = element.getBoundingClientRect();
-  if (bounds.width <= 0 || bounds.height <= 0 || bounds.bottom < 0 || bounds.right < 0 || bounds.top > innerHeight || bounds.left > innerWidth) {
-    overlay.style.display = "none"; pickerLabel.style.display = "none"; return;
-  }
-  Object.assign(overlay.style, { display: "block", left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px` });
-  pickerLabel.textContent = `${element.tagName.toLowerCase()} · DOM ${refinementIndex + 1}/${Math.max(1, refinementPath.length)} · ↑ parent ↓ child · [ ] overlap`;
-  const labelTop = bounds.top > 38 ? Math.max(4, bounds.top - 32) : Math.min(innerHeight - 32, bounds.bottom + 5);
-  Object.assign(pickerLabel.style, { display: "block", left: `${Math.max(4, Math.min(bounds.left, innerWidth - 250))}px`, top: `${labelTop}px` });
+  drawSelectionChrome();
 }
 function updatePoint(x: number, y: number): void {
   pointer = { x, y };
@@ -273,8 +260,8 @@ async function commitSelection(target: Element | null, clientX: number, clientY:
   if (revision !== routeRevision || !target.isConnected || !selectionEnabled) return;
   selectedElements.set(selectionId, target);
   while (selectedElements.size > 64) selectedElements.delete(selectedElements.keys().next().value!);
-  // Keep interception active for multi-select, but remove picker chrome so the
-  // shell can capture the attached element without the outline in the pixels.
+  // Hover and draft markers have separate lifetimes. The shell acknowledges
+  // accepted attachments and temporarily hides all chrome during screenshots.
   drawOutline(null);
   send({ kind: "selection", capture, interaction });
 }
@@ -287,11 +274,11 @@ document.addEventListener("click", (event) => {
   const shieldOwner = event.target instanceof Element ? frameShieldOwners.get(event.target) : undefined;
   void commitSelection(shieldOwner ?? hoverTarget ?? elementAt(event.clientX, event.clientY), event.clientX, event.clientY);
 }, true);
-document.addEventListener("scroll", () => { if (selectionEnabled) drawOutline(hoverTarget); }, true);
+document.addEventListener("scroll", drawSelectionChrome, true);
 function trackMovingTarget() {
-  if (!selectionEnabled) { trackingPicker = false; return; }
-  if (hoverTarget) drawOutline(hoverTarget);
-  syncChildFrameShields();
+  drawSelectionChrome();
+  if (!selectionEnabled && !markedSelections.some(id => selectedElements.get(id)?.isConnected)) { trackingPicker = false; return; }
+  if (selectionEnabled) syncChildFrameShields();
   requestAnimationFrame(trackMovingTarget);
 }
 function startPickerTracking() {
@@ -324,8 +311,14 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     syncChildFrameShields();
     return;
   }
+  if (message.kind === "selection-markers") {
+    markedSelections = message.selectionIds.filter(id => selectedElements.has(id));
+    drawSelectionChrome();
+    if (markedSelections.length) startPickerTracking();
+    return;
+  }
   if (message.kind === "picker-visibility") {
-    pickerHidden = message.hidden; drawOutline(message.hidden ? null : hoverTarget); return;
+    pickerHidden = message.hidden; drawSelectionChrome(); syncChildFrameShields(); return;
   }
   if (message.kind === "picker-refine") {
     if (!selectionEnabled) return;
@@ -353,7 +346,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 
 function reportRoute() {
   if (reportedUrl !== location.href) {
-    reportedUrl = location.href; reportedSafe = !unsafeRoute; unsafeRoute = false; routeRevision++; drawOutline(null);
+    reportedUrl = location.href; reportedSafe = !unsafeRoute; unsafeRoute = false; routeRevision++;
+    markedSelections = []; selectedElements.clear(); hoverBase = null; refinementPath = []; overlapTargets = []; drawOutline(null);
   }
   send({ kind: "route", url: location.href, navigationId, safe: reportedSafe }); navigationId = null; saveBootstrap();
 }

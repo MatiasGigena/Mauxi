@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths } from "../../src/application/selection-state";
-import { BRIDGE_PROTOCOL, isBridgeMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
+import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds } from "../../src/application/selection-state";
+import { BRIDGE_PROTOCOL, isBridgeMessage, isShellMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
 import { selectionCropToShell } from "../../src/application/selection-geometry";
 
 const fingerprint: ElementFingerprint = { selector: "[data-testid=known-target]", tag: "button", testId: "known-target", text: "Run action", sourceKey: "/src/ProofCard.tsx:8:7", instanceKey: "instance-1" };
@@ -36,6 +36,27 @@ describe("selection crop geometry", () => {
 });
 
 describe("selection freshness", () => {
+  it("marks only current draft attachments from the matching preview and generation", () => {
+    const current = { capture: capture(), status: "current" as const };
+    expect(selectionMarkerIds([
+      current,
+      { ...current, status: "stale" },
+      { ...current, requiresRepick: true },
+      { ...current, capture: { ...capture(), previewId: "mobile" } },
+      { ...current, capture: capture("old-generation") },
+    ], "desktop", "generation-1")).toEqual(["selection-1"]);
+    expect(selectionMarkerIds([], "desktop", "generation-1")).toEqual([]);
+    expect(selectionMarkerIds(Array.from({ length: 12 }, (_, i) => ({ ...current, capture: { ...capture(), selectionId: String(i) } })), "desktop", "generation-1")).toHaveLength(8);
+  });
+
+  it("accepts bounded marker IDs, never selectors or malformed marker payloads", () => {
+    const message = { protocol: BRIDGE_PROTOCOL, kind: "selection-markers", session: "session", generation: "generation-1" };
+    expect(isShellMessage({ ...message, selectionIds: [] })).toBe(true);
+    expect(isShellMessage({ ...message, selectionIds: ["one", "two"] })).toBe(true);
+    for (const selectionIds of [null, "one", [1], [""], ["one", "one"], ["x".repeat(129)], Array.from({ length: 9 }, (_, i) => String(i))]) {
+      expect(isShellMessage({ ...message, selectionIds })).toBe(false);
+    }
+  });
   it("tracks unique captured PNGs, including stale draft chips, but not pending/unavailable captures", () => {
     const captured = capture();
     const pending = { ...capture(), screenshot: { ...capture().screenshot, status: "pending" as const } };
