@@ -198,7 +198,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             await frame.getByTestId("known-target").evaluate((node, background) => { node.style.background = background; node.scrollIntoView({ block: "center" }); }, color);
             const label = side === "desktop" ? "Desktop" : "Mobile";
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
-            await expect.poll(() => frame.locator("html").evaluate(node => node.style.cursor)).toBe("crosshair");
+            await expect.poll(() => frame.locator("html").evaluate(node => getComputedStyle(node).cursor)).toBe("crosshair");
             const frameBox = await page.getByTestId(`${side}-preview`).boundingBox();
             const target = await frame.getByTestId("known-target").evaluate(node => {
               const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };

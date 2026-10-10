@@ -52,7 +52,11 @@ const childFrameShields = new Map<HTMLIFrameElement, HTMLDivElement>();
 const frameShieldOwners = new WeakMap<Element, HTMLIFrameElement>();
 
 const selectionOverlay = new SelectionOverlay();
-
+// Cursor inheritance alone loses to button/link cursor rules. Apply the picker
+// cursor directly to descendants, without overwriting the page's own styles.
+const pickerCursorStyle = document.createElement("style");
+pickerCursorStyle.dataset.mauxiOverlay = "true";
+pickerCursorStyle.textContent = "html:root, html:root * { cursor: crosshair !important; }";
 
 function send(message: Record<string, unknown>): void {
   if (!session || window.parent === window) return;
@@ -305,7 +309,9 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     navigationId = message.navigationId; unsafeRoute = false; saveBootstrap(); location.assign(route); return;
   }
   if (message.kind === "selection-mode") {
-    selectionEnabled = message.enabled; document.documentElement.style.cursor = message.enabled ? "crosshair" : "";
+    selectionEnabled = message.enabled;
+    if (message.enabled) document.documentElement.append(pickerCursorStyle);
+    else pickerCursorStyle.remove();
     if (!message.enabled) { hoverBase = null; refinementPath = []; overlapTargets = []; drawOutline(null); }
     else startPickerTracking();
     syncChildFrameShields();

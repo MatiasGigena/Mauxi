@@ -72,6 +72,48 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("picker cursor overrides button, link and nested SVG cursors and restores page styles on exit", async ({ page }) => {
+  const frame = preview(page);
+  await frame.locator("body").evaluate(() => {
+    document.documentElement.style.cursor = "help";
+    document.querySelector<HTMLElement>("#one")!.style.cursor = "pointer";
+    document.querySelector("#two")!.outerHTML = `<a id="cursor-link" href="#clicked" style="display:block;width:260px;cursor:pointer">A link</a>
+      <button id="cursor-nested" style="cursor:pointer"><span style="cursor:pointer">Nested label</span><svg width="24" height="24" style="cursor:pointer"><path d="M0 0H24V24H0Z" style="cursor:pointer" /></svg></button>
+      <input id="cursor-input" style="cursor:text" value="Text field">
+      <button id="cursor-disabled" disabled style="cursor:not-allowed">Disabled</button>`;
+    const style = document.createElement("style");
+    style.textContent = "#cursor-link { cursor: pointer; } a { cursor: pointer !important; } button:hover { cursor: pointer !important; }";
+    document.head.append(style);
+  });
+  const targets = ["#one", "#cursor-link", "#cursor-nested", "#cursor-nested span", "#cursor-nested svg", "#cursor-nested path", "#cursor-input", "#cursor-disabled"];
+  const before = await frame.locator("body").evaluate((_, selectors) => selectors.map(selector => {
+    const node = document.querySelector(selector)!;
+    return { style: node.getAttribute("style"), cursor: getComputedStyle(node).cursor };
+  }), targets);
+  await picker(page);
+  for (const selector of targets) await expect(frame.locator(selector)).toHaveCSS("cursor", "crosshair");
+  await frame.locator("#one").hover();
+  await expect(frame.locator("#one")).toHaveCSS("cursor", "crosshair");
+  await frame.locator("#cursor-nested path").hover();
+  await expect(frame.locator("#cursor-nested path")).toHaveCSS("cursor", "crosshair");
+  // New portal/dynamic nodes inherit the active rule without per-node mutation.
+  await frame.locator("body").evaluate(() => {
+    const button = document.createElement("button"); button.id = "cursor-dynamic"; button.style.cursor = "pointer"; document.body.append(button);
+  });
+  await expect(frame.locator("#cursor-dynamic")).toHaveCSS("cursor", "crosshair");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => frame.locator("body").evaluate((_, selectors) => selectors.map(selector => {
+    const node = document.querySelector(selector)!;
+    return { style: node.getAttribute("style"), cursor: getComputedStyle(node).cursor };
+  }), targets)).toEqual(before);
+  await expect(frame.locator("html")).toHaveCSS("cursor", "help");
+  await expect(frame.locator("#cursor-dynamic")).toHaveCSS("cursor", "pointer");
+  await picker(page);
+  await expect(frame.locator("#one")).toHaveCSS("cursor", "crosshair");
+  await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
+  await expect(frame.locator("#one")).toHaveCSS("cursor", "pointer");
+});
+
 test("teal hover chrome is isolated from page CSS and labels stay inside the viewport", async ({ page }, testInfo) => {
   const frame = preview(page);
   await picker(page);
