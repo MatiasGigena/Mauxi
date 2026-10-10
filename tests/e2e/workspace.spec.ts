@@ -352,10 +352,12 @@ test("readable text, reduced motion, immediate feedback and minimal resting comp
   await expect(page.locator(".artboard-actions button")).toHaveCount(6);
   await page.getByLabel("Message", { exact: true }).fill("Keyboard text stays in chat: + - 0 f h");
   expect(await page.getByLabel("Message", { exact: true }).evaluate((node) => getComputedStyle(node).fontSize)).toBe("17.5px");
-  const focus = button("Focus Desktop"); const b = await focus.boundingBox();
-  const normal = await focus.evaluate((node) => getComputedStyle(node).backgroundColor);
-  await page.mouse.move(b!.x + 10, b!.y + 10); await page.mouse.down();
-  expect(await focus.evaluate((node) => ({ color: getComputedStyle(node).backgroundColor, active: node.matches(":active"), atPoint: document.elementFromPoint(node.getBoundingClientRect().x + 10, node.getBoundingClientRect().y + 10)?.outerHTML }))).toMatchObject({ active: true, color: expect.not.stringContaining(normal) });
+  const focus = button("Focus Desktop");
+  await focus.hover();
+  await expect(focus).toHaveCSS("color", "rgb(185, 78, 56)");
+  await page.mouse.down();
+  await expect(focus).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  expect(await focus.evaluate(node => node.matches(":active"))).toBe(true);
   await page.mouse.up(); await button("Unfocus Desktop").click(); await button("Focus Desktop").click(); await button("Unfocus Desktop").click();
   await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Keyboard text stays in chat: + - 0 f h");
   await page.screenshot({ path: testInfo.outputPath("large-text-reduced-motion.png") });
@@ -363,6 +365,7 @@ test("readable text, reduced motion, immediate feedback and minimal resting comp
   await page.emulateMedia({ reducedMotion: "no-preference", contrast: "no-preference" });
   await button("Fit both").click();
   await page.screenshot({ path: testInfo.outputPath("workspace.png") });
-  await actions(); await page.getByText("Preview diagnostics", { exact: true }).click();
+  await actions();
+  await expect(page.getByText("Preview diagnostics", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("actions.png") });
 });

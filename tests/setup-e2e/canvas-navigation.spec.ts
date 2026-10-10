@@ -187,6 +187,102 @@ test("hidden-page cancellation clears held Space and gesture shields", async ({ 
   await page.keyboard.up("Space");
 });
 
+test("preview header uses Lucide icons and transparent chat-style controls", async ({ page }, testInfo) => {
+  const header = board(page).locator(".artboard-header");
+  const select = header.getByRole("button", { name: "Select in Desktop", exact: true });
+  const focus = header.getByRole("button", { name: "Focus Desktop", exact: true });
+  await expect(header).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(header).toHaveCSS("border-top-color", "rgb(232, 229, 225)");
+  await expect(header).toHaveCSS("border-top-left-radius", "20px");
+  await expect(select.locator("svg.lucide-mouse-pointer-2")).toHaveAttribute("aria-hidden", "true");
+  await expect(focus.locator("svg.lucide-maximize-2")).toBeVisible();
+  await expect(header.locator("svg.lucide-ellipsis")).toBeVisible();
+  for (const action of [select, focus]) {
+    await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await action.hover();
+    await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(action).toHaveCSS("color", action === select ? "rgb(20, 122, 122)" : "rgb(185, 78, 56)");
+  }
+  const before = await camera(page);
+  await select.locator("svg").click();
+  await expect(select).toHaveAttribute("aria-pressed", "true");
+  await expect(select).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(select).toHaveCSS("box-shadow", "none");
+  expect(await camera(page)).toEqual(before);
+  await page.keyboard.press("Escape");
+  await focus.locator("svg").click();
+  await expect(header.locator("svg.lucide-minimize-2")).toBeVisible();
+  await header.getByRole("button", { name: "Unfocus Desktop", exact: true }).click();
+  await focus.focus(); await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab");
+  await expect(focus).toBeFocused();
+  await expect(focus).toHaveCSS("outline-color", "rgb(33, 143, 144)");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await select.hover(); await page.mouse.down();
+  await expect(select).toHaveCSS("transform", "none");
+  await expect(select).toHaveCSS("transition-duration", "0s");
+  await page.mouse.up(); await page.keyboard.press("Escape");
+  await page.getByRole("slider", { name: "Camera zoom" }).fill("0.25");
+  await page.screenshot({ path: testInfo.outputPath("compact-lucide-header.png") });
+});
+
+test("preview headers stay within the frame across zoom levels and narrow viewports", async ({ page }) => {
+  const zoom = page.getByRole("slider", { name: "Camera zoom" });
+  const dimensions = await page.getByTestId("mobile-preview").evaluate(node => [node.getAttribute("width"), node.getAttribute("height")]);
+  for (const value of ["0.25", "0.4", "0.55", "0.62", "1", "2"]) {
+    await zoom.fill(value);
+    for (const id of ["desktop", "mobile"]) {
+      const result = await board(page, id).evaluate(node => {
+        const header = node.querySelector<HTMLElement>(".artboard-header")!;
+        const rect = header.getBoundingClientRect();
+        const frame = node.querySelector("iframe")!.getBoundingClientRect();
+        return {
+          width: rect.width, frameWidth: frame.width, left: rect.left, frameLeft: frame.left,
+          overflow: header.scrollWidth > header.clientWidth,
+          escaped: [...header.querySelectorAll("button")].filter(button => button.getClientRects().length).some(button => {
+            const bounds = button.getBoundingClientRect();
+            return bounds.left < rect.left || bounds.right > rect.right + .1;
+          }),
+        };
+      });
+      expect(result.width).toBeCloseTo(result.frameWidth, 1);
+      expect(result.left).toBeCloseTo(result.frameLeft, 1);
+      expect(result.overflow).toBe(false);
+      expect(result.escaped).toBe(false);
+    }
+  }
+  expect(await page.getByTestId("mobile-preview").evaluate(node => [node.getAttribute("width"), node.getAttribute("height")])).toEqual(dimensions);
+  await zoom.focus(); await page.keyboard.press("Home");
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Width", exact: true }).fill("240");
+  await page.getByRole("button", { name: "Apply viewport", exact: true }).click();
+  const header = board(page, "mobile").locator(".artboard-header");
+  expect((await header.boundingBox())!.width).toBeCloseTo(60);
+  expect(await header.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("compact header keeps focus, picker and keyboard dragging accessible", async ({ page }) => {
+  await page.getByRole("slider", { name: "Camera zoom" }).focus(); await page.keyboard.press("Home");
+  await expect(board(page, "mobile").locator(".board-select")).toBeHidden();
+  await expect(board(page, "mobile").locator(".board-focus")).toBeHidden();
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Focus Mobile", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(board(page, "desktop")).toBeHidden();
+  await page.getByRole("button", { name: "Unfocus Mobile", exact: true }).click();
+  await expect(board(page, "desktop")).toBeVisible();
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Select in Mobile", exact: true }).click();
+  await expect(page.getByTestId("mobile-preview")).not.toHaveAttribute("inert");
+  await expect(board(page, "mobile").locator(".board-select")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  const grip = board(page, "mobile").getByRole("button", { name: "Move Mobile artboard with arrow keys" });
+  const before = (await board(page, "mobile").boundingBox())!;
+  await grip.focus(); await page.keyboard.press("ArrowRight");
+  expect((await board(page, "mobile").boundingBox())!.x - before.x).toBeCloseTo(20);
+});
+
 test("agent ownership blocks navigation and returns to passive previews", async ({ page }) => {
   await activate(page).click();
   const state = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };

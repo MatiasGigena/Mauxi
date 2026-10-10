@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, HEADER_WIDTH, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -9,6 +9,7 @@ import { ChatDock } from "./ChatDock";
 import { CanvasBackground } from "./CanvasBackground";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { PreviewTools } from "./PreviewTools";
+import { PreviewHeader } from "./PreviewHeader";
 import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
 import logo from "./assets/logo-mauxi.png";
 
@@ -63,7 +64,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
   const initialFit = useRef(!active?.canvas);
-  const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT, headerWidth: HEADER_WIDTH });
+  const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const dragMoved = useRef(false);
   const navigation = useCanvasNavigation({ canvas, frames, locked: browser.locked, onExit: () => {
@@ -112,12 +113,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const observer = new ResizeObserver(() => {
       if (!canvas.current) return;
       const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      geometry.current = { width: canvas.current.clientWidth, height: canvas.current.clientHeight, headerHeight: rootSize * 3, headerWidth: rootSize * 15 };
+      geometry.current = { width: canvas.current.clientWidth, height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
       if (initialFit.current) {
         initialFit.current = false;
-        setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+        setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
       } else if (layoutRef.current.focus) {
-        setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+        setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
       }
     });
     if (canvas.current) observer.observe(canvas.current);
@@ -257,15 +258,20 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, [selecting, navigationHeld, send, navigation.exit]);
 
   function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
-    setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }; });
+    setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight) }; });
   }
   function focus(id: PreviewId) {
     setLayout((current) => {
       const restored = unfocus(current);
       if (current.focus?.previewId === id) return restored;
-      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: fitCamera([restored.boards[id]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) };
+      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: fitCamera([restored.boards[id]], geometry.current, geometry.current.headerHeight) };
     });
     setActivePreview(id);
+  }
+  function toggleSelection(id: PreviewId) {
+    const next = selecting === id ? null : id;
+    navigation.exit(false); setSelecting(next); setHand(false);
+    if (active) void browser.owner(next ? "picker" : "human");
   }
   function changeZoom(zoom: number) {
     setLayout((current) => ({ ...current, camera: zoomAt(current.camera, zoom, { x: geometry.current.width / 2, y: geometry.current.height / 2 }) }));
@@ -430,7 +436,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       </div>
       {active && <BrowserControlBar control={browser} ready={allReady && !serverFailed} onGrant={() => {
         setSelecting(null); setTools(null); setHand(false);
-        setLayout(current => ({ ...unfocus(current), linked: false, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) }));
+        setLayout(current => ({ ...unfocus(current), linked: false, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
         setNotice("Route linking paused to avoid replaying side effects. Use test accounts; interactions require separate approval.");
         // Focus remains in the trusted shell; inert removes existing iframe focus.
         void browser.owner("agent");
@@ -451,15 +457,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
         const shielded = navigationHeld || dragging || navigation.wheeling || (selecting !== id && !interacting);
-        return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} data-interacting={interacting && !shielded && !browser.locked} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: `max(15rem, ${board.width * zoom}px)`, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
-          <header className="artboard-header" inert={browser.locked} onPointerDown={(event) => { if (!(event.target as Element).closest("button:not(.board-grip)")) startDrag(navigationHeld ? null : id, event); }}>
-            <button className="board-grip" aria-label={`Move ${LABELS[id]} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={(event) => { if (!event.key.startsWith("Arrow")) return; event.preventDefault(); const step = (event.shiftKey ? 100 : 20) / zoom; setLayout((current) => ({ ...current, boards: { ...current.boards, [id]: { ...current.boards[id], x: current.boards[id].x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0), y: current.boards[id].y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0) } } })); }}><strong>{LABELS[id]}{interacting && !shielded && !browser.locked && <span className="preview-interaction-label"> · Interacting</span>}</strong><span className={runtimes[id].ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span></button>
-            <div className="artboard-actions">
-              <button aria-label={`Select in ${LABELS[id]}`} title="Pick DOM target · use ↑/↓ for child/parent and [ / ] for overlaps" aria-pressed={selecting === id} disabled={!runtimes[id].ready} onClick={() => { const next = selecting === id ? null : id; navigation.exit(false); setSelecting(next); setHand(false); if (active) void browser.owner(next ? "picker" : "human"); }}>↖</button>
-              <button aria-label={`${layout.focus?.previewId === id ? "Unfocus" : "Focus"} ${LABELS[id]}`} aria-pressed={layout.focus?.previewId === id} onClick={() => focus(id)}>⛶</button>
-              <button aria-label={`${LABELS[id]} actions`} aria-haspopup="dialog" onClick={() => { setTools(id); setActivePreview(id); }}>•••</button>
-            </div>
-          </header>
+        return <section key={`${session}-${id}`} className="artboard" data-preview-id={id} data-interacting={interacting && !shielded && !browser.locked} aria-label={`${LABELS[id]} artboard`} style={{ left: layout.camera.x + board.x * zoom, top: layout.camera.y + board.y * zoom, width: board.width * zoom, zIndex: activePreview === id ? 2 : 1, visibility: layout.focus && layout.focus.previewId !== id ? "hidden" : "visible" }}>
+          <PreviewHeader id={id} board={board} ready={runtimes[id].ready} locked={browser.locked}
+            interacting={interacting && !shielded && !browser.locked} selecting={selecting === id} focused={layout.focus?.previewId === id}
+            onDrag={event => startDrag(navigationHeld ? null : id, event)}
+            onMove={delta => setLayout(current => ({ ...current, boards: { ...current.boards, [id]: dragBoard(current.boards[id], delta, current.camera.zoom) } }))}
+            onSelect={() => toggleSelection(id)} onFocus={() => focus(id)} onTools={() => { setTools(id); setActivePreview(id); }} />
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
             <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
             {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
@@ -477,6 +480,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </main>
     <ChatDock workspaceId={active?.workspaceId} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
     </div>
-    {tools && <PreviewTools id={tools} board={layout.boards[tools]} route={runtimes[tools].route} ready={runtimes[tools].ready} generation={runtimes[tools].generation} logs={active?.logs ?? []} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight, geometry.current.headerWidth) } : next; }); setTools(null); }} />}
+    {tools && <PreviewTools id={tools} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
   </div>;
 }

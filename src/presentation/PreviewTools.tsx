@@ -1,35 +1,67 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArrowUpRight, Camera, Copy, Maximize2, Minimize2, MousePointer2, RefreshCw, X } from "lucide-react";
 import { LABELS, type Artboard } from "../application/canvas-state";
 import type { PreviewId } from "../application/preview-contract";
 
-export function PreviewTools({ id, board, route, ready, generation, logs, canCopy, canCapture, onClose, onResize, onReload, onCopy, onCapture }: {
-  id: PreviewId; board: Artboard; route: string; ready: boolean; generation: string; logs: string[];
+export function PreviewTools({ id, board, ready, canCopy, canCapture, selecting, focused, onSelect, onFocus, onClose, onResize, onReload, onCopy, onCapture }: {
+  id: PreviewId; board: Artboard; ready: boolean;
   canCopy: boolean; canCapture: boolean; onClose: () => void; onResize: (width: number, height: number) => void;
   onReload: () => void; onCopy: () => void; onCapture: () => void;
+  selecting: boolean; focused: boolean; onSelect: () => void; onFocus: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [width, setWidth] = useState(board.width);
-  const [height, setHeight] = useState(board.height);
+  const titleId = useId();
+  const captureHintId = useId();
+  const [width, setWidth] = useState(String(board.width));
+  const [height, setHeight] = useState(String(board.height));
+  const dimensionsChanged = Number(width) !== board.width || Number(height) !== board.height;
+  const FocusIcon = focused ? Minimize2 : Maximize2;
   useEffect(() => {
     const node = dialog.current!;
     const opener = document.activeElement as HTMLElement | null;
     node.showModal();
-    return () => { node.close(); opener?.focus({ preventScroll: true }); };
+    return () => { node.close(); if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
   }, []);
-  return <dialog ref={dialog} className="preview-tools" aria-labelledby="tools-title" onCancel={(event) => { event.preventDefault(); onClose(); }}>
-    <header><h2 id="tools-title">{LABELS[id]} actions</h2><button aria-label="Close actions" onClick={onClose} autoFocus>×</button></header>
-    <p className="current-route" title={route}>{route || "Waiting for preview…"}</p>
+  return <dialog ref={dialog} className="preview-tools" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
+    const first = controls[0]; const last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }}>
+    <header>
+      <h2 id={titleId}>{LABELS[id]} actions</h2>
+      <button type="button" className="preview-tools-close" aria-label="Close actions" onClick={onClose} autoFocus><X size={18} aria-hidden="true" /></button>
+    </header>
     <div className="tool-buttons">
-      <button onClick={onReload}>Reload preview</button>
-      <button disabled={!canCopy} onClick={onCopy}>Copy route to {id === "desktop" ? "mobile" : "desktop"}</button>
-      <button disabled={!canCapture} onClick={onCapture}>Capture screenshot</button>
-      {!canCapture && <small>Capture needs the Linux host and the full viewport visible. Use Focus or Fit both first.</small>}
-      <button disabled title="External opening is not yet available">Open externally · unavailable</button>
+      <button type="button" className="preview-tool-action" disabled={!ready} aria-pressed={selecting} onClick={onSelect}>
+        <MousePointer2 size={16} aria-hidden="true" /><span>{selecting ? "Stop selecting" : `Select in ${LABELS[id]}`}</span>
+      </button>
+      <button type="button" className="preview-tool-action preview-tool-focus" aria-pressed={focused} onClick={onFocus}>
+        <FocusIcon size={16} aria-hidden="true" /><span>{focused ? "Unfocus" : "Focus"} {LABELS[id]}</span>
+      </button>
+      <button type="button" className="preview-tool-action" onClick={onReload}>
+        <RefreshCw size={16} aria-hidden="true" /><span>Reload preview</span>
+      </button>
+      <button type="button" className="preview-tool-action" disabled={!canCopy} onClick={onCopy}>
+        <Copy size={16} aria-hidden="true" /><span>Copy route to {id === "desktop" ? "mobile" : "desktop"}</span>
+      </button>
+      <button type="button" className="preview-tool-action" disabled={!canCapture} aria-describedby={!canCapture ? captureHintId : undefined} onClick={onCapture}>
+        <Camera size={16} aria-hidden="true" /><span>Capture screenshot</span>
+      </button>
+      {!canCapture && <p className="preview-tools-hint" id={captureHintId}>Fit the full preview to capture it in the desktop app.</p>}
     </div>
-    <form className="viewport-settings" onSubmit={(event) => { event.preventDefault(); onResize(width, height); }}>
-      <fieldset><legend>Viewport · CSS pixels</legend><label>Width<input type="number" min={240} max={3840} step={1} required value={width} onChange={(event) => setWidth(Number(event.target.value))} /></label><label>Height<input type="number" min={240} max={2160} step={1} required value={height} onChange={(event) => setHeight(Number(event.target.value))} /></label><button type="submit">Apply viewport</button></fieldset>
+    <form className="viewport-settings" onSubmit={event => { event.preventDefault(); if (dimensionsChanged) onResize(Number(width), Number(height)); }}>
+      <fieldset>
+        <legend>Viewport <span>px</span></legend>
+        <div className="viewport-fields">
+          <label>Width<input type="number" inputMode="numeric" min={240} max={3840} step={1} required value={width} onChange={event => setWidth(event.target.value)} /></label>
+          <label>Height<input type="number" inputMode="numeric" min={240} max={2160} step={1} required value={height} onChange={event => setHeight(event.target.value)} /></label>
+        </div>
+      </fieldset>
+      <div className="confirmation-actions">
+        <button className="primary viewport-apply" type="submit" disabled={!dimensionsChanged}><span>Apply viewport</span><ArrowUpRight size={16} aria-hidden="true" /></button>
+      </div>
     </form>
-    <details><summary>Preview diagnostics</summary><dl><dt>Bridge</dt><dd>{ready ? "Connected" : "Disconnected — reload to reconnect"}</dd><dt>Document generation</dt><dd>{generation || "Pending"}</dd><dt>Selection</dt><dd>DOM picker connected. Use ↑/↓ to refine child/parent and [ / ] to cycle overlapping targets. React ownership is reported separately in attachment details.</dd><dt>Route linking</dt><dd>Same-origin URLs only. Auth, callback, action routes and form navigation are excluded. Unlink for custom side-effectful GET routes.</dd></dl>{logs.length > 0 && <pre>{logs.slice(-80).join("\n")}</pre>}</details>
-    <button disabled>Selection hierarchy · unavailable</button>
   </dialog>;
 }

@@ -104,7 +104,8 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await page.mouse.move(header!.x - 180, header!.y + 95, { steps: 8 });
   await page.mouse.up();
   await assertUnchanged();
-  await page.getByRole("button", { name: "Focus Mobile", exact: true }).click();
+  await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Focus Mobile", exact: true }).click();
   await assertUnchanged();
   await page.getByRole("button", { name: "Unfocus Mobile", exact: true }).click();
   await assertUnchanged();

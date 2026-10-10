@@ -17,13 +17,42 @@
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
 .hand-mode, .input-shield { cursor: grab; }.dragging, .dragging * { cursor: grabbing !important; }
-.artboard { position: absolute; }
-.artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .4rem; background: #fafaf9; border: 1px solid #c8c5c0; border-radius: .6rem .6rem 0 0; cursor: grab; user-select: none; touch-action: none; }
+.artboard { position: absolute; container: artboard / inline-size; }
+.artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .5rem; background: #fff; border: 1px solid #e8e5e1; border-bottom: 0; border-radius: 1.25rem 1.25rem 0 0; box-shadow: 0 -2px 6px #181b2205; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
-.board-grip strong { font-size: .8rem; font-weight: 500; line-height: 1.5; }.board-grip span { font-size: .75rem; font-weight: 400; white-space: nowrap; color: #635f68; }
+.board-grip strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #24242a; font-size: .75rem; font-weight: 500; line-height: 1.5; }.board-grip span { font-size: .6875rem; font-weight: 400; white-space: nowrap; color: #747178; }
 .board-grip .bridge-ready::before { content: ""; display: inline-block; width: .35rem; height: .35rem; border-radius: 50%; background: #287b49; margin-right: .3rem; vertical-align: middle; }
-.artboard-actions { display: flex; gap: .2rem; }
-.artboard-actions button { display: grid; place-items: center; min-width: 2rem; height: 2rem; padding: .25rem; font-size: 1rem; }
+.artboard-actions { display: flex; flex: none; gap: .2rem; }
+.artboard-actions button { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; padding: .25rem; }
+.workspace .artboard-header button { --board-action-accent: #147a7a; background: transparent; color: #747178; box-shadow: none; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+.workspace .artboard-header .board-focus { --board-action-accent: #b94e38; }
+.workspace .artboard-header button:is(:hover, :active):not(:disabled),
+.workspace .artboard-header button[aria-pressed=true] { background: transparent; box-shadow: none; }
+.workspace .artboard-header button[aria-pressed=true] { color: var(--board-action-accent); }
+.workspace .artboard-actions button:active:not(:disabled):not(:focus-visible) { transform: scale(.97); }
+.workspace .artboard-header button:focus-visible { color: var(--board-action-accent); outline: 2px solid #218f90; outline-offset: -2px; transition: none; }
+@media (hover: hover) and (pointer: fine) {
+  .workspace .artboard-header button:hover:not(:disabled) { color: var(--board-action-accent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace .artboard-header button { transition: none; }
+  .workspace .artboard-actions button:active:not(:disabled):not(:focus-visible) { transform: none; }
+}
+/* Adapt to the rendered board width, not the window or iframe viewport.
+   Keep controls unscaled; collapsed actions remain in the actions dialog. */
+@container artboard (width < 17rem) {
+  .board-grip > span, .board-grip .preview-interaction-label { display: none; }
+}
+@container artboard (width < 14rem) {
+  .artboard-actions .board-select { display: none; }
+}
+@container artboard (width < 11rem) {
+  .artboard-actions .board-focus { display: none; }
+}
+@container artboard (width < 7rem) {
+  .artboard-header { padding-inline: .15rem; gap: .1rem; }
+  .artboard-header .board-grip { padding-inline: .125rem; }
+}
 .preview-surface { position: relative; background: white; box-shadow: 0 0 0 1px #181b2208, 0 2px 6px #181b2208, 0 14px 36px #181b2212; }
 .preview-surface iframe { display: block; border: 0; background: white; transform-origin: 0 0; }
 .input-shield { position: absolute; inset: 0; touch-action: none; }
@@ -31,7 +60,7 @@
 .workspace .preview-activate, .workspace .preview-activate:hover:not(:disabled), .workspace .preview-activate:active:not(:disabled) { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .preview-activate:focus-visible { outline: 2px solid #5c46b6; outline-offset: -3px; }
 .artboard[data-interacting=true] .preview-surface { outline: 2px solid #5c46b6; outline-offset: 1px; }
-.board-grip .preview-interaction-label { color: #5c46b6; font-size: .7rem; }
+.board-grip .preview-interaction-label { color: #147a7a; font-size: .6875rem; }
 .browser-control { position: relative; display: flex; align-items: center; gap: .45rem; min-width: 0; font-size: .75rem; }
 .browser-control > [role=status] { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace .take-back { background: #e7e2fb; color: #4932a5; }
@@ -129,12 +158,45 @@
   .workspace .selection-chip button:active:not(:disabled) { transform: none; }
 }
 .send-error { color: #8b3d2f; font-weight: 600; }
-.preview-tools { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid #aaa3b6; border-radius: .85rem; padding: 1.25rem; background: #fafaf9; color: #29252e; box-shadow: 0 20px 70px #15102030; font-size: .875rem; }
-.preview-tools::backdrop { background: #211a3033; }
-.preview-tools header { display: flex; align-items: center; justify-content: space-between; }.preview-tools h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }.current-route { overflow-wrap: anywhere; color: #645b6d; }
-.tool-buttons { display: grid; gap: .5rem; }.tool-buttons small { font-size: .8rem; color: #645b6d; }
-.viewport-settings { margin: 1rem 0; }.viewport-settings fieldset { display: flex; flex-wrap: wrap; gap: .75rem; border: 1px solid #cdc7d4; border-radius: .5rem; }.viewport-settings legend { padding: 0 .25rem; }.viewport-settings label { flex: 1; min-width: 5rem; display: flex; flex-direction: column; gap: .25rem; }.viewport-settings input { width: 100%; padding: .3rem; border: 1px solid #aaa3b6; border-radius: .3rem; }.viewport-settings button { flex-basis: 100%; }
-.preview-tools details { margin: 1rem 0; }.preview-tools summary { cursor: pointer; padding: .25rem; }.preview-tools dt { font-weight: 650; }.preview-tools dd { margin: .2rem 0 .75rem; overflow-wrap: anywhere; }.preview-tools pre { white-space: pre-wrap; font-size: .75rem; }
+.preview-tools { width: min(25rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid #e8e5e1; border-radius: 20px; padding: 20px; background: #fff; color: #24242a; box-shadow: 0 2px 6px #181b220a, 0 16px 48px #181b2217; font-size: 12px; }
+.preview-tools::backdrop { background: #181b2230; }
+.preview-tools > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preview-tools h2 { margin: 0; font-size: 14px; font-weight: 500; }
+.preview-tools .tool-buttons { display: grid; gap: 2px; margin-top: 12px; }
+.preview-tools button { transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+.preview-tools button svg { flex: none; }
+.preview-tools .preview-tool-action, .preview-tools .preview-tools-close { --tool-accent: #147a7a; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 4px; border-radius: 8px; background: transparent; color: #625e66; box-shadow: none; text-align: left; font-size: 12px; }
+.preview-tools .preview-tool-focus { --tool-accent: #b94e38; }
+.preview-tools .preview-tools-close { justify-content: center; flex: none; width: 32px; min-height: 32px; padding: 4px; }
+.preview-tools :is(.preview-tool-action, .preview-tools-close):is(:hover, :active):not(:disabled),
+.preview-tools .preview-tool-action[aria-pressed=true] { background: transparent; box-shadow: none; }
+.preview-tools .preview-tool-action[aria-pressed=true] { color: var(--tool-accent); }
+.preview-tools button:focus-visible { outline: 2px solid #218f90; outline-offset: -2px; transition: none; }
+.preview-tools :is(.preview-tool-action, .preview-tools-close):focus-visible { color: var(--tool-accent); }
+.preview-tools button:active:not(:disabled):not(:focus-visible) { transform: scale(.97); }
+.preview-tools-hint { margin: 0 0 4px 30px; color: #747178; font-size: 11px; line-height: 1.6; }
+.viewport-settings { display: flex; flex-direction: column; align-items: stretch; gap: 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #efedee; }
+.viewport-settings fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.viewport-settings legend { padding: 0; margin-bottom: 12px; font-size: 12px; font-weight: 500; }
+.viewport-settings legend span { margin-left: 4px; color: #747178; font-size: 11px; font-weight: 400; }
+.viewport-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.viewport-settings label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #747178; font-size: 11px; }
+.viewport-settings input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #d8d4da; border-radius: 8px; background: transparent; color: #24242a; font-size: 13px; }
+.viewport-settings input:focus-visible { outline: 2px solid #218f90; outline-offset: -1px; }
+.preview-tools .confirmation-actions { padding-top: 0; }
+/* Reuse the same primary surface and animated border as Send. */
+.preview-tools .viewport-apply { animation: none; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) {
+  .preview-tools :is(.preview-tool-action, .preview-tools-close):hover:not(:disabled) { color: var(--tool-accent); }
+}
+@media (hover: none), (pointer: coarse) {
+  .preview-tools :is(.preview-tool-action, .preview-tools-close, .viewport-apply) { min-height: 44px; }
+  .preview-tools .preview-tools-close { width: 44px; }
+  .viewport-settings input { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-tools button:active:not(:disabled):not(:focus-visible) { transform: none; }
+}
 
 .agent-dialog-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 1rem; background: #211a3038; }
 .agent-dialog { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid #aaa3b6; border-radius: .9rem; background: #fafaf9; box-shadow: 0 24px 80px #15102035; }

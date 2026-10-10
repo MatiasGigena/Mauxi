@@ -5,7 +5,6 @@ export const LABELS = { desktop: "Desktop", mobile: "Mobile" };
 export const MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 2;
 export const HEADER_HEIGHT = 48;
-export const HEADER_WIDTH = 240;
 export interface Point { x: number; y: number }
 export interface Camera extends Point { zoom: number }
 export interface Artboard extends Point { width: number; height: number }
@@ -31,11 +30,11 @@ export function zoomAt(camera: Camera, zoom: number, anchor: Point): Camera {
 export function dragBoard(board: Artboard, delta: Point, zoom: number): Artboard {
   return { ...board, x: board.x + delta.x / zoom, y: board.y + delta.y / zoom };
 }
-export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT, headerWidth = HEADER_WIDTH): Camera {
+export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT): Camera {
   const left = Math.min(...boards.map((b) => b.x));
   const top = Math.min(...boards.map((b) => b.y));
   const size = (zoom: number) => ({
-    width: Math.max(...boards.map((b) => (b.x - left) * zoom + Math.max(headerWidth, b.width * zoom))),
+    width: Math.max(...boards.map((b) => (b.x - left + b.width) * zoom)),
     height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight)),
   });
   let low = MIN_ZOOM; let high = MAX_ZOOM;

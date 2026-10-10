@@ -25,15 +25,24 @@ describe("canvas geometry", () => {
       expect(next.zoom).toBeGreaterThanOrEqual(.25); expect(next.zoom).toBeLessThanOrEqual(2);
     }
   });
-  it("fits displaced boards including readable headers into the canvas, not the chat", () => {
+  it("fits displaced boards including fixed-height headers into the canvas, not the chat", () => {
     const boards = [{ x: -120, y: 84, width: 1440, height: 900 }, { x: 1430, y: -250, width: 390, height: 844 }];
     const area = { width: 1280, height: 550 }; const camera = fitCamera(boards, area);
     for (const b of boards) {
       const x = camera.x + b.x * camera.zoom; const y = camera.y + b.y * camera.zoom;
       expect(x).toBeGreaterThanOrEqual(24 - .001); expect(y).toBeGreaterThanOrEqual(24 - .001);
-      expect(x + Math.max(240, b.width * camera.zoom)).toBeLessThanOrEqual(area.width - 24 + .001);
+      expect(x + b.width * camera.zoom).toBeLessThanOrEqual(area.width - 24 + .001);
       expect(y + 48 + b.height * camera.zoom).toBeLessThanOrEqual(area.height - 24 + .001);
     }
+  });
+  it("centers the actual preview bounds without a minimum header width", () => {
+    const board = { x: 1518, y: 0, width: 390, height: 844 };
+    const area = { width: 800, height: 450 };
+    const camera = fitCamera([board], area);
+    const width = board.width * camera.zoom;
+    expect(width).toBeLessThan(240);
+    expect(camera.x + board.x * camera.zoom).toBeCloseTo((area.width - width) / 2);
+    expect(camera.y + 48 + board.height * camera.zoom).toBeCloseTo(area.height - 24);
   });
   it("restores focus camera and positions while keeping explicit viewport changes", () => {
     const initial = defaultCanvas(); const focused = structuredClone(initial);
