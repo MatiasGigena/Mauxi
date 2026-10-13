@@ -231,3 +231,78 @@ it("keeps failed setup visible when an owned file is missing but its journal exi
     await manager.close();
   } finally { await manager.close().catch(() => undefined); await rm(root, { recursive: true, force: true }); }
 });
+
+it("waits for an in-flight setup before closing instead of cleaning up concurrently", async () => {
+  const server = createServer((_request, response) => response.end('<script src="/.mauxi/bridge.js"></script>'));
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing test port");
+  const root = await temporaryRoot();
+  await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
+  await writeFile(path.join(root, "node_modules", ".bin", "vite"), "");
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: `vite --port ${address.port}` }, dependencies: { react: "19", vite: "7" } }));
+  await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [\n] };\n");
+  const bridge = path.join(root, "bridge-entry.js"); await writeFile(bridge, "// bridge\n");
+  const writes: string[] = [];
+  let reachedApplying!: () => void; const applying = new Promise<void>((resolve) => { reachedApplying = resolve; });
+  let release!: () => void; const released = new Promise<void>((resolve) => { release = resolve; });
+  class GatedStore extends JournalStore {
+    override async write(journal: Parameters<JournalStore["write"]>[0]) {
+      if (journal.state === "applying" && !writes.includes("applying")) { reachedApplying(); await released; }
+      writes.push(journal.state);
+      await super.write(journal);
+    }
+  }
+  const store = new GatedStore(path.join(root, "state"));
+  const manager = new WorkspaceManager(store, new WorkspaceStore(path.join(root, "settings")), bridge);
+  try {
+    const discovery = await manager.inspect(root);
+    const setup = manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "attach" });
+    const setupResult = setup.then(() => "ready", () => "failed");
+    await applying;
+    let closed = false;
+    const closing = manager.close().then((event) => { closed = true; return event; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(closed).toBe(false);
+    expect(writes).not.toContain("cleaning");
+    release();
+    expect((await closing).active).toBeNull();
+    expect(await setupResult).toBe("failed");
+    // Cleanup starts only after setup stopped writing its journal and files.
+    expect(writes.indexOf("cleaning")).toBeGreaterThan(writes.lastIndexOf("applied"));
+    expect(writes.at(-1)).toBe("clean");
+    expect((await store.list())[0].state).toBe("clean");
+    expect(await readFile(path.join(root, "vite.config.ts"), "utf8")).not.toContain("mauxi-owned:start");
+    await expect(access(path.join(root, ".mauxi", "bridge.js"))).rejects.toThrow();
+  } finally { await manager.close().catch(() => undefined); await rm(root, { recursive: true, force: true }); }
+});
+
+it("shares one cleanup when the project is closed and the app quits at the same time", async () => {
+  const server = createServer((_request, response) => response.end('<script src="/.mauxi/bridge.js"></script>'));
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing test port");
+  const root = await temporaryRoot();
+  await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
+  await writeFile(path.join(root, "node_modules", ".bin", "vite"), "");
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: `vite --port ${address.port}` }, dependencies: { react: "19", vite: "7" } }));
+  await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [\n] };\n");
+  const bridge = path.join(root, "bridge-entry.js"); await writeFile(bridge, "// bridge\n");
+  const writes: string[] = [];
+  class RecordingStore extends JournalStore {
+    override async write(journal: Parameters<JournalStore["write"]>[0]) { writes.push(journal.state); await super.write(journal); }
+  }
+  const store = new RecordingStore(path.join(root, "state"));
+  const manager = new WorkspaceManager(store, new WorkspaceStore(path.join(root, "settings")), bridge);
+  try {
+    const discovery = await manager.inspect(root);
+    await manager.confirm({ discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "attach" });
+    const [first, second] = await Promise.all([manager.close(), manager.close()]);
+    expect(first.active).toBeNull(); expect(second.active).toBeNull();
+    expect(writes.filter((state) => state === "clean")).toHaveLength(1);
+    expect((await store.list())[0].state).toBe("clean");
+    expect(await readFile(path.join(root, "vite.config.ts"), "utf8")).not.toContain("mauxi-owned:start");
+  } finally { await manager.close().catch(() => undefined); await rm(root, { recursive: true, force: true }); }
+});

@@ -27,12 +27,15 @@ interface ActiveInternal {
   process: OwnedDevProcess | null;
   bridgeTimer: ReturnType<typeof setTimeout> | null;
   closing: boolean;
+  /** Settles once confirm() has finished setting up or failing (and cleaning up). */
+  setup: Promise<void> | null;
 }
 
 export class WorkspaceManager {
   private active: ActiveInternal | null = null;
   private discovery: ProjectDiscovery | null = null;
   private recoveryConflicts: string[] = [];
+  private closeTask: Promise<WorkspaceEvent> | null = null;
   private readonly listeners = new Set<(event: WorkspaceEvent) => void>();
 
   constructor(
@@ -115,6 +118,7 @@ export class WorkspaceManager {
       process: null,
       bridgeTimer: null,
       closing: false,
+      setup: null,
       value: {
         workspaceId: randomUUID(),
         canvas: await this.workspaces.canvas(plan.projectRoot),
@@ -134,10 +138,14 @@ export class WorkspaceManager {
       },
     };
     this.active = active;
+    let settleSetup!: () => void;
+    active.setup = new Promise<void>((resolve) => { settleSetup = resolve; });
     this.emit();
 
     try {
       await applyIntegration(integration, this.journals, this.bridgeEntry);
+      // close() waits for setup instead of cleaning concurrently; stop here.
+      if (active.closing) throw new Error("Setup was cancelled because the project is closing.");
       if (request.mode === "start") {
         active.value.status = "starting";
         active.value.statusDetail = `Starting ${plan.commandDisplay}…`;
@@ -165,7 +173,7 @@ export class WorkspaceManager {
       // watcher is about to restart it. Wait for the instrumented HTML before
       // creating previews, or their initial script requests can be interrupted.
       await waitForHttp(new URL(plan.startPath ?? "/", plan.origin).href, 45_000,
-        () => !this.active || this.active !== active || (request.mode === "start" && active.process?.pid == null),
+        () => !this.active || this.active !== active || active.closing || (request.mode === "start" && active.process?.pid == null),
         plan.framework === "vite" ? ".mauxi/bridge.js" : undefined);
       active.value.status = "connecting-previews";
       active.value.statusDetail = request.mode === "attach"
@@ -207,6 +215,8 @@ export class WorkspaceManager {
       else active.closing = false;
       this.emit();
       throw error;
+    } finally {
+      settleSetup();
     }
   }
 
@@ -235,9 +245,30 @@ export class WorkspaceManager {
     active.value.canvas = structuredClone(canvas);
   }
 
-  async close(): Promise<WorkspaceEvent> {
+  close(): Promise<WorkspaceEvent> {
+    // Closing the project and quitting can both request cleanup; share one run
+    // so two cleanups never race on the same project files and journal.
+    this.closeTask ??= this.closeActive().finally(() => { this.closeTask = null; });
+    return this.closeTask;
+  }
+
+  private async closeActive(): Promise<WorkspaceEvent> {
     const active = this.active;
     if (!active) return this.snapshot();
+    active.closing = true;
+    if (active.bridgeTimer) clearTimeout(active.bridgeTimer);
+    active.bridgeTimer = null;
+    active.value.status = "stopped";
+    active.value.statusDetail = "Stopping owned work and removing temporary integration…";
+    this.emit();
+    // Never clean up while confirm() is still applying or cleaning the same
+    // integration: both would race on the project files and the journal.
+    if (active.setup) await active.setup;
+    if (this.active !== active) {
+      // The failed setup already removed its integration.
+      this.discovery = null;
+      return this.snapshot();
+    }
     active.closing = true;
     if (active.bridgeTimer) clearTimeout(active.bridgeTimer);
     active.bridgeTimer = null;
