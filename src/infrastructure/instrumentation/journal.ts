@@ -21,6 +21,8 @@ export interface ArtifactRecord {
   path: string;
   hash: string;
   created: boolean;
+  /** False until the file is on disk; absent in older records (treated as written). */
+  written?: boolean;
 }
 
 export interface InstrumentationJournal {

@@ -153,7 +153,8 @@ function scriptCandidates(manifest: PackageManifest, framework: SupportedFramewo
   const scripts = stringRecord(manifest.scripts);
   const preferred = ["dev", "start"];
   const candidates = Object.entries(scripts).filter(([, command]) => {
-    if (framework === "vite") return /(^|\s|\/|\\)vite(?:\s|$)/.test(command);
+    // `vite build`, `vite preview` and `vite optimize` are not development servers.
+    if (framework === "vite") return /(^|\s|\/|\\)vite(?=\s|$)(?!\s+(?:build|preview|optimize)(?:\s|$))/.test(command);
     return /(^|\s|\/|\\)next\s+dev(?:\s|$)/.test(command);
   });
   return candidates.sort(([a], [b]) => {

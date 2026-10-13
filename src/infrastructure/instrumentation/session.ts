@@ -59,7 +59,9 @@ export async function addSessionIntegration(plan: IntegrationPlan): Promise<Inte
   plan.runtimeDirectory = path.join(plan.workspaceRoot, ".mauxi/runtime");
   plan.createdFiles.push({ path: path.join(plan.workspaceRoot, ".mauxi/launcher.cjs"), content: sessionLauncher });
   if (plan.framework === "vite") {
-    plan.patch = plan.patch!.replace('      apply: "serve",', `      apply: "serve",\n      config() { return { cacheDir: ${JSON.stringify(path.join(plan.runtimeDirectory, "vite"))} }; },`);
+    // A replacer function keeps "$" sequences in the project path literal.
+    const cacheDirectory = JSON.stringify(path.join(plan.runtimeDirectory, "vite"));
+    plan.patch = plan.patch!.replace('      apply: "serve",', () => `      apply: "serve",\n      config() { return { cacheDir: ${cacheDirectory} }; },`);
     return plan;
   }
   const names = ["next.config.ts", "next.config.mjs", "next.config.js"];

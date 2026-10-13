@@ -78,8 +78,11 @@ async function exists(filePath: string): Promise<boolean> {
 }
 
 async function firstExistingConfig(root: string): Promise<string | null> {
-  for (const name of ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"]) {
-    if (await exists(path.join(root, name))) return path.join(root, name);
+  // Patch the file Vite itself loads: its default lookup order, first match wins.
+  for (const name of ["vite.config.js", "vite.config.mjs", "vite.config.ts", "vite.config.cjs", "vite.config.mts", "vite.config.cts"]) {
+    if (!(await exists(path.join(root, name)))) continue;
+    if (name.endsWith(".cjs") || name.endsWith(".cts")) throw new Error(`Vite loads ${name}, which Mauxi does not support yet. Mauxi made no changes.`);
+    return path.join(root, name);
   }
   return null;
 }
@@ -286,7 +289,7 @@ export async function applyIntegration(
       anchor: plan.anchor ?? "<append>",
       applied: false,
     }] : [],
-    artifacts: createdArtifacts.map((artifact) => ({ path: artifact.path, hash: sha256(artifact.content), created: true })),
+    artifacts: createdArtifacts.map((artifact) => ({ path: artifact.path, hash: sha256(artifact.content), created: true, written: false })),
     conflicts: [],
   };
   for (const patch of plan.sessionPatches ?? []) {
@@ -317,9 +320,10 @@ export async function applyIntegration(
     journal.runtime.created = true;
     await store.write(journal);
   }
-  for (const artifact of createdArtifacts) {
+  for (const [index, artifact] of createdArtifacts.entries()) {
     await mkdir(path.dirname(artifact.path), { recursive: true });
     await writeFile(artifact.path, artifact.content, { flag: "wx", mode: 0o600 });
+    journal.artifacts[index].written = true;
     await store.write(journal);
   }
 
@@ -368,6 +372,13 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
     }
     const current = await readFile(patch.path, "utf8");
     const parts = patch.ownedParts ?? [patch.ownedText];
+    // Setup can fail (or be killed) after recording intent but before this
+    // patch is written. With no owned text present there is nothing to remove.
+    if (!patch.applied && !current.includes("mauxi-owned:") && parts.every(part => !part || !current.includes(part))) {
+      patch.cleaned = true;
+      await store.write(journal);
+      continue;
+    }
     if (parts.every(part => part && current.split(part).length === 2)) {
       let cleaned = current;
       for (const part of parts) cleaned = cleaned.replace(part, "");
@@ -379,6 +390,12 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
   }
   for (const artifact of journal.artifacts) {
     if (!artifact.created) continue;
+    if (!(await exists(artifact.path)) && artifact.written === false) {
+      // Intent was recorded but setup stopped before this file was written.
+      artifact.created = false;
+      await store.write(journal);
+      continue;
+    }
     if (!(await exists(artifact.path))) {
       journal.conflicts.push(`Owned artifact is missing or moved; restore its original path before retrying cleanup: ${artifact.path}`);
       continue;

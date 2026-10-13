@@ -85,8 +85,20 @@ function safeHtml(element: Element): string {
   return clone.outerHTML.slice(0, 2_000);
 }
 
+// The shell rejects a whole bridge message when any field exceeds the
+// preview contract's bounds, so page-controlled attributes are clipped here.
+function testIdOf(element: Element): string | null {
+  return element.getAttribute("data-testid")?.slice(0, 512) ?? null;
+}
+function labelOf(element: Element, text: string, limit: number): string {
+  return (element.getAttribute("aria-label") ?? (text.slice(0, 80) || element.tagName.toLowerCase())).slice(0, limit);
+}
+function boundedSelector(selector: string): string | null {
+  return selector.length <= 2_048 ? selector : null;
+}
+
 function simpleSelector(element: Element): string {
-  const testId = element.getAttribute("data-testid");
+  const testId = testIdOf(element);
   if (testId) return `[data-testid=${JSON.stringify(testId)}]`;
   const parts: string[] = [];
   let current: Element | null = element;
@@ -197,8 +209,8 @@ function unsupportedReason(element: Element): string | null {
 }
 function ancestryFor(element: Element): DomAncestryEntry[] {
   return hierarchy(element).map((entry, index) => ({
-    tag: entry.tagName.toLowerCase(), label: entry.getAttribute("aria-label") ?? (boundedText(entry).slice(0, 80) || entry.tagName.toLowerCase()),
-    selector: simpleSelector(entry), testId: entry.getAttribute("data-testid"), selected: index === 0,
+    tag: entry.tagName.toLowerCase(), label: labelOf(entry, boundedText(entry), 256),
+    selector: boundedSelector(simpleSelector(entry)), testId: testIdOf(entry), selected: index === 0,
   }));
 }
 
@@ -206,13 +218,15 @@ async function describe(element: Element, clientX: number, clientY: number, sele
   let context: Awaited<ReturnType<typeof getElementContext>> | null = null;
   try { context = await getElementContext(element); }
   catch (error) { console.warn("[Mauxi] React Grab could not resolve context", error); }
-  const sourceOwnership = ownershipFor(context?.filePath ?? null);
-  const source: SourceLocation = context?.filePath ? {
-    filePath: context.filePath, lineNumber: context.lineNumber, columnNumber: context.columnNumber, componentName: context.componentName,
+  const contextPath = context?.filePath && context.filePath.length <= 1_024 ? context.filePath : null;
+  const componentName = context?.componentName?.slice(0, 256) ?? null;
+  const sourceOwnership = ownershipFor(contextPath);
+  const source: SourceLocation = context && contextPath ? {
+    filePath: contextPath, lineNumber: context.lineNumber, columnNumber: context.columnNumber, componentName,
     method: "react-grab", fileFingerprint: null, role: "jsx-element", ownership: sourceOwnership,
     verification: sourceOwnership === "library" ? "library" : "unverified",
   } : {
-    filePath: "", lineNumber: null, columnNumber: null, componentName: context?.componentName ?? null,
+    filePath: "", lineNumber: null, columnNumber: null, componentName,
     method: "unresolved", fileFingerprint: null, role: "unknown", ownership: "unknown", verification: "missing-or-ambiguous",
   };
   const owners: ComponentOwner[] = (context?.stack ?? []).slice(0, 32).flatMap((frame) => {
@@ -225,11 +239,11 @@ async function describe(element: Element, clientX: number, clientY: number, sele
   }).slice(0, 16).map((owner, index) => ({ ...owner, role: index === 0 ? "component-owner" : "caller" }));
   const bounds = element.getBoundingClientRect();
   const styles = getComputedStyle(element);
-  const selector = context?.selector ?? simpleSelector(element);
+  const selector = boundedSelector(context?.selector ?? simpleSelector(element));
   const text = boundedText(element);
   const fingerprint: ElementFingerprint = {
-    selector, tag: element.tagName.toLowerCase(), testId: element.getAttribute("data-testid"), text,
-    sourceKey: source.filePath ? `${source.filePath}:${source.lineNumber ?? "?"}:${source.columnNumber ?? "?"}` : null,
+    selector, tag: element.tagName.toLowerCase(), testId: testIdOf(element), text,
+    sourceKey: source.filePath ? `${source.filePath}:${source.lineNumber ?? "?"}:${source.columnNumber ?? "?"}`.slice(0, 1_024) : null,
     instanceKey: instanceKey(element),
   };
   const padding = 48;
@@ -243,7 +257,7 @@ async function describe(element: Element, clientX: number, clientY: number, sele
     selectionId, documentGeneration: generation, capturedAt: new Date().toISOString(), url: location.href,
     viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
     coordinates: { clientX, clientY, space: "preview-css-pixels" as const },
-    element: { tag: fingerprint.tag, label: element.getAttribute("aria-label") ?? (text.slice(0, 80) || fingerprint.tag), role: element.getAttribute("role"), text, html: safeHtml(element) },
+    element: { tag: fingerprint.tag, label: labelOf(element, text, 1_024), role: element.getAttribute("role")?.slice(0, 128) ?? null, text, html: safeHtml(element) },
     bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, source,
     componentOwners: owners, domAncestry: ancestryFor(element), support: { status: reason ? "unsupported" as const : "supported" as const, reason },
     fingerprint,
@@ -343,7 +357,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     const valid = Boolean(candidate && candidate.isConnected
       && instanceKey(candidate) === message.fingerprint.instanceKey
       && candidate.tagName.toLowerCase() === message.fingerprint.tag
-      && candidate.getAttribute("data-testid") === message.fingerprint.testId
+      && testIdOf(candidate) === message.fingerprint.testId
       && boundedText(candidate) === message.fingerprint.text);
     send({ kind: "revalidation", selectionId: message.selectionId, status: valid ? "valid" : "stale",
       reason: valid ? undefined : "The original rendered instance was removed or its identity changed." });

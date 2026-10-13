@@ -56,6 +56,19 @@ describe("static project discovery", () => {
     await expect(readFile(sentinel, "utf8")).rejects.toThrow();
   });
 
+  it("offers only Vite development scripts, not build or preview scripts", async () => {
+    const root = await temporaryRoot();
+    try {
+      await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [] };\n");
+      await writeFile(path.join(root, "package.json"), JSON.stringify({
+        scripts: { dev: "vite", build: "tsc -b && vite build", preview: "vite preview --port 4173", optimize: "vite optimize", serve: "vite serve --host 127.0.0.1" },
+        dependencies: { react: "19", vite: "7" },
+      }));
+      const result = await discoverProject(root);
+      expect(result.plans.map(plan => plan.scriptName)).toEqual(["dev", "serve"]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("does not run a repository-configured FSMonitor hook during discovery", async () => {
     const root = await temporaryRoot();
     await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: "vite" }, dependencies: { react: "19", vite: "7" } }));

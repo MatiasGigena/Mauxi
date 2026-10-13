@@ -125,10 +125,20 @@ async function activeAgent(): Promise<PiAgentHost> {
     }, path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-references", "library", "catalog.json"));
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
-      if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) approvedAuthUrls.add(link.url);
+      if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) {
+        // Store the same normalized form that mauxi:open-auth-url compares.
+        try { approvedAuthUrls.add(new URL(link.url).toString()); } catch { /* an invalid URL is never approved */ }
+      }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:agent-event", agentEvent);
     });
-    await created.initialize();
+    try { await created.initialize(); }
+    catch (error) {
+      // The host caches its initialization result. Drop a failed host so the
+      // next request can retry instead of reusing a permanently broken one.
+      if (agentHost === created) { unsubscribeAgent?.(); unsubscribeAgent = null; agentHost = null; }
+      await created.dispose().catch(() => undefined);
+      throw error;
+    }
     return created;
   })();
   try { return await agentCreation; }

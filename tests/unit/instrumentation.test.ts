@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -93,6 +93,58 @@ describe("owned instrumentation", () => {
     expect(cleaned.state).toBe("clean");
     expect(finalConfig).not.toContain("mauxi-owned:start");
     expect(finalConfig).toContain("unrelated user edit");
+  });
+
+  it("patches the Vite config file that Vite itself loads", async () => {
+    const { root } = await setup();
+    // A TypeScript build can emit vite.config.js beside the source; Vite prefers it.
+    await writeFile(path.join(root, "vite.config.js"), "export default { plugins: [] };\n");
+    expect((await prepareIntegrationPlan(root, "vite")).configPath).toBe(path.join(root, "vite.config.js"));
+    await writeFile(path.join(root, "vite.config.cjs"), "module.exports = { plugins: [] };\n");
+    await rm(path.join(root, "vite.config.js"));
+    await expect(prepareIntegrationPlan(root, "vite")).resolves.toMatchObject({ configPath: path.join(root, "vite.config.ts") });
+    await rm(path.join(root, "vite.config.ts"));
+    await expect(prepareIntegrationPlan(root, "vite")).rejects.toThrow("vite.config.cjs");
+  });
+
+  it("cleans a setup that failed before its config patch was written", async () => {
+    const { plan, store, bridgeEntry } = await setup();
+    const userEdit = "// saved by the user during setup\n";
+    class EditingStore extends JournalStore {
+      override async write(journal: Parameters<JournalStore["write"]>[0]) {
+        await super.write(journal);
+        // The bridge artifact exists, so the config patch comes next.
+        if (journal.state === "applying" && await readFile(plan.bridgePath).then(() => true, () => false)) {
+          const current = await readFile(plan.configPath, "utf8");
+          if (!current.includes(userEdit)) await writeFile(plan.configPath, current + userEdit);
+        }
+      }
+    }
+    const editing = new EditingStore(store.directory);
+    await expect(applyIntegration(plan, editing, bridgeEntry)).rejects.toThrow("File changed while setup was being prepared");
+    const cleaned = await cleanupIntegration(transactionIdFor(plan), new JournalStore(store.directory));
+    expect(cleaned.conflicts).toEqual([]);
+    expect(cleaned.state).toBe("clean");
+    expect(await readFile(plan.configPath, "utf8")).toBe(config + userEdit);
+    await expect(readFile(plan.bridgePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("cleans a setup that failed before writing its owned artifacts", async () => {
+    const { root, plan, store, bridgeEntry } = await setup();
+    const blocker = path.join(root, ".mauxi");
+    class BlockingStore extends JournalStore {
+      override async write(journal: Parameters<JournalStore["write"]>[0]) {
+        await super.write(journal);
+        // Models an unwritable project directory: the artifact directory cannot be created.
+        if (journal.state === "applying") await writeFile(blocker, "user file\n", { flag: "a" });
+      }
+    }
+    await expect(applyIntegration(plan, new BlockingStore(store.directory), bridgeEntry)).rejects.toThrow();
+    const cleaned = await cleanupIntegration(transactionIdFor(plan), new JournalStore(store.directory));
+    expect(cleaned.conflicts).toEqual([]);
+    expect(cleaned.state).toBe("clean");
+    expect(await readFile(plan.configPath, "utf8")).toBe(config);
+    expect(await readFile(blocker, "utf8")).toBe("user file\n");
   });
 
   it("preserves a changed owned artifact and reports a conflict", async () => {

@@ -4,7 +4,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, expect, it } from "vitest";
 import { applyIntegration, cleanupIntegration, prepareIntegrationPlan } from "../../src/infrastructure/instrumentation/plan";
-import { JournalStore } from "../../src/infrastructure/instrumentation/journal";
+import { JournalStore, type InstrumentationJournal } from "../../src/infrastructure/instrumentation/journal";
+import { stopSessionProcess } from "../../src/infrastructure/instrumentation/session-cleanup";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -112,4 +113,22 @@ it("keeps overlapping user type edits and recovery data on conflict", async () =
   expect(await readFile(path.join(root, "next-env.d.ts"), "utf8")).toBe(userContent);
   expect((await cleanupIntegration(journal.transactionId, store)).state).toBe("conflicted");
   await expect(readFile(path.join(root, ".mauxi/runtime/owner"))).resolves.toBeTruthy();
+});
+
+it("keeps dollar sequences in a Vite project path literal in its cache directory", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "mauxi-session-")); roots.push(base);
+  const root = path.join(base, "app$&$'$$"); await mkdir(root);
+  await writeFile(path.join(root, "vite.config.ts"), "export default { plugins: [] };\n");
+  const plan = await prepareIntegrationPlan(root, "vite", true);
+  expect(plan.patch).toContain(`cacheDir: ${JSON.stringify(path.join(root, ".mauxi/runtime/vite"))} }`);
+});
+
+it("does not block recovery when the recorded session leader PID now belongs to another process", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "mauxi-session-")); roots.push(base);
+  const runtime = path.join(base, "app", ".mauxi", "runtime"); await mkdir(runtime, { recursive: true });
+  await writeFile(path.join(runtime, "owner"), "token");
+  // A live, unrelated process with the recorded PID but a different start time (e.g. after a reboot).
+  await writeFile(path.join(runtime, "process.json"), JSON.stringify({ pid: process.pid, start: "-1" }));
+  const journal = { runtime: { path: runtime, token: "token", created: true } } as InstrumentationJournal;
+  await expect(stopSessionProcess(journal)).resolves.toBeUndefined();
 });
