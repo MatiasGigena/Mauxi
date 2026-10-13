@@ -22,7 +22,7 @@ export function PreviewTools({ id, board, ready, canCopy, canCapture, selecting,
     node.showModal();
     return () => { node.close(); if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
   }, []);
-  return <dialog ref={dialog} className="preview-tools" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => {
+  return <dialog ref={dialog} className="preview-tools action-modal" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => {
     if (event.key !== "Tab") return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
     const first = controls[0]; const last = controls.at(-1);
@@ -31,7 +31,7 @@ export function PreviewTools({ id, board, ready, canCopy, canCapture, selecting,
   }}>
     <header>
       <h2 id={titleId}>{LABELS[id]} actions</h2>
-      <button type="button" className="preview-tools-close" aria-label="Close actions" onClick={onClose} autoFocus><X size={18} aria-hidden="true" /></button>
+      <button type="button" className="action-modal-close" aria-label="Close actions" onClick={onClose} autoFocus><X size={18} aria-hidden="true" /></button>
     </header>
     <div className="tool-buttons">
       <button type="button" className="preview-tool-action" disabled={!ready} aria-pressed={selecting} onClick={onSelect}>
