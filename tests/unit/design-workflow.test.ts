@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 import type { AgentSnapshot } from "../../src/application/agent-contract";
 
-it("runs the automatic library and approved native guidance through the real SDK without design UI", async () => {
+it.each([false, true])("runs the automatic library and approved native guidance through the real SDK (bundled skills: %s)", async (bundled) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-design-workflow-"));
   const project = path.join(root, "project"); const profile = path.join(root, "profile");
   await mkdir(path.join(project, ".pi", "extensions"), { recursive: true }); await mkdir(profile);
@@ -18,13 +18,21 @@ it("runs the automatic library and approved native guidance through the real SDK
     let body = ""; request.on("data", (chunk) => { body += chunk; });
     request.on("end", () => {
       const parsed = JSON.parse(body); requests.push(parsed);
-      const lastUser = parsed.messages.findLastIndex((message: { role: string }) => message.role === "user");
+      // Image tool results may be represented as extra user messages by the
+      // provider adapter. Continue from the actual request, not those images.
+      const lastUser = parsed.messages.findLastIndex((message: { role: string; content: unknown }) => message.role === "user" && JSON.stringify(message.content).includes("[Mauxi request]"));
       const results = parsed.messages.slice(lastUser).filter((message: { role: string }) => message.role === "tool");
       const content = JSON.stringify(parsed.messages[lastUser]?.content);
       const tools = [
         { name: "design_search", arguments: JSON.stringify({ query: "light serif hero", viewport: "mobile" }) },
         { name: "design_image", arguments: JSON.stringify({ id: "meridian-01-hero", viewport: "mobile" }) },
         { name: "design_read", arguments: JSON.stringify({ name: "mobile-native" }) },
+        ...(content.includes("3 variants of this header") ? [
+          { name: "design_read", arguments: JSON.stringify({ name: "prototype" }) },
+          { name: "design_read", arguments: JSON.stringify({ name: "apple-design" }) },
+          { name: "design_read", arguments: JSON.stringify({ name: "emil-design-eng" }) },
+          { name: "design_read", arguments: JSON.stringify({ name: "prototype", file: "PICKER.md" }) },
+        ] : []),
       ];
       response.writeHead(200, { "content-type": "text/event-stream" });
       const push = (delta: unknown, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "fake", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
@@ -40,7 +48,7 @@ it("runs the automatic library and approved native guidance through the real SDK
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No server");
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { fake: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "test", api: "openai-completions", models: [{ id: "fake", name: "Fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
-  const host = new PiAgentHost("design", project, profile, path.join(root, "captures"), undefined, undefined, undefined, path.resolve("design-references/library/catalog.json"));
+  const host = new PiAgentHost("design", project, profile, path.join(root, "captures"), undefined, undefined, undefined, path.resolve("design-references/library/catalog.json"), bundled ? path.resolve("design-skills") : undefined);
   let latest: AgentSnapshot; let consent = false; let sawApproval = false;
   const off = host.subscribe((event) => {
     if (event.type === "snapshot") latest = event.snapshot;
@@ -56,14 +64,33 @@ it("runs the automatic library and approved native guidance through the real SDK
   try {
     await host.initialize();
     expect((await host.snapshot()).resources?.catalog).toMatchObject({ count: 10, enabled: true });
-    expect(sawApproval).toBe(false); // Built-in references require no import or UI interaction.
+    expect(sawApproval).toBe(false); // Built-in resources require no import or UI interaction.
+    if (bundled) {
+      expect((await host.snapshot()).resources?.skills.filter((skill) => skill.loaded)).toHaveLength(4);
+      await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });
+      await host.send({ workspaceId: "design", text: "I need you to give me 3 variants of this header; inspect examples", behavior: "prompt", selections: [] });
+      await waitIdle();
+      expect(JSON.stringify(requests[0].messages)).toContain("Guidance: prototype");
+      expect(JSON.stringify(requests[0].messages)).toContain("Guidance: apple-design");
+      expect(JSON.stringify(requests[0].messages)).toContain("File: PICKER.md");
+      const snapshot = await host.snapshot();
+      expect(snapshot.error).toBeUndefined();
+      expect(snapshot.status).toBe("Ready");
+      expect(sawApproval).toBe(false);
+      const results = requests.at(-1)!.messages.filter((message) => message.role === "tool");
+      expect(results).toHaveLength(7);
+      expect(JSON.stringify(results)).toContain("# The Picker");
+      expect(JSON.stringify(results)).not.toContain("unavailable or disabled");
+      await host.newSession("design");
+      requests.length = 0;
+    }
     const source = path.join(root, "mobile-native"); await mkdir(source);
     const sourceFile = path.join(source, "SKILL.md");
     const original = "---\nname: mobile-native\ndescription: Mobile layout guidance\ndisable-model-invocation: true\n---\nUNIQUE_LOADED_BODY: Preserve the project tokens and never disable zoom.\nSee [details](DETAILS.md).\n";
     await writeFile(sourceFile, original);
     await writeFile(path.join(source, "DETAILS.md"), "UNIQUE_DEPENDENCY_BODY: Use readable mobile inputs.");
     await expect(host.importResource({ workspaceId: "design", kind: "skill", path: sourceFile })).rejects.toThrow(/cancelled/);
-    expect((await host.snapshot()).resources?.skills).toHaveLength(0);
+    expect((await host.snapshot()).resources?.skills).toHaveLength(bundled ? 4 : 0);
     consent = true;
     await host.importResource({ workspaceId: "design", kind: "skill", path: sourceFile });
     expect(sawApproval).toBe(true);
@@ -91,7 +118,7 @@ it("runs the automatic library and approved native guidance through the real SDK
     const snapshot = await host.snapshot();
     expect(snapshot.messages.find((message) => message.role === "user")?.text).toBe("Improve mobile hero; inspect examples");
     expect(snapshot.messages.some((message) => /Loading mobile-native|mauxi_guidance|design references|Used design_/.test(message.text))).toBe(false);
-    expect(snapshot.tools.some((tool) => tool.name.startsWith("design_"))).toBe(false);
+    expect((await host.snapshot()).tools.some((tool) => tool.name.startsWith("design_"))).toBe(false);
     expect(snapshot.error).toBeUndefined();
     await host.newSession("design");
     await host.send({ workspaceId: "design", text: "/skill:mobile-native check this", behavior: "prompt", selections: [] });
@@ -106,6 +133,11 @@ it("runs the automatic library and approved native guidance through the real SDK
     await waitIdle();
     expect(JSON.stringify(requests.at(-1)?.messages)).not.toContain("UNIQUE_LOADED_BODY");
     expect(JSON.stringify(requests.at(-1)?.messages)).not.toContain("UNIQUE_DEPENDENCY_BODY");
+    await host.newSession("design");
+    await host.send({ workspaceId: "design", text: "inspect examples", behavior: "prompt", selections: [] });
+    await waitIdle();
+    expect((await host.snapshot()).error?.message).toContain("requested skill is unavailable");
+    expect((await host.snapshot()).error?.message).not.toMatch(/image|Agent settings/);
   } finally {
     off(); await host.dispose();
     await new Promise<void>((resolve) => server.close(() => resolve()));

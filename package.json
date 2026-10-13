@@ -78,6 +78,11 @@
         "from": "design-references/library",
         "to": "design-references/library",
         "filter": ["catalog.json", "images/**/*.webp"]
+      },
+      {
+        "from": "design-skills",
+        "to": "design-skills",
+        "filter": ["**/*.md"]
       }
     ],
     "linux": {

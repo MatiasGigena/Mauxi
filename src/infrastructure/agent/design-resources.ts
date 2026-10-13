@@ -4,11 +4,17 @@ import { mkdir, open, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadSkills, type Skill } from "@earendil-works/pi-coding-agent";
 import { DESIGN_SKILLS, classifyDesignRequest, GUIDANCE_MARKER } from "../../application/design-guidance";
+import { BUNDLED_DESIGN_SKILLS } from "./bundled-design-skills";
 
 const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 const MAX_MARKDOWN = 120_000;
 import type { ResourceView, SkillRecord } from "../../application/design-resource-contract";
-export interface ResourceState { version: 1; skills: SkillRecord[]; catalog?: { path: string; digest: string; enabled: boolean }; }
+export interface ResourceState {
+  version: 1;
+  skills: SkillRecord[];
+  bundledSkillEnabled?: Record<string, boolean>;
+  catalog?: { path: string; digest: string; enabled: boolean };
+}
 export interface Reference {
   id: string; family: string; tags: string[]; cue: string; source: string;
   imagePath: string; mobileImagePath?: string; pairEvidence?: string;
@@ -57,9 +63,21 @@ export class DesignResources {
   private configError?: string;
   private bundledCatalog?: ResourceState["catalog"];
   private bundledCatalogError?: string;
-  constructor(readonly directory: string, private readonly bundledCatalogPath?: string) {}
+  constructor(readonly directory: string, private readonly bundledCatalogPath?: string, private readonly bundledSkillsPath?: string) {}
   private get catalog(): ResourceState["catalog"] { return this.state.catalog ?? this.bundledCatalog; }
-  private skillDirectory(record: SkillRecord): string { return path.join(this.directory, "skills", record.name, record.digest); }
+  private get skillRecords(): SkillRecord[] {
+    if (!this.bundledSkillsPath || this.configError) return this.state.skills;
+    // A personal copy wins even when disabled, missing or modified. Never silently
+    // fall back to different instructions after a user's override fails validation.
+    return [...this.state.skills, ...BUNDLED_DESIGN_SKILLS
+      .filter((record) => !this.state.skills.some((personal) => personal.name === record.name))
+      .map((record) => ({ ...record, source: path.join(this.bundledSkillsPath!, record.name, "SKILL.md"), enabled: this.state.bundledSkillEnabled?.[record.name] ?? true }))];
+  }
+  private skillDirectory(record: SkillRecord): string {
+    return this.state.skills.some((personal) => personal.name === record.name)
+      ? path.join(this.directory, "skills", record.name, record.digest)
+      : path.join(this.bundledSkillsPath!, record.name);
+  }
   get loadedSkills(): Skill[] { return [...this.skills]; }
   snapshot(): ResourceView { return structuredClone(this.view); }
   async initialize(): Promise<void> {
@@ -68,6 +86,8 @@ export class DesignResources {
       const candidate = JSON.parse((await boundedFile(path.join(this.directory, "resources.json"), 100_000)).toString()) as ResourceState;
       if (candidate.version !== 1 || !Array.isArray(candidate.skills) || candidate.skills.length > 4 || !candidate.skills.every(validRecord)
         || new Set(candidate.skills.map((skill) => skill.name)).size !== candidate.skills.length
+        || (candidate.bundledSkillEnabled !== undefined && (!candidate.bundledSkillEnabled || typeof candidate.bundledSkillEnabled !== "object" || Array.isArray(candidate.bundledSkillEnabled)
+          || !Object.entries(candidate.bundledSkillEnabled).every(([name, enabled]) => DESIGN_SKILLS.includes(name as typeof DESIGN_SKILLS[number]) && typeof enabled === "boolean")))
         || (candidate.catalog && (typeof candidate.catalog.path !== "string" || !path.isAbsolute(candidate.catalog.path) || !/^[a-f0-9]{64}$/.test(candidate.catalog.digest) || typeof candidate.catalog.enabled !== "boolean"))) throw new Error("Invalid resource configuration.");
       this.state = candidate;
     } catch (error) {
@@ -122,7 +142,7 @@ export class DesignResources {
   }
   async importSkill(prepared: PreparedSkill): Promise<void> {
     if (this.state.skills.some((item) => item.name === prepared.record.name)) throw new Error("Duplicate skill import.");
-    const directory = this.skillDirectory(prepared.record);
+    const directory = path.join(this.directory, "skills", prepared.record.name, prepared.record.digest);
     for (const [file, text] of Object.entries(prepared.content)) {
       const target = path.join(directory, file);
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
@@ -143,15 +163,17 @@ export class DesignResources {
   }
   async setEnabled(name: string, enabled: boolean): Promise<void> {
     if (name === "catalog" && this.state.catalog) await this.save({ ...this.state, catalog: { ...this.state.catalog, enabled } });
-    else {
-      if (!this.state.skills.some((item) => item.name === name)) throw new Error("Unknown imported resource.");
+    else if (this.state.skills.some((item) => item.name === name)) {
       await this.save({ ...this.state, skills: this.state.skills.map((item) => item.name === name ? { ...item, enabled } : item) });
+    } else {
+      if (!this.skillRecords.some((item) => item.name === name)) throw new Error("Unknown imported resource.");
+      await this.save({ ...this.state, bundledSkillEnabled: { ...this.state.bundledSkillEnabled, [name]: enabled } });
     }
   }
   async reload(): Promise<void> {
     this.skills = []; this.references = [];
     this.view = { skills: [], diagnostics: [this.configError, this.bundledCatalogError].filter((error): error is string => !!error), tools: ["design_read", "design_search", "design_image"] };
-    for (const record of this.state.skills) {
+    for (const record of this.skillRecords) {
       try {
         for (const [file, digest] of Object.entries(record.files)) {
           if (hash(await boundedFile(path.join(this.skillDirectory(record), file), MAX_MARKDOWN, this.skillDirectory(record))) !== digest) throw new Error("Imported content changed. Restore the approved copy; it has not been loaded.");
@@ -173,7 +195,7 @@ export class DesignResources {
     }
   }
   async readSkill(name: string, file = "SKILL.md"): Promise<string> {
-    const record = this.state.skills.find((item) => item.name === name && item.enabled);
+    const record = this.skillRecords.find((item) => item.name === name && item.enabled);
     if (!record || !this.skills.some((skill) => skill.name === name)) throw new Error(`Guidance ${name} is unavailable or disabled. No approved enabled copy is available.`);
     if (!relativeMarkdown(file) || !record.files[file]) throw new Error("Only reviewed Markdown files can be read. Executable resources and terminal UI are unsupported.");
     const bytes = await boundedFile(path.join(this.skillDirectory(record), file), MAX_MARKDOWN, this.skillDirectory(record));
@@ -190,7 +212,7 @@ export class DesignResources {
     const bodies: string[] = [];
     let bytes = Buffer.byteLength(prefix) + Buffer.byteLength(suffix);
     for (const name of names) {
-      const record = this.state.skills.find((item) => item.name === name)!;
+      const record = this.skillRecords.find((item) => item.name === name)!;
       // The import manifest is already deduplicated, including transitive/cyclic
       // links. Attach only its reviewed files, with SKILL.md first, and recheck
       // every file's digest rather than trusting its earlier load-time check.

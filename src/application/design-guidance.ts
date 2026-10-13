@@ -9,7 +9,7 @@ export function classifyDesignRequest(text: string, mobileSelection = false): De
   const result = new Set<DesignSkillName>();
   const explicit = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];
   if (explicit && DESIGN_SKILLS.includes(explicit as DesignSkillName)) result.add(explicit as DesignSkillName);
-  if (/\b(ui|ux|layout|design|interface|polish|spacing|typography|button|card|hero|footer|pricing|navigation|responsive|redesign|diseño|interfaz|espaciado)\b/i.test(text)) result.add("apple-design");
+  if (/\b(ui|ux|layout|design|interface|polish|spacing|typography|button|card|header|hero|footer|pricing|navigation|responsive|redesign|diseño|interfaz|espaciado)\b/i.test(text)) result.add("apple-design");
   if (mobileSelection || /\b(mobile|phone|touch|responsive|pwa|safe.area|notch|keyboard|viewport|móvil|celular)\b/i.test(text)) result.add("mobile-native");
   if (/\b(animat\w*|motion|transition\w*|spring\w*|gesture\w*|hover|swipe|drag|reduced.motion|polish|animación|movimiento)\b/i.test(text)) result.add("emil-design-eng");
   if (/\b(variants?|alternatives?|directions?|prototype|versions?|variantes|alternativas)\b/i.test(text)) result.add("prototype");
