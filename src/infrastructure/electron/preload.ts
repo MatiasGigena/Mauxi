@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserOwner, BrowserState } from "../../application/browser-contract";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
-import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentRenameRequest, AgentSendRequest, AgentSessionRequest, AgentSnapshot, AgentThinkingRequest, AgentUndoRequest } from "../../application/agent-contract";
+import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
 
 contextBridge.exposeInMainWorld("mauxi", {
   browserState(): Promise<BrowserState> { return ipcRenderer.invoke("mauxi:browser-state"); },
@@ -39,10 +39,6 @@ contextBridge.exposeInMainWorld("mauxi", {
   agentSetThinking(input: AgentThinkingRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-set-thinking", input); },
   agentSend(input: AgentSendRequest): Promise<{ accepted: boolean }> { return ipcRenderer.invoke("mauxi:agent-send", input); },
   agentStop(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-stop", workspaceId); },
-  agentUndo(input: AgentUndoRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-undo", input); },
-  agentNewSession(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-new-session", workspaceId); },
-  agentResumeSession(input: AgentSessionRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-resume-session", input); },
-  agentRenameSession(input: AgentRenameRequest): Promise<void> { return ipcRenderer.invoke("mauxi:agent-rename-session", input); },
   agentDialogResponse(input: AgentDialogResponse): Promise<void> { return ipcRenderer.invoke("mauxi:agent-dialog-response", input); },
   openAuthUrl(url: string): Promise<void> { return ipcRenderer.invoke("mauxi:open-auth-url", url); },
   onAgentEvent(callback: (event: AgentEvent) => void) {

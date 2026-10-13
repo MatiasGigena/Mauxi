@@ -63,10 +63,10 @@ it.each([false, true])("runs the automatic library and approved native guidance 
   };
   try {
     await host.initialize();
-    expect((await host.snapshot()).resources?.catalog).toMatchObject({ count: 10, enabled: true });
+    expect(host.diagnostics().resources?.catalog).toMatchObject({ count: 10, enabled: true });
     expect(sawApproval).toBe(false); // Built-in resources require no import or UI interaction.
     if (bundled) {
-      expect((await host.snapshot()).resources?.skills.filter((skill) => skill.loaded)).toHaveLength(4);
+      expect(host.diagnostics().resources?.skills.filter((skill) => skill.loaded)).toHaveLength(4);
       await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });
       await host.send({ workspaceId: "design", text: "I need you to give me 3 variants of this header; inspect examples", behavior: "prompt", selections: [] });
       await waitIdle();
@@ -90,7 +90,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
     await writeFile(sourceFile, original);
     await writeFile(path.join(source, "DETAILS.md"), "UNIQUE_DEPENDENCY_BODY: Use readable mobile inputs.");
     await expect(host.importResource({ workspaceId: "design", kind: "skill", path: sourceFile })).rejects.toThrow(/cancelled/);
-    expect((await host.snapshot()).resources?.skills).toHaveLength(bundled ? 4 : 0);
+    expect(host.diagnostics().resources?.skills).toHaveLength(bundled ? 4 : 0);
     consent = true;
     await host.importResource({ workspaceId: "design", kind: "skill", path: sourceFile });
     expect(sawApproval).toBe(true);
@@ -101,9 +101,9 @@ it.each([false, true])("runs the automatic library and approved native guidance 
     await writeFile(replacementPath, JSON.stringify({ version: 1, references: [{ ...catalog.references[0], id: "new-reviewed-entry" }] }));
     consent = false;
     await expect(host.importResource({ workspaceId: "design", kind: "catalog", path: replacementPath })).rejects.toThrow(/cancelled/);
-    expect((await host.snapshot()).resources?.catalog).toMatchObject({ path: catalogPath, count: 10 });
+    expect(host.diagnostics().resources?.catalog).toMatchObject({ path: catalogPath, count: 10 });
     consent = true;
-    expect((await host.snapshot()).resources?.skills[0].loaded).toBe(true);
+    expect(host.diagnostics().resources?.skills[0].loaded).toBe(true);
     expect(await readFile(sourceFile, "utf8")).toBe(original);
     await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });
     await host.send({ workspaceId: "design", text: "Improve mobile hero; inspect examples", behavior: "prompt", selections: [] });
@@ -118,7 +118,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
     const snapshot = await host.snapshot();
     expect(snapshot.messages.find((message) => message.role === "user")?.text).toBe("Improve mobile hero; inspect examples");
     expect(snapshot.messages.some((message) => /Loading mobile-native|mauxi_guidance|design references|Used design_/.test(message.text))).toBe(false);
-    expect((await host.snapshot()).tools.some((tool) => tool.name.startsWith("design_"))).toBe(false);
+    expect(host.diagnostics().tools.some((tool) => tool.name.startsWith("design_"))).toBe(false);
     expect(snapshot.error).toBeUndefined();
     await host.newSession("design");
     await host.send({ workspaceId: "design", text: "/skill:mobile-native check this", behavior: "prompt", selections: [] });
@@ -156,6 +156,6 @@ it("rejects approval when there is no connected desktop and rejects unsupported 
     const file = path.join(root, "source/SKILL.md");
     await writeFile(file, "---\nname: apple-design\ndescription: UI craft\n---\nPreserve conventions");
     await expect(host.importResource({ workspaceId: "none", kind: "skill", path: file })).rejects.toThrow(/approval unavailable/);
-    expect((await host.snapshot()).resources?.skills).toHaveLength(0);
+    expect(host.diagnostics().resources?.skills).toHaveLength(0);
   } finally { await host.dispose(); await rm(root, { recursive: true, force: true }); }
 });

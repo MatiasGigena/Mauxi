@@ -82,9 +82,15 @@ Production exclusion with residual hooks (cleaned on exit):
 - SDK session replacement, auth cancel, model failure, command denial, browser revocation/disconnect: owning agent/browser/command tests. Missing real auth evidence stays AC-11 incomplete.
 - Ordinary CSS plus pinned Motion/GSAP motion/reduced motion pass in the acceptance matrix. Next emits the Suspense fallback before the delayed server card, hydrates the card, preserves the source document across client transitions, and restores both bridges after peer document navigation. The Next client hook now recognizes same-origin frame bootstrap after query parameters disappear. Turbopack remains bridge-only scope.
 
+## Current UI migration caveat
+
+The earlier package receipts below/above describe the artifact tested at that time, not the current source. The minimal UI no longer exposes changed-file review/Undo, session management, a Checks popover, or Fit/Reset/Hand buttons. Browser handoff now lives beside Send, route linking in preview actions, and project close in the repository-title menu. Updated source tests use these paths; legacy package results must not be treated as revalidation of this revision. Checkpoint/undo safeguards are still exercised by trusted-host tests. Rebuild and rerun the package gate before making a new packaged-release claim.
+
+The 2026-10-13 source cleanup passed 358 unit tests, 122 setup/UI tests, all 10 workspace interaction tests, the focused visible-browser, lifecycle and resource checks, typechecks and build. The legacy Next proof gate is **not green**: source-picking assertions expect `jsx-attribute` but currently receive `react-grab`; those assertions were not relaxed. No rebuilt-package validation was performed for this cleanup.
+
 ## Responsiveness and UI review
 
-The packaged Vite test samples renderer rAF/long tasks while the actual SDK streams a delayed fake response, both previews are live, chat accepts text, Stop is visible, and keyboard artboard movement works. The final sample values are recorded in the private package receipt; no input-latency or GPU claim is inferred from frame intervals. This is a short sample, not an input-latency percentile, GPU benchmark, or real-model stress certification. No demonstrated shell bottleneck warranted speculative workers or animation infrastructure. The Next regression is now validated separately through visible edit and undo assertions.
+The packaged Vite test samples renderer rAF/long tasks while the actual SDK streams a delayed fake response, both previews are live, chat accepts text, Stop is visible, and keyboard artboard movement works. The final sample values are recorded in the private package receipt; no input-latency or GPU claim is inferred from frame intervals. This is a short sample, not an input-latency percentile, GPU benchmark, or real-model stress certification. No demonstrated shell bottleneck warranted speculative workers or animation infrastructure. The earlier package receipt validated the Next regression separately through visible edit and undo assertions; that removed UI flow is not current-source validation.
 
 ## Evidence handling and remaining sign-off
 

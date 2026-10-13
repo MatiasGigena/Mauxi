@@ -9,7 +9,7 @@ import { ComposerAction } from "./ComposerAction";
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 const EMPTY_AGENT: AgentSnapshot = {
-  ready: false, workspaceId: "", providers: [], models: [], sessions: [], messages: [], tools: [], changeSets: [],
+  ready: false, workspaceId: "", providers: [], models: [], messages: [],
   thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Connecting to bundled pi SDK…",
 };
 

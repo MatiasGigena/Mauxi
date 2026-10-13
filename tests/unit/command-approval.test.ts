@@ -204,12 +204,12 @@ describe("host-side command approval", () => {
     mode = "approve";
     await host.send({ workspaceId: "workspace-command", text: "approved command", behavior: "prompt", selections: [] });
     await waitFor(() => latest?.runState === "idle"); expect(await readFile(path.join(project, "approved.txt"), "utf8")).toBe("ran");
-    expect(latest!.changeSets[0].unexpectedPaths).toContain("approved.txt");
+    expect(host.diagnostics().changeSets[0].unexpectedPaths).toContain("approved.txt");
     mode = "pending-stop";
     await host.send({ workspaceId: "workspace-command", text: "pending-stop command", behavior: "prompt", selections: [] });
     await waitFor(() => !!pendingApproval);
     await host.stop("workspace-command");
-    await waitFor(() => latest?.runState === "idle" && latest.changeSets[0].state === "failed");
+    await waitFor(() => latest?.runState === "idle" && host.diagnostics().changeSets[0].state === "failed");
     expect(dismissed.has(pendingApproval!)).toBe(true);
     host.respondToDialog({ workspaceId: "workspace-command", dialogId: pendingApproval!, value: "approve" });
     expect(await missing(path.join(project, "pending-stop.txt"))).toBe(true);
@@ -223,10 +223,10 @@ describe("host-side command approval", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     await host.stop("workspace-command");
-    await waitFor(() => latest?.runState === "idle" && latest.changeSets[0].state === "failed");
+    await waitFor(() => latest?.runState === "idle" && host.diagnostics().changeSets[0].state === "failed");
     expect(Date.now() - start).toBeLessThan(5_000);
-    expect(latest!.changeSets[0].files[0].diff).toContain("partial");
-    expect(latest!.changeSets[0].errors.join(" ")).toMatch(/cancelled/);
+    expect(host.diagnostics().changeSets[0].files[0].diff).toContain("partial");
+    expect(host.diagnostics().changeSets[0].errors.join(" ")).toMatch(/cancelled/);
     const partial = await readFile(runningFile, "utf8");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(await readFile(runningFile, "utf8")).toBe(partial);

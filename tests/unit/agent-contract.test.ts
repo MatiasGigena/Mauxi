@@ -67,6 +67,8 @@ describe("bundled pi host", () => {
     expect(first.providers.length).toBeGreaterThan(0);
     expect(second.sessionId).toBe(first.sessionId);
     expect(first.workspaceId).toBe("workspace-1");
+    for (const key of ["sessions", "sessionName", "tools", "changeSets", "resources"]) expect(first).not.toHaveProperty(key);
+    expect(host.diagnostics()).toHaveProperty("changeSets");
     await expect(host.send({ workspaceId: "workspace-1", text: "hello", behavior: "prompt", selections: [] })).rejects.toThrow(/model/i);
     await host.dispose();
   });
@@ -136,7 +138,7 @@ describe("bundled pi host", () => {
       for (const behavior of ["prompt", "followUp"] as const) {
         await expect(host.send({ workspaceId: "workspace-1", text: `blocked ${behavior}`, behavior, selections: [] })).rejects.toThrow(/Another request checkpoint is active/);
       }
-      const sets = (await host.snapshot()).changeSets.filter((set) => set.label.startsWith("blocked"));
+      const sets = host.diagnostics().changeSets.filter((set) => set.label.startsWith("blocked"));
       expect(sets).toHaveLength(2);
       expect(sets.every((set) => set.state === "failed")).toBe(true);
     } finally { await host.dispose(); }
@@ -271,8 +273,8 @@ describe("bundled pi host", () => {
     await host.send({ workspaceId: "workspace-1", text: "follow-up note", behavior: "followUp", selections: [] });
     await host.send({ workspaceId: "workspace-1", text: "follow-up note", behavior: "followUp", selections: [] });
     await waitFor(() => latest.runState === "idle" && latest.messages.filter((message) => message.role === "user").length >= 5
-      && latest.changeSets.filter((set) => set.label === "follow-up note").every((set) => set.state !== "prepared"));
-    const duplicateFollowUps = latest.changeSets.filter((set) => set.label === "follow-up note");
+      && host.diagnostics().changeSets.filter((set) => set.label === "follow-up note").every((set) => set.state !== "prepared"));
+    const duplicateFollowUps = host.diagnostics().changeSets.filter((set) => set.label === "follow-up note");
     expect(duplicateFollowUps).toHaveLength(2);
     expect(duplicateFollowUps.every((set) => set.state !== "prepared")).toBe(true);
 

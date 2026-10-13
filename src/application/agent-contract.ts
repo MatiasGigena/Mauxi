@@ -22,15 +22,6 @@ export interface AgentModelView {
   thinkingLevels: AgentThinkingLevel[];
 }
 
-export interface AgentSessionView {
-  id: string;
-  name?: string;
-  createdAt: string;
-  updatedAt: string;
-  firstMessage: string;
-  active: boolean;
-}
-
 export interface AgentMessageView {
   id: string;
   role: "user" | "assistant" | "system";
@@ -72,21 +63,22 @@ export interface AgentSnapshot {
   ready: boolean;
   workspaceId: string;
   sessionId?: string;
-  sessionName?: string;
   providers: AgentProviderView[];
   models: AgentModelView[];
   selectedModel?: string;
   thinkingLevel: AgentThinkingLevel;
-  sessions: AgentSessionView[];
   messages: AgentMessageView[];
-  tools: AgentToolActivityView[];
-  changeSets: AgentChangeSetView[];
-  /** Host diagnostics only; design guidance has no settings UI. */
-  resources?: ResourceView;
   runState: AgentRunState;
   queued: { steering: number; followUp: number };
   status: string;
   error?: { kind: "auth" | "rate-limit" | "catalog" | "capability" | "runtime"; message: string };
+}
+
+/** On-demand trusted-host diagnostics; never included in renderer snapshots. */
+export interface AgentDiagnostics {
+  tools: AgentToolActivityView[];
+  changeSets: AgentChangeSetView[];
+  resources: ResourceView;
 }
 
 export type AgentDialog = { links?: Array<{ url: string; label?: string }>; warning?: string } & (

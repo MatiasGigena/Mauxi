@@ -8,9 +8,9 @@ Mauxi ships its pinned agent SDK as a production dependency; there is no separat
 
 Credentials, model configuration, approved personal resources, and native conversation sessions live under `<Mauxi userData>/pi-profile`, separate from the terminal's `~/.pi/agent` profile. Mauxi does not automatically import terminal credentials or configuration. Credentials are not placed in chat or preview storage.
 
-Conversations support new, resume, rename, Stop, steering, queued follow-up, and structured questions. Resuming restores conversation history, **not source files**. Rejected preflight keeps the unsent draft and attachments; text-only models reject visual attachments. Captured selection PNGs must come from Mauxi's capture directory and are capped at 10 MiB.
+The minimal chat supports Stop, queued follow-up, and structured questions. New/resume/rename and managed undo remain trusted-host capabilities, not renderer controls or IPC endpoints. Native sessions are retained, but there is no history picker. Host-level resuming restores conversation history, **not source files**. Rejected preflight keeps the unsent draft and attachments; text-only models reject visual attachments. Captured selection PNGs must come from Mauxi's capture directory and are capped at 10 MiB.
 
-Normal chat shows a short working phrase followed by final text, not intermediate reasoning or successful tool narration. Stop, queued messages, questions, approvals, errors, and changed-file review remain accessible. Failed workspace operations have bounded expandable diagnostics; native session history is still persisted internally.
+Normal chat shows a short working phrase followed by final text, not intermediate reasoning or successful tool narration. Stop, queued messages, questions, approvals, and errors remain accessible. There is no tool-activity or changed-file review panel. Tool results and checkpoint diagnostics remain available to trusted host integrations and native history; the agent must report failures honestly. Renderer snapshots omit historical session lists, tool payloads, resource diagnostics, and change-set diffs instead of recomputing/broadcasting unused data.
 
 ## Project tools and trust
 

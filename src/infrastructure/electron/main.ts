@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest } from "../../application/project-contract";
-import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentRenameRequest, type AgentSendRequest, type AgentSessionRequest, type AgentThinkingRequest, type AgentUndoRequest } from "../../application/agent-contract";
+import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentSendRequest, type AgentThinkingRequest } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
@@ -428,35 +428,6 @@ function registerIpc(): void {
     assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
     if (browserControl?.workspaceId === workspaceId) browserControl.revoke("Stopped; browser control returned");
     await (await activeAgent()).stop(workspaceId);
-  });
-
-  ipcMain.handle("mauxi:agent-undo", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid undo request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.changeSetId, "change-set ID", 128);
-    await (await activeAgent()).undo(value as unknown as AgentUndoRequest);
-  });
-
-  ipcMain.handle("mauxi:agent-new-session", async (event, workspaceId: unknown) => {
-    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
-    await (await activeAgent()).newSession(workspaceId);
-  });
-
-  ipcMain.handle("mauxi:agent-resume-session", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid resume request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.sessionId, "session ID", 200);
-    await (await activeAgent()).resume(value as unknown as AgentSessionRequest);
-  });
-
-  ipcMain.handle("mauxi:agent-rename-session", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid rename request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.name, "conversation name", 120);
-    await (await activeAgent()).rename(value as unknown as AgentRenameRequest);
   });
 
   ipcMain.handle("mauxi:agent-dialog-response", async (event, input: unknown) => {

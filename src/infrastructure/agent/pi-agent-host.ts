@@ -35,7 +35,7 @@ import {
   type AgentRunState,
   type AgentSendRequest,
   type AgentSessionRequest,
-  type AgentSessionView,
+  type AgentDiagnostics,
   type AgentSnapshot,
   type AgentThinkingLevel,
   type AgentThinkingRequest,
@@ -673,6 +673,7 @@ export class PiAgentHost {
             : event.toolName === "design_search"
               ? "The visual reference library could not be searched. It may be unavailable, disabled, or changed."
               : "A visual reference could not be loaded. Image support, the per-request image limit, or reference validation may be responsible." };
+          else this.lastError = { kind: "runtime", message: `The ${event.toolName} operation failed. The agent received the details; partial changes may remain.` };
         }
         const current = this.activities.get(event.toolCallId);
         this.activities.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, input: current?.input, output: boundedJson(event.result), status: event.isError ? "error" : "done" });
@@ -751,18 +752,8 @@ export class PiAgentHost {
     });
   }
 
-  private async sessionViews(): Promise<AgentSessionView[]> {
-    const activeSessionId = this.runtime?.session.sessionId;
-    if (!activeSessionId) return [];
-    const sessions = await SessionManager.list(this.cwd, this.sessionDir);
-    return sessions.map((item) => ({
-      id: item.id,
-      name: item.name,
-      createdAt: item.created.toISOString(),
-      updatedAt: item.modified.toISOString(),
-      firstMessage: visibleUserText(item.firstMessage).slice(0, 160),
-      active: item.id === activeSessionId,
-    }));
+  diagnostics(): AgentDiagnostics {
+    return { tools: [...this.activities.values()].filter(activity => !activity.name.startsWith("design_")), resources: this.resources.snapshot(), changeSets: this.changes?.views() ?? [] };
   }
 
   async snapshot(): Promise<AgentSnapshot> {
@@ -774,16 +765,11 @@ export class PiAgentHost {
       ready: true,
       workspaceId: this.workspaceId,
       sessionId: session.sessionId,
-      sessionName: session.sessionName,
       providers: this.providers,
       models: this.modelViews(),
       selectedModel: selectedAvailable ? selectedKey : undefined,
       thinkingLevel: session.thinkingLevel as AgentThinkingLevel,
-      sessions: await this.sessionViews(),
       messages: this.messageViews(),
-      tools: [...this.activities.values()].filter((activity) => !activity.name.startsWith("design_")),
-      resources: this.resources.snapshot(),
-      changeSets: this.changes?.views() ?? [],
       runState: this.runState,
       queued: this.queued,
       status: this.status,
@@ -1042,7 +1028,12 @@ export class PiAgentHost {
   // A failed activation (e.g. a scan race or another active request) must not
   // leave a "prepared" record behind: it would count toward the unfinished cap.
   private async activatePrepared(checkpointId: string): Promise<void> {
-    try { await this.changes!.activate(checkpointId); }
+    try {
+      await this.changes!.activate(checkpointId);
+      // Preflight acceptance can precede the SDK's agent_start event. Lean
+      // snapshots must not advertise idle while this checkpoint is active.
+      this.runState = "working"; this.status = this.workingMessage();
+    }
     catch (error) {
       await this.changes!.abandonPrepared(checkpointId, `Request checkpoint could not be activated: ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
       await this.publish();
