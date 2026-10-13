@@ -2,14 +2,21 @@ import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectionContext } from "../../src/application/agent-contract";
 import type { StoredSelection } from "../../src/application/selection-state";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 
 const temporary: string[] = [];
 const servers: Server[] = [];
+// The pi SDK authenticates providers from ambient environment credentials, so
+// a developer's own keys would otherwise turn these tests into real requests.
+const PROVIDER_CREDENTIAL = /^(AWS_|ANTHROPIC_|GOOGLE_APPLICATION_CREDENTIALS$|CLOUDFLARE_)|_(API_KEY|TOKEN)$/;
+beforeEach(() => {
+  for (const name of Object.keys(process.env)) if (PROVIDER_CREDENTIAL.test(name)) vi.stubEnv(name, undefined);
+});
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
   await Promise.all(temporary.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
