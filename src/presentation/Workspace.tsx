@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -262,7 +262,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, [selecting, navigationHeld, send, navigation.exit]);
 
   function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
-    setLayout((current) => { const next = unfocus(current); return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), geometry.current, geometry.current.headerHeight) }; });
+    setLayout((current) => fitBoards(current, ids, geometry.current, geometry.current.headerHeight));
   }
   function focus(id: PreviewId) {
     setLayout((current) => {
@@ -462,7 +462,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       </div>
       {active && <BrowserControlBar control={browser} ready={allReady && !serverFailed} onGrant={() => {
         setSelecting(null); setTools(null); setHand(false);
-        setLayout(current => ({ ...unfocus(current), linked: false, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
+        setLayout(current => ({ ...fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight), linked: false }));
         setNotice("Route linking paused to avoid replaying side effects. Use test accounts; interactions require separate approval.");
         // Focus remains in the trusted shell; inert removes existing iframe focus.
         void browser.owner("agent");

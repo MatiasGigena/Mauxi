@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { defaultCanvas, dragBoard, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
 import { RouteLink, supportedRoute } from "../../src/application/route-link";
 import { isBridgeMessage, isShellMessage, BRIDGE_PROTOCOL } from "../../src/application/preview-contract";
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
@@ -51,6 +51,19 @@ describe("canvas geometry", () => {
     const restored = unfocus(focused);
     expect(restored.camera).toEqual(initial.camera); expect(restored.boards.mobile.x).toBe(initial.boards.mobile.x);
     expect(restored.boards.mobile.width).toBe(600); expect(restored.focus).toBeNull();
+  });
+  it("fits restored board positions when leaving a focus in which a board was moved", () => {
+    const initial = defaultCanvas(); const focused = structuredClone(initial);
+    focused.focus = { previewId: "desktop", camera: initial.camera, positions: { desktop: { x: 0, y: 0 }, mobile: { x: 1518, y: 0 } } };
+    focused.boards.desktop.x = 4000; focused.boards.desktop.y = 3000;
+    const area = { width: 1280, height: 720 };
+    const fitted = fitBoards(focused, ["desktop", "mobile"], area);
+    expect(fitted.focus).toBeNull(); expect(fitted.boards.desktop).toMatchObject({ x: 0, y: 0 });
+    expect(fitted.camera).toEqual(fitCamera(Object.values(unfocus(focused).boards), area));
+    for (const b of Object.values(fitted.boards)) {
+      expect(fitted.camera.x + b.x * fitted.camera.zoom).toBeGreaterThanOrEqual(24 - .001);
+      expect(fitted.camera.x + (b.x + b.width) * fitted.camera.zoom).toBeLessThanOrEqual(area.width - 24 + .001);
+    }
   });
   it("rejects corrupt/unbounded persisted state", () => {
     expect(isCanvasState(defaultCanvas())).toBe(true);
