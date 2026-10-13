@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -98,6 +98,66 @@ describe("bundled pi host", () => {
       await afterInvalidChoice.initialize();
       expect((await afterInvalidChoice.snapshot()).selectedModel).toBe("other/vendor/two");
     } finally { await afterInvalidChoice.dispose(); }
+  });
+
+  it("lets initialization be retried after a failure that occurs before the runtime exists", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-init-retry-")); temporary.push(root);
+    const profile = path.join(root, "profile"); await mkdir(profile);
+    await writeFile(path.join(profile, "checkpoints"), "not a directory");
+    const host = new PiAgentHost("workspace-1", process.cwd(), profile, path.join(root, "captures"));
+    try {
+      await expect(host.initialize()).rejects.toThrow();
+      await rm(path.join(profile, "checkpoints"));
+      await host.initialize();
+      expect((await host.snapshot()).ready).toBe(true);
+    } finally { await host.dispose(); }
+  });
+
+  it("retires a request checkpoint whose activation fails instead of leaving it prepared", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-activation-")); temporary.push(root);
+    const profile = path.join(root, "profile"); await mkdir(profile);
+    const project = path.join(root, "project"); await mkdir(project);
+    await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: {
+      fake: { baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-only", api: "openai-completions", models: [{ id: "one", name: "one", reasoning: false, input: ["text"], contextWindow: 10_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
+    } }));
+    const host = new PiAgentHost("workspace-1", project, profile, path.join(root, "captures"));
+    try {
+      await host.initialize();
+      await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/one" });
+      const changes = (host as unknown as { changes: { prepare: (label: string) => Promise<string>; activate: (id: string) => Promise<void> } }).changes;
+      await changes.activate(await changes.prepare("Already running"));
+      for (const behavior of ["prompt", "followUp"] as const) {
+        await expect(host.send({ workspaceId: "workspace-1", text: `blocked ${behavior}`, behavior, selections: [] })).rejects.toThrow(/Another request checkpoint is active/);
+      }
+      const sets = (await host.snapshot()).changeSets.filter((set) => set.label.startsWith("blocked"));
+      expect(sets).toHaveLength(2);
+      expect(sets.every((set) => set.state === "failed")).toBe(true);
+    } finally { await host.dispose(); }
+  });
+
+  it("allows undo after a prompt is rejected before its run starts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-undo-after-reject-")); temporary.push(root);
+    const profile = path.join(root, "profile"); await mkdir(profile);
+    const project = path.join(root, "project"); await mkdir(project);
+    await writeFile(path.join(project, "a.txt"), "before");
+    await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: {
+      fake: { baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-only", api: "openai-completions", models: [{ id: "one", name: "one", reasoning: false, input: ["text"], contextWindow: 10_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
+    } }));
+    const host = new PiAgentHost("workspace-1", project, profile, path.join(root, "captures"));
+    try {
+      await host.initialize();
+      await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/one" });
+      const internals = host as unknown as { changes: { prepare: (label: string) => Promise<string>; activate: (id: string) => Promise<void>; write: (file: string, content: string) => Promise<unknown>; settle: () => Promise<void> }; runtime: { session: { prompt: (...args: unknown[]) => Promise<void> } } };
+      const id = await internals.changes.prepare("Agent edit"); await internals.changes.activate(id);
+      await internals.changes.write("a.txt", "after"); await internals.changes.settle();
+      const prompt = vi.spyOn(internals.runtime.session, "prompt").mockRejectedValue(new Error("No API key found for fake"));
+      try {
+        expect(await host.send({ workspaceId: "workspace-1", text: "rejected", behavior: "prompt", selections: [] })).toEqual({ accepted: false });
+      } finally { prompt.mockRestore(); }
+      expect((await host.snapshot()).runState).toBe("error");
+      await host.undo({ workspaceId: "workspace-1", changeSetId: id });
+      expect(await readFile(path.join(project, "a.txt"), "utf8")).toBe("before");
+    } finally { await host.dispose(); }
   });
 
   it("falls back safely when the saved model is unavailable without erasing the preference", async () => {

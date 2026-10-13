@@ -332,7 +332,8 @@ export class ChangeCoordinator {
       const next = this.store.changeSets.find((item) => item.id === id);
       if (!next || next.state !== "prepared") throw new Error("Queued request checkpoint is unavailable.");
       const current = this.store.changeSets.find((item) => item.id === this.store.activeId);
-      if (current) { current.state = "settled"; current.updatedAt = new Date().toISOString(); }
+      // Like settle(), never erase a conflict recorded during the prior request.
+      if (current) { if (current.state !== "conflicted") current.state = "settled"; current.updatedAt = new Date().toISOString(); }
       try {
         await this.captureBaseline(next);
         next.state = "active"; next.updatedAt = new Date().toISOString(); this.store.activeId = id;
@@ -719,7 +720,12 @@ export class ChangeCoordinator {
             const info = await file.stat();
             if (!info.isFile()) throw new Error(`Scan target is no longer a regular file: ${displayPath(name)}`);
             const remaining = MAX_SCAN_BYTES - bytes;
-            if (info.size > MAX_FILE_BYTES || info.size > remaining) { bytes += info.size; continue; }
+            if (info.size > MAX_FILE_BYTES || info.size > remaining) {
+              // Not hashed, but still observed: a command changing a large file
+              // (e.g. a lockfile) must be reported, not silently omitted.
+              result.set(displayPath(name), `unhashed:${fileIdentity(info)}:${info.ctimeMs}`);
+              bytes += info.size; continue;
+            }
             // Read until EOF (short reads are legal), never beyond either budget.
             // The extra per-file byte detects growth even if fstat was stale.
             const buffer = Buffer.alloc(Math.min(info.size + 1, MAX_FILE_BYTES + 1, remaining));

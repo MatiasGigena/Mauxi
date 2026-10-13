@@ -112,6 +112,22 @@ describe("managed change checkpoints", () => {
     await changes.write("src/a.txt", "new request");
   });
 
+  it("keeps a conflicted request conflicted when a queued follow-up activates", async () => {
+    const { root, state, changes, begin } = await setup();
+    const file = path.join(root, "src/a.txt"); await writeFile(file, "before");
+    const first = await begin();
+    hooks.beforeLink = async (from) => {
+      if (from.endsWith("/replacement")) { hooks.beforeLink = undefined; await writeFile(file, "external arrival"); }
+    };
+    await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/stopped safely/);
+    expect(changes.views().find((set) => set.id === first)?.state).toBe("conflicted");
+    const next = await changes.prepare("Queued follow-up");
+    await changes.switchToPrepared(next);
+    expect(changes.views().find((set) => set.id === first)?.state).toBe("conflicted");
+    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    expect(recovered.views().find((set) => set.id === first)?.state).toBe("conflicted");
+  });
+
   it("blocks tools when queued activation persistence fails", async () => {
     const { root, state, changes, begin } = await setup();
     await writeFile(path.join(root, "src/a.txt"), "before"); await begin();
@@ -390,6 +406,18 @@ describe("managed change checkpoints", () => {
     expect(view.undoEligible).toBe(false);
     expect(view.unexpectedPaths).toContain("src/unexpected.txt");
     expect(view.coverageWarnings.join(" ")).toMatch(/not fully undoable/i);
+  });
+
+  it("reports undeclared command changes to files too large to hash", async () => {
+    const { root, changes, begin } = await setup();
+    const lock = path.join(root, "package-lock.json");
+    await writeFile(lock, Buffer.alloc(3 * 1024 * 1024, 120)); await begin();
+    const checkpoint = await changes.checkpointCommand([]);
+    await writeFile(lock, Buffer.alloc(3 * 1024 * 1024 + 1, 121));
+    await changes.finishCommand(checkpoint);
+    await changes.settle();
+    const view = changes.views()[0];
+    expect(view.unexpectedPaths).toContain("package-lock.json");
   });
 
   it("undoes only the explicitly selected latest eligible change set", async () => {

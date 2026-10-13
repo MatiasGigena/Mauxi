@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { access, mkdir, mkdtemp, open, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -59,6 +59,19 @@ describe("host-side command approval", () => {
       if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
       await handle.close();
     }
+  });
+
+  it("fingerprints commands whose ordinary text arguments cannot name a file", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-command-fingerprint-")); temporary.push(root);
+    const project = path.join(root, "project"); await mkdir(project);
+    await writeFile(path.join(project, "package.json"), "{}");
+    await symlink("loop", path.join(project, "loop"));
+    const host = new PiAgentHost("workspace-1", project, path.join(root, "profile"), path.join(root, "captures"));
+    const fingerprint = (host as unknown as { commandConfigurationFingerprint: (operation: { executable: string; args: string[]; cwd: string }) => Promise<string> }).commandConfigurationFingerprint.bind(host);
+    const cwd = await realpath(project);
+    // A long commit message or inline script is not a path; neither is a symlink loop.
+    await expect(fingerprint({ executable: "git", args: ["commit", "-m", "x".repeat(300)], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
+    await expect(fingerprint({ executable: "cat", args: ["loop"], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("does not spawn a command with an already aborted signal", async () => {

@@ -225,8 +225,15 @@ export class PiAgentHost {
 
   async initialize(): Promise<void> {
     if (this.initPromise) return this.initPromise;
-    this.initPromise = this.initializeOnce();
-    return this.initPromise;
+    // A failure before the SDK runtime exists (e.g. unreadable checkpoint or
+    // profile state) owns no resources; allow a later call to retry it instead
+    // of replaying the cached rejection for the lifetime of the workspace.
+    const attempt = this.initializeOnce().catch((error: unknown) => {
+      if (!this.runtime && this.initPromise === attempt) this.initPromise = undefined;
+      throw error;
+    });
+    this.initPromise = attempt;
+    return attempt;
   }
 
   private async initializeOnce(): Promise<void> {
@@ -547,7 +554,12 @@ export class PiAgentHost {
     for (const target of candidates) {
       let canonical: string;
       try { canonical = await realpath(target); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") continue; throw error; }
+      catch (error) {
+        // Arguments are usually text (messages, inline scripts), not paths. A name
+        // the kernel cannot resolve for us cannot be opened by the same-user child.
+        if (["ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) continue;
+        throw error;
+      }
       const relative = path.relative(canonicalRoot, canonical);
       if (relative.startsWith("..") || path.isAbsolute(relative) || seen.has(canonical)) continue;
       seen.add(canonical);
@@ -995,7 +1007,7 @@ export class PiAgentHost {
       // The prior request may settle while its follow-up checkpoint is being
       // persisted. Start it as a normal request rather than leaving it queued
       // with no active agent run.
-      await this.changes!.activate(checkpointId);
+      await this.activatePrepared(checkpointId);
       let settleAcceptance!: (accepted: boolean) => void;
       const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
       void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
@@ -1008,7 +1020,7 @@ export class PiAgentHost {
       return { accepted: result };
     }
     const checkpointId = await this.changes!.prepare(text);
-    await this.changes!.activate(checkpointId);
+    await this.activatePrepared(checkpointId);
     let settleAcceptance!: (accepted: boolean) => void;
     const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
     void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
@@ -1019,6 +1031,17 @@ export class PiAgentHost {
     if (!result) { this.browser?.revoke("Provider did not accept the request"); await this.changes!.settle(true, "The provider did not accept this request."); }
     await this.publish();
     return { accepted: result };
+  }
+
+  // A failed activation (e.g. a scan race or another active request) must not
+  // leave a "prepared" record behind: it would count toward the unfinished cap.
+  private async activatePrepared(checkpointId: string): Promise<void> {
+    try { await this.changes!.activate(checkpointId); }
+    catch (error) {
+      await this.changes!.abandonPrepared(checkpointId, `Request checkpoint could not be activated: ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
+      await this.publish();
+      throw error;
+    }
   }
 
   private assertResourceIdle(): void {
@@ -1092,7 +1115,9 @@ export class PiAgentHost {
 
   async undo(request: AgentUndoRequest): Promise<void> {
     this.assertWorkspace(request.workspaceId);
-    if (!this.runtime || this.runState !== "idle" || this.runtime.session.isStreaming) throw new Error("Undo is available only while the agent is idle.");
+    // A prompt rejected before its run starts leaves runState "error" with no
+    // run to settle it; that is idle for undo, as for resource settings.
+    if (!this.runtime || !["idle", "error"].includes(this.runState) || this.runtime.session.isStreaming || this.runtime.session.isCompacting) throw new Error("Undo is available only while the agent is idle.");
     await this.changes!.undo(request.changeSetId);
     this.status = "Latest compatible change set was undone."; this.lastError = undefined; this.checkpointFailure = undefined;
     await this.publish();
