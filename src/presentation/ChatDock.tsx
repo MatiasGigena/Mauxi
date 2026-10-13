@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, Check, ChevronDown, RefreshCw, Settings2, TriangleAlert, X } from "lucide-react";
-import type { AgentChangeSetView, AgentDialog, AgentSnapshot } from "../application/agent-contract";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, RefreshCw, Settings2, ScanEye, Hand, TriangleAlert, X } from "lucide-react";
+import type { AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
 import { SelectionComposer } from "./SelectionComposer";
 import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
@@ -260,23 +260,9 @@ function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
     </section>;
 }
 
-export function ChangeReview({ changeSets, idle, onUndo }: { changeSets: AgentChangeSetView[]; idle: boolean; onUndo: (id: string) => void }) {
-  const latest = changeSets.find((set) => set.files.length || set.unexpectedPaths.length || set.errors.length || set.coverageWarnings.length);
-  const eligible = changeSets.find((set) => set.undoEligible);
-  // Keep the latest review visible, but expose the actual backend-eligible target
-  // separately (including its files), rather than mislabeling the newest record.
-  const displayed = latest ? [latest, ...(eligible && eligible.id !== latest.id ? [eligible] : [])] : [];
-  return <>{displayed.map((set) => <details className={`change-review ${set.state}`} key={set.id}>
-    <summary><span><strong>{set === latest ? "Changes" : "Undo target"} · {set.label}</strong><small>{set.files.length} file{set.files.length === 1 ? "" : "s"} · {set.state}</small></span>{idle && eligible?.id === set.id && <button type="button" onClick={(event) => { event.preventDefault(); onUndo(set.id); }}>Undo · {set.label}</button>}</summary>
-    {set.coverageWarnings.map((warning) => <p className="coverage-warning" key={warning}>{warning}</p>)}
-    {set.files.map((file) => <details className="changed-file" key={file.path}><summary><span className={`change-kind ${file.kind === "create" ? "create" : "modify"}`}>{file.kind}</span><code>{file.path}</code><small>{file.attribution === "unattributed" ? "unattributed command observation" : "agent edit"}</small></summary><pre>{file.diff}</pre></details>)}
-    {set.unexpectedPaths.length > 0 && <details><summary>Unattributable command changes · {set.unexpectedPaths.length}</summary><ul>{set.unexpectedPaths.map((item) => <li key={item}><code>{item}</code></li>)}</ul></details>}
-    {set.errors.map((error) => <p className="send-error" key={error}>{error}</p>)}
-  </details>)}</>;
-}
-
-export function ChatDock({ workspaceId, minimizeRequest = 0, selections, onRemove, onBeforeSend, onSelectionsSent }: {
+export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, selections, onRemove, onBeforeSend, onSelectionsSent }: {
   workspaceId?: string; minimizeRequest?: number; selections: StoredSelection[];
+  browserControl?: { ready: boolean; locked: boolean; pending: boolean; onGrant: () => void; onRevoke: () => void };
   onRemove: (id: string) => void;
   onBeforeSend: () => Promise<{ ok: boolean; message?: string; selections?: StoredSelection[] }>;
   onSelectionsSent: (ids: string[]) => void;
@@ -418,6 +404,9 @@ export function ChatDock({ workspaceId, minimizeRequest = 0, selections, onRemov
             <Settings2 size={16} aria-hidden="true" /><span>{selectedModel ? selectedModel.name : "Models & providers"}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <div className="send-actions">
+            {workspaceId && browserControl && <button type="button" className="browser-control-action" disabled={browserControl.pending || (!browserControl.locked && !browserControl.ready)} aria-label={browserControl.locked ? "Take back control" : "Give agent control"} title={browserControl.locked ? "Take back control of both previews" : "Give agent control of both previews for checks; interactions need approval"} onClick={browserControl.locked ? browserControl.onRevoke : browserControl.onGrant}>
+              {browserControl.locked ? <Hand size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
+            </button>}
             <ComposerAction action={action} instant={keyboardAction.current} type={stopAction ? "button" : "submit"}
               disabled={settings || !!inlineDialog || !workspaceId || busy || stopping || (!stopAction && (!draft.trim() || !agent.selectedModel))}
               title={stopAction ? "Stop agent work" : working ? "Send after the current response" : "Send message"}

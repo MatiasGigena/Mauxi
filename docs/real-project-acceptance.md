@@ -12,12 +12,12 @@ The full design-agent acceptance run below is **not executed**. The founder nomi
 ## Run on each project
 
 1. Start the AppImage without terminal pi. Open the project, review/confirm launch and authenticate through Models & providers. Confirm both previews and selection provenance. Record the representative authentication result without secrets.
-2. Select relevant desktop/mobile elements and inspect/remove captures before submission. Ask for a responsive layout refinement using the relevant local guidance. Give explicit preview control, review the actual visible checks and changed-file diff, then exercise safe undo and verify both previews return to the previous design.
+2. Select relevant desktop/mobile elements and inspect/remove captures before submission. Ask for a responsive layout refinement using the relevant local guidance. Give explicit preview control through chat, verify the visible result and inspect the source diff externally. Checkpoint undo is a trusted-host test, not a user-facing chat flow; retain a disposable-project baseline for manual comparison.
 3. Repeat for a component polish task and a Motion/GSAP animation adjustment. Check motion and reduced motion. Record checks performed, omissions, and the founder's assessment of each result; a fake-provider run cannot supply this assessment.
 4. Close/reopen twice and quit/restart the application. Verify deliberately retained edits, credentials, browser isolation and recovery status. Confirm owned processes/hooks are gone after final close; preserve any conflict or unfinished journal.
 5. Record provider usage/cost and actual tested versions. Update only acceptance rows supported by evidence, rebuild if app code changed, and identify the exact candidate delivered privately.
 
-| Project | Responsive refinement | Component polish | Animation/reduced motion | Visible checks + diff + undo | Human assessment | Auth / spend receipt |
+| Project | Responsive refinement | Component polish | Animation/reduced motion | Visible checks + external diff | Human assessment | Auth / spend receipt |
 | --- | --- | --- | --- | --- | --- | --- |
 | Vite — Coverantia-FRONTEND / Rondo | Not run | Not run | Not run | Not run | Missing | Not authorized |
 | Next — nenazo-nicho | Not run | Not run | Not run | Not run | Missing | Not authorized |

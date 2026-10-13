@@ -1,3 +1,4 @@
+import { fitCanvas, selectFixture } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,7 +13,7 @@ test.beforeAll(async ({}, testInfo) => {
   await mkdir(evidenceDirectory, { recursive: true });
   application = await electron.launch({
     args: [path.resolve("dist-electron/main.js")],
-    env: { ...process.env, MAUXI_PROOF: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_EVIDENCE_DIR: evidenceDirectory },
+    env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_EVIDENCE_DIR: evidenceDirectory },
   });
   page = await application.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -21,8 +22,7 @@ test.beforeAll(async ({}, testInfo) => {
 test.afterAll(async () => { await application?.close(); });
 
 async function waitForBridge() {
-  await expect(page.locator(".connection")).toContainText("bridge connected", { timeout: 30_000 });
-  await expect(page.locator(".bridge-ready")).toHaveCount(2);
+  await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
 }
 
 async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, mappingMethod: "react-grab" | "jsx-attribute" = "react-grab") {
@@ -39,6 +39,7 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   expect(await mobile.locator("body").evaluate(() => innerWidth)).toBe(390);
   expect(await mobile.locator("body").evaluate(() => innerHeight)).toBe(844);
   await page.getByLabel("Camera zoom").fill("0.7");
+  await expect.poll(async () => (await page.getByTestId("desktop-preview").boundingBox())!.width).toBe(1008);
   const artboard = page.locator('[data-preview-id="desktop"]');
   const header = artboard.locator(".artboard-header");
   const beforeDrag = await artboard.boundingBox();
@@ -69,12 +70,12 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   await expect(page.locator(".selection-chip")).toHaveCount(initialSelectionCount + 2);
 
   await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
-  await page.getByRole("button", { name: "Fit both", exact: true }).click();
+  await fitCanvas(page);
   const frameBounds = await page.getByTestId("desktop-preview").boundingBox();
   const before = new Set(await readdir(evidenceDirectory));
   await page.getByRole("button", { name: "Desktop actions", exact: true }).click();
   await page.getByRole("button", { name: "Capture screenshot", exact: true }).click();
-  await expect(page.locator(".connection")).toContainText(`Captured desktop only · ${Math.ceil(frameBounds!.width)}×${Math.ceil(frameBounds!.height)}`);
+  await expect(page.locator(".workspace-notice")).toContainText(`Captured desktop only · ${Math.ceil(frameBounds!.width)}×${Math.ceil(frameBounds!.height)}`);
   const created = (await readdir(evidenceDirectory)).filter((file) => !before.has(file));
   expect(created).toHaveLength(1);
   expect(created[0]).toMatch(/^desktop-\d+-[0-9a-f-]{36}\.png$/);
@@ -101,15 +102,17 @@ test("Vite: scaled picking, source provenance, viewport invariance, capture and 
 test("Vite local cookies are shared by the two same-workspace previews", async () => {
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   const mobile = page.frameLocator('[data-testid="mobile-preview"]');
+  await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByText("Use local test account").click();
   await mobile.locator("body").evaluate(() => location.reload());
   await expect(mobile.locator('[data-testid="auth-state"]')).toHaveText("Authenticated locally");
 });
 
 test("Next App Router/Webpack: server-client fixture has precise source picking", async () => {
-  await page.getByRole("button", { name: "Next.js" }).click();
+  await selectFixture(page, "next");
   await proveFixture("Next.js", "components/ProofCard.tsx", "jsx-attribute");
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
+  await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByText("Use local test account").click();
   await expect(desktop.locator('[data-testid="auth-state"]')).toHaveText("Authenticated on server");
 
@@ -129,7 +132,7 @@ test("Next App Router/Webpack: server-client fixture has precise source picking"
 
 test("Next Link client navigation reaches the peer once without remounting the source", async () => {
   await page.reload();
-  await page.getByRole("button", { name: "Next.js", exact: true }).click();
+  await selectFixture(page, "next");
   await waitForBridge();
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   const mobile = page.frameLocator('[data-testid="mobile-preview"]');
@@ -137,6 +140,7 @@ test("Next Link client navigation reaches the peer once without remounting the s
   const peerNavigations: string[] = [];
   page.on("framenavigated", (frame) => { if (frame === peer) peerNavigations.push(frame.url()); });
   const marker = await desktop.locator("body").evaluate(() => { document.body.dataset.instance = crypto.randomUUID(); return document.body.dataset.instance; });
+  await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByRole("link", { name: "Next client route", exact: true }).click();
   await expect.poll(() => peer?.url()).toBe("http://127.0.0.1:45000/?view=linked");
   await expect(mobile.getByRole("link", { name: "Next client route", exact: true })).toBeVisible();

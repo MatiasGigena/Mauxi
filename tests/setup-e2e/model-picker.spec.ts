@@ -13,7 +13,7 @@ for (const width of [1500, 390]) {
         ready: true, workspaceId: "test-workspace",
         providers: [{ id: "openai-codex", name: "OpenAI Codex", authenticated: true, authMethods: [] }, { id: "anthropic", name: "Anthropic", authenticated: true, authMethods: [] }, ...Array.from({ length: 14 }, (_, index) => ({ id: `other-${index}`, name: `Other provider ${index}`, authenticated: false, authMethods: [] }))],
         models: [model("openai-codex", "gpt-6-sol", "GPT-6 Sol"), model("openai-codex", "gpt-6-luna", "GPT-6 Luna"), model("openai-codex", "gpt-6-astra", "GPT-6 Astra"), model("openai-codex", "gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", false), model("anthropic", "claude-opus-5-5", "Claude Opus 5.5"), model("unconfigured", "hidden", "Unavailable model", false, false)],
-        selectedModel: "openai-codex/gpt-6-sol", sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+        selectedModel: "openai-codex/gpt-6-sol", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       };
       const emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: state.modelsSnapshot }));
       window.mauxi!.agentSelectModel = async ({ modelKey }) => { state.modelsSnapshot.selectedModel = modelKey; emit(); };

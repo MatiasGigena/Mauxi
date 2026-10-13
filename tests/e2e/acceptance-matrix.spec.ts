@@ -1,3 +1,4 @@
+import { selectFixture } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -17,6 +18,7 @@ async function pick(page: Page, id: string, file: string, anchor: string, method
     deltaX: bounds.x + bounds.width / 2 - (canvas.x + canvas.width / 2),
     deltaY: bounds.y + bounds.height / 2 - (canvas.y + canvas.height / 2),
   });
+  await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
   // Moving targets intentionally do not meet Playwright's stability heuristic.
   if (id === "known-target") {
     const box = await target.boundingBox();
@@ -40,10 +42,10 @@ async function pick(page: Page, id: string, file: string, anchor: string, method
 for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
   test(`${fixture}: exact provenance, moving selection and reduced motion at display scale ${scale}`, async ({}, testInfo) => {
     test.setTimeout(120_000);
-    const app = await electron.launch({ args: [path.resolve("dist-electron/main.js"), `--force-device-scale-factor=${scale}`], env: { ...process.env, MAUXI_PROOF: "1", MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+    const app = await electron.launch({ args: [path.resolve("dist-electron/main.js"), `--force-device-scale-factor=${scale}`], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
     try {
       const page = await app.firstWindow();
-      if (fixture === "next") await page.getByRole("button", { name: "Next.js", exact: true }).click();
+      if (fixture === "next") await selectFixture(page, "next");
       await expect(page.locator(".bridge-ready")).toHaveCount(2);
       await observeSelections(page);
       await page.waitForTimeout(250); // one-time canvas fit
@@ -116,10 +118,10 @@ test("Next: delayed server bytes, visible fallback, hydrated card and client rou
   }
   expect(fallbackAt).toBeGreaterThan(0);
   expect(contentAt - fallbackAt).toBeGreaterThan(700);
-  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
   try {
     const page = await app.firstWindow();
-    await page.getByRole("button", { name: "Next.js", exact: true }).click();
+    await selectFixture(page, "next");
     await expect(page.locator(".bridge-ready")).toHaveCount(2);
     const desktop = page.frameLocator('[data-testid="desktop-preview"]');
     const mobile = page.frameLocator('[data-testid="mobile-preview"]');

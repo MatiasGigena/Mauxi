@@ -1,3 +1,4 @@
+import { closeProject } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -30,6 +31,8 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       lab.querySelector("input")!.addEventListener("input", () => { lab.dataset.typed = "yes"; }); document.body.prepend(lab);
     });
     const grant = async () => {
+      // The host result can settle before the preceding permission UI unmounts.
+      await expect(page.getByRole("dialog", { name: "Approve browser action" })).toHaveCount(0);
       await page.getByRole("button", { name: "Give agent control", exact: true }).click();
       await expect(page.getByRole("button", { name: "Take back control", exact: true })).toBeVisible().catch(async error => {
         await writeFile(testInfo.outputPath(`${fixture}-target-debug.json`), JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger; return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
@@ -115,7 +118,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Chat remains reachable after disconnect");
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.screenshot({ path: testInfo.outputPath(`${fixture}-disconnect.png`) });
-    const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click(); page = await welcome;
+    const welcome = app.waitForEvent("window"); await closeProject(page); page = await welcome;
     await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally { await writeFile(testInfo.outputPath(`${fixture}-operations-stderr.log`), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

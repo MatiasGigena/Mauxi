@@ -1,3 +1,4 @@
+import { resetCamera, fitCanvas, closeProject } from "../helpers/workspace-controls";
 import { expect, test, type Page } from "@playwright/test";
 import { canvasTrailGeometry } from "../../src/presentation/canvas-background";
 import { mockDesktop } from "./fixtures";
@@ -51,9 +52,9 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 800 
     await page.evaluate(() => { (window as any).originalTrail = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0]; });
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep this draft");
     expect(await page.evaluate(() => (window as any).originalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
-    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await resetCamera(page);
     expect(await page.evaluate(() => (window as any).originalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
-    await page.getByRole("button", { name: "Fit both", exact: true }).click();
+    await fitCanvas(page);
     expect(await canvas.boundingBox()).toEqual(original);
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep this draft");
     expect(await canvas.evaluate(node => node.contains(document.elementFromPoint(5, innerHeight - 5)))).toBe(true);
@@ -118,7 +119,7 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);
   expect(await page.evaluate(() => JSON.stringify([...document.querySelectorAll<HTMLElement>(".canvas-trail-edge")].map(el => el.style.cssText)) === JSON.stringify((window as any).initialTrail.edges))).toBe(true);
-  await page.getByRole("button", { name: "Fit both", exact: true }).click();
+  await fitCanvas(page);
   await expect(page.getByRole("button", { name: /Pause.*animation/i })).toHaveCount(0);
 });
 
@@ -157,7 +158,7 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
       return event;
     };
   });
-  await page.getByRole("button", { name: "Close project", exact: true }).click();
+  await closeProject(page);
   await expect(page.locator(".canvas-background")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).trailAnimations.every((a: Animation) => a.playState === "idle"))).toBe(true);
 });

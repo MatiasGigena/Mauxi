@@ -9,7 +9,7 @@ Mauxi opens one local project at a time. **Open Project** statically inspects ma
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
 4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied, Mauxi chooses a free port and leaves the existing server alone. Mauxi waits for Vite to serve the instrumented HTML after configuration reload.
 5. Wait for both preview bridges, not just HTTP readiness.
-6. **Close project** or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
+6. Open the repository-title menu → **Close project**, or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
 
 Configure and Review keep their action icons visible and reveal their labels on row hover or keyboard focus, without a filled background. Labels stay visible while expanded and on touch devices; keyboard reveals are instant, and reduced motion removes the small horizontal movement.
 
@@ -37,18 +37,18 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 ## Canvas and previews
 
 - **Move:** drag an artboard header, or use its keyboard move handle with arrows (Shift for larger steps).
-- **Pan:** drag empty canvas, or enable **Hand** and drag over a preview. Wheel on the canvas pans; Ctrl+wheel zooms around the pointer. Ordinary page scrolling remains independent.
-- **Zoom:** 25–200%. **Fit both** fits current artboard bounds; **Reset** restores a 100% camera without discarding positions or viewport settings.
+- **Pan:** drag empty canvas or a passive preview; hold **Space** to pan temporarily over an active preview. Wheel on the canvas pans; Ctrl+wheel zooms around the pointer. Click a preview to interact, Escape to return to canvas navigation. Ordinary page scrolling remains independent.
+- **Zoom:** 25–200% via the floating zoom control or Ctrl+wheel. Fresh workspaces fit both boards automatically; agent handoff refits both without discarding positions or viewport settings. There are no separate Fit/Reset buttons.
 - **Viewports:** initially desktop 1440×900 and mobile 390×844 CSS pixels. **Actions → Viewport** changes iframe dimensions, within 240–3840 wide and 240–2160 high. Camera zoom does not change responsive breakpoints.
 - **Focus:** fits one board and hides, rather than remounts, the other. Unfocus restores the previous camera and positions. Page state survives.
-- **Chat:** stays anchored to the window. Drag its separator or use Up/Down/Home/End on the focused separator to resize it.
-- **Actions:** reload, viewport, screenshot, route copy, and diagnostics. Screenshot capture requires Electron and the entire preview to be visible; it captures presentation-space pixels, not a zoom-independent native-size export. Capture paths are temporary (24-hour expiry, possibly earlier under capacity pressure); copy files elsewhere for permanent exports. Element-selection PNGs are discarded after accepted submission/removal, while submitted images remain in conversation history. See [capture retention](private-alpha.md#automatic-screenshot-cleanup).
+- **Chat:** stays anchored over the canvas and grows with the draft/latest response up to its height cap. Clicking the canvas minimizes the exchange; clicking chat restores it. There is no manual resize separator.
+- **Actions:** select/focus, reload, viewport, screenshot, route copy, and **Link preview routes**. No diagnostic panel. Screenshot capture requires Electron and the entire preview to be visible; it captures presentation-space pixels, not a zoom-independent native-size export. Capture paths are temporary (24-hour expiry, possibly earlier under capacity pressure); copy files elsewhere for permanent exports. Element-selection PNGs are discarded after accepted submission/removal, while submitted images remain in conversation history. See [capture retention](private-alpha.md#automatic-screenshot-cleanup).
 
-Layout, viewport sizes, focus restore state, chat height, and route-link preference are saved with the workspace. Live element handles and preview generations are not persisted.
+Layout, viewport sizes, focus restore state, and route-link preference are saved with the workspace. Live element handles and preview generations are not persisted.
 
 ## Routes
 
-Linked routes mirror a supported same-origin **URL navigation**, not clicks, submissions, scrolling, or `history.state`. Authentication/API/action/callback paths and sensitive query/hash keys are conservatively excluded. Form-originated navigation is excluded too. Unlinking stops synchronization; **Actions → Copy route** remains available for supported routes.
+Linked routes mirror a supported same-origin **URL navigation**, not clicks, submissions, scrolling, or `history.state`. Authentication/API/action/callback paths and sensitive query/hash keys are conservatively excluded. Form-originated navigation is excluded too. Turn off **Actions → Link preview routes** in either preview to stop synchronization; **Actions → Copy route** remains available for supported routes.
 
 A mirrored navigation can reset the peer's page state and issue a GET request. Mauxi cannot infer arbitrary custom side-effectful GET endpoints: unlink for those flows. External navigation is restricted to approved project origins, and a page without a responding bridge cannot be selected.
 
@@ -66,12 +66,12 @@ Canvas/WebGL pixels and cross-origin child-frame contents are unsupported; pseud
 
 ## Give the agent preview control
 
-1. Choose **Give agent control**. Mauxi fits both existing previews without remounting them and blocks human pointer/keyboard input into the frames; chat remains reachable.
+1. Choose **Give agent control** (the scan icon beside Send in chat). Mauxi fits both existing previews without remounting them and blocks human pointer/keyboard input into the frames; chat remains reachable.
 2. Inspection and capture operate on those same visible frames. Every interaction, including hover, typing, scroll, and navigation, needs an exact **Approve once** decision. Target identity, label, and geometry are checked again at dispatch.
-3. **Take back control** cancels pending approvals and queued actions. Already-dispatched bounded work drains before input is returned. **Stop** also aborts the agent, not the project's unrelated dev server.
-4. **Checks** shows actual observations and PNG captures separately for desktop/mobile. A dispatched action is not proof of a successful user journey; untouched previews say so.
+3. **Take back control** (the hand icon in chat, or the emergency action outside chat) cancels pending approvals and queued actions. Already-dispatched bounded work drains before input is returned. **Stop** also aborts the agent, not the project's unrelated dev server.
+4. The agent reports actual checks and remaining desktop/mobile limitations in its response. Observations and PNG tool results remain in native session history; there is no separate Checks popover. A dispatched action is not proof of a successful user journey.
 
-Route linking is paused on handoff and stays paused after return. Approve each preview's navigation separately; navigation invalidates control and requires a new handoff. You can explicitly re-enable ordinary route linking afterward. Sent HTTP effects cannot be rolled back.
+Route linking is paused on handoff and stays paused after return. Approve each preview's navigation separately; navigation invalidates control and requires a new handoff. You can explicitly re-enable ordinary route linking afterward with **Actions → Link preview routes**. Sent HTTP effects cannot be rolled back.
 
 ### Verification limits
 

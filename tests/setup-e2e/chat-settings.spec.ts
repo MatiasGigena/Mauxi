@@ -11,7 +11,7 @@ test("model setup expands inside chat and the send border keeps moving", async (
     const snapshot = {
       ready: true, workspaceId: "test-workspace", providers: [{ id: "fake", name: "Fake", authenticated: true, authMethods: [{ type: "api_key", label: "API key" }] }],
       models: [{ key: "fake/one", provider: "Fake", id: "one", name: "Model One", available: true, supportsImages: true, thinkingLevels: ["off", "low"] }],
-      sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     state.agentSnapshot = snapshot;
     window.mauxi!.agentSelectModel = async ({ modelKey }) => {

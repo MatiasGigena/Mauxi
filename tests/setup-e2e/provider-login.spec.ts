@@ -12,7 +12,7 @@ async function openProviders(page: Page) {
     state.snapshot = {
       ready: true, workspaceId: "test-workspace",
       providers: Array.from({ length: 20 }, (_, i) => ({ id: `provider-${i}`, name: `Provider ${i}`, authenticated: false, authMethods: [{ type: "api_key", label: `Provider ${i} API key` }] })),
-      models: [], sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      models: [], messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     state.emit({ type: "snapshot", snapshot: state.snapshot });
     window.mauxi!.agentLogin = async ({ providerId }) => {

@@ -18,8 +18,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     expect(await dialog.evaluate(node => getComputedStyle(node).fontFamily)).toContain("Poppins");
     await expect(dialog.locator("details, pre, dl, .current-route")).toHaveCount(0);
     await expect(dialog).not.toContainText(/diagnostics|Document generation|Selection hierarchy|Open externally|DOM picker connected/i);
-    await expect(dialog.locator(".preview-tool-action")).toHaveCount(5);
-    await expect(dialog.locator(".preview-tool-action svg[aria-hidden=true]")).toHaveCount(5);
+    await expect(dialog.locator(".preview-tool-action")).toHaveCount(6);
+    await expect(dialog.locator(".preview-tool-action svg[aria-hidden=true]")).toHaveCount(6);
     await expect(dialog.getByRole("button", { name: "Close actions" }).locator("svg.lucide-x")).toHaveCount(1);
     const focus = dialog.getByRole("button", { name: "Focus Mobile", exact: true });
     await expect(focus).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");

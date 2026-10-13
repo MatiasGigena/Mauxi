@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { defaultCanvas, dragBoard, fitBoards, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
@@ -69,7 +69,7 @@ describe("canvas geometry", () => {
     expect(isCanvasState(defaultCanvas())).toBe(true);
     expect(isCanvasState({ ...defaultCanvas(), camera: { x: 0, y: 0, zoom: Infinity } })).toBe(false);
     expect(isCanvasState({ ...defaultCanvas(), boards: {} })).toBe(false);
-    expect(isCanvasState({ ...defaultCanvas(), chatHeight: 5000 })).toBe(false);
+    expect(isCanvasState({ ...defaultCanvas(), chatHeight: 5000 })).toBe(true); // Ignored legacy field, no longer used for layout.
   });
 });
 
@@ -115,5 +115,13 @@ it("persists layout through the existing workspace record without losing the pla
   expect(await new WorkspaceStore(directory).canvas("/project")).toEqual(layout);
   expect(await store.canvas("/other")).toBeNull();
   const files = await readdir(directory); expect(files).toHaveLength(1);
-  expect(JSON.parse(await readFile(path.join(directory, files[0]), "utf8"))).toMatchObject({ version: 1, planId: "plan-b", canvas: layout });
+  const saved = JSON.parse(await readFile(path.join(directory, files[0]), "utf8"));
+  expect(saved).toMatchObject({ version: 1, planId: "plan-b", canvas: layout });
+  saved.canvas.chatHeight = 208;
+  await writeFile(path.join(directory, files[0]), JSON.stringify(saved));
+  const restored = (await store.canvas("/project"))!;
+  expect(restored).toEqual(layout); expect(restored).not.toHaveProperty("chatHeight");
+  await store.saveCanvas("/project", restored);
+  expect(JSON.parse(await readFile(path.join(directory, files[0]), "utf8")).canvas).not.toHaveProperty("chatHeight");
+  await rm(directory, { recursive: true, force: true });
 });

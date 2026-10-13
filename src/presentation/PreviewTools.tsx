@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowUpRight, Camera, Copy, Maximize2, Minimize2, MousePointer2, RefreshCw, X } from "lucide-react";
+import { ArrowUpRight, Camera, Copy, Link2, Maximize2, Minimize2, MousePointer2, RefreshCw, X } from "lucide-react";
 import { LABELS, type Artboard } from "../application/canvas-state";
 import type { PreviewId } from "../application/preview-contract";
 
-export function PreviewTools({ id, board, ready, canCopy, canCapture, selecting, focused, onSelect, onFocus, onClose, onResize, onReload, onCopy, onCapture }: {
-  id: PreviewId; board: Artboard; ready: boolean;
+export function PreviewTools({ id, board, ready, linked, onToggleLinked, canCopy, canCapture, selecting, focused, onSelect, onFocus, onClose, onResize, onReload, onCopy, onCapture }: {
+  id: PreviewId; board: Artboard; ready: boolean; linked: boolean; onToggleLinked: () => void;
   canCopy: boolean; canCapture: boolean; onClose: () => void; onResize: (width: number, height: number) => void;
   onReload: () => void; onCopy: () => void; onCapture: () => void;
   selecting: boolean; focused: boolean; onSelect: () => void; onFocus: () => void;
@@ -43,6 +43,7 @@ export function PreviewTools({ id, board, ready, canCopy, canCapture, selecting,
       <button type="button" className="preview-tool-action" onClick={onReload}>
         <RefreshCw size={16} aria-hidden="true" /><span>Reload preview</span>
       </button>
+      <button type="button" className="preview-tool-action" aria-pressed={linked} onClick={onToggleLinked} title="Mirror supported URL navigations between previews, not clicks or forms. Disable for custom action routes."><Link2 size={16} aria-hidden="true" /><span>Link preview routes</span></button>
       <button type="button" className="preview-tool-action" disabled={!canCopy} onClick={onCopy}>
         <Copy size={16} aria-hidden="true" /><span>Copy route to {id === "desktop" ? "mobile" : "desktop"}</span>
       </button>

@@ -1,3 +1,4 @@
+import { closeProject as closeWorkspace } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -43,7 +44,7 @@ async function openProject(app: ElectronApplication, page: Page, root: string) {
 }
 async function closeProject(app: ElectronApplication, page: Page) {
   const next = app.waitForEvent("window");
-  await page.getByRole("button", { name: "Close project", exact: true }).click();
+  await closeWorkspace(page);
   page = await next;
   await expect(page.getByRole("button", { name: "Open Project", exact: true })).toBeVisible();
   return page;
@@ -182,12 +183,12 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           const provider = page.locator(".provider-list article").filter({ hasText: "alpha-local" });
           await provider.getByRole("button", { name: "Re-authenticate" }).click();
           await page.getByRole("button", { name: "Cancel", exact: true }).click();
-          await expect(page.locator(".agent-settings")).toContainText("cancelled");
+          await expect(page.locator(".chat-settings")).toBeVisible();
           await provider.getByRole("button", { name: "Re-authenticate" }).click();
           await page.locator('input[type="password"]').fill("fake-alpha-secret");
           await page.getByRole("button", { name: "Continue", exact: true }).click();
-          await page.getByRole("combobox", { name: /^Model/ }).selectOption("alpha-local/alpha");
-          await page.getByRole("button", { name: "Close settings", exact: true }).click();
+          await page.getByRole("combobox", { name: /^Model/ }).click();
+          await page.getByRole("option").filter({ hasText: "alpha-local" }).first().click();
           for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
             const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
             // Server-rendered text can appear before Next hydrates after login.
@@ -234,27 +235,16 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await page.keyboard.press("ArrowRight"); await page.keyboard.press("ArrowLeft");
           await expect(desktop.getByText("Polished action", { exact: true })).toBeVisible({ timeout: 30_000 });
           await expect(mobile.getByText("Polished action", { exact: true })).toBeVisible();
-          await expect(page.getByRole("button", { name: /^Undo ·/ })).toBeVisible();
+          await expect(page.locator(".change-review")).toHaveCount(0);
           report[`${name}Responsiveness`] = await page.evaluate(() => {
             const { sample, observer } = (window as any).alphaTiming;
             sample.running = false; observer.disconnect();
             const frames = sample.frames.slice(1).sort((a: number, b: number) => a - b);
             return { frames: frames.length, p95FrameMs: frames[Math.floor(frames.length * 0.95)], maxFrameMs: frames.at(-1), longTaskMs: sample.longTasks };
           });
-          // Review the actual packaged UI, not just a disk mutation or Undo button.
-          const changeReview = page.locator(".change-review").filter({ has: page.getByRole("button", { name: "Undo · Polish this selected fixture button", exact: true }) });
-          await changeReview.locator(":scope > summary").click();
-          const changedFile = changeReview.locator(".changed-file");
-          await expect(changedFile).toHaveCount(1);
-          await expect(changedFile.locator("summary code")).toHaveText(relativeSource);
-          await expect(changedFile.locator("summary")).toContainText("agent edit");
-          await changedFile.locator("summary").click();
-          const diff = changedFile.locator("pre");
-          await expect(diff).toBeVisible();
-          const originalLine = original.split("\n").find(line => line.includes("Run action"))!;
-          await expect(diff).toContainText(`-${originalLine}`);
-          await expect(diff).toContainText(`+${originalLine.replace("Run action", "Polished action")}`);
-          await changeReview.locator(":scope > summary").click();
+          // Checkpoint/undo correctness is covered by trusted-host tests; the
+          // minimal chat no longer advertises a review/undo surface.
+          expect(await readFile(sourcePath, "utf8")).toBe(original.replace("Run action", "Polished action"));
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 1 [mobile]");
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 2 [desktop]");
           expect(JSON.stringify(requests[firstRequest])).toContain(createHash("sha256").update(original).digest("hex"));
@@ -285,15 +275,13 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           expect(providerError).toBe("");
           const snapshot = await page.evaluate(() => window.mauxi!.agentBootstrap());
           expect(JSON.stringify(snapshot)).not.toContain("fake-alpha-secret");
-          await page.getByText(/^Checks ·/).click();
-          await expect(page.getByAltText("Actual desktop preview capture")).toBeVisible();
-          await expect(page.getByAltText("Actual mobile preview capture")).toBeVisible();
-          await page.screenshot({ path: testInfo.outputPath(`${name}-packaged-checks.png`) });
-          await page.getByText(/^Checks ·/).click();
-          await page.getByRole("button", { name: /^Undo ·/ }).click();
+          const checks = await page.evaluate(async () => (await window.mauxi!.browserState()).evidence);
+          for (const id of ["desktop", "mobile"]) expect(checks.some(check => check.previewId === id && !!check.image)).toBe(true);
+          await page.screenshot({ path: testInfo.outputPath(`${name}-packaged-verification.png`) });
+          // Explicit fixture restoration, not a claim of a renderer Undo flow.
+          await writeFile(sourcePath, original);
           await expect(desktop.getByText("Run action", { exact: true })).toBeVisible();
           await expect(mobile.getByText("Run action", { exact: true })).toBeVisible();
-          expect(await readFile(sourcePath, "utf8")).toBe(original);
         }
         // Keep a deliberate user edit across cleanup, not merely the fixture baseline.
         const userEdit = `\n// retained alpha user edit ${cycle}\n`;

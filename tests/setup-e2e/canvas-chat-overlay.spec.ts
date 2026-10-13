@@ -10,10 +10,12 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
     const canvas = page.getByTestId("canvas");
     const dock = page.getByRole("region", { name: "Chat", exact: true });
     await expect(dock).toBeVisible();
-    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await page.getByRole("slider", { name: "Camera zoom" }).fill("1");
     const bounds = (await canvas.boundingBox())!;
     const surface = (await page.locator(".canvas-surface").boundingBox())!;
     expect(bounds.y + bounds.height).toBeCloseTo(viewport.height, 0);
+    expect(bounds.y + bounds.height).toBeCloseTo(surface.y + surface.height, 0);
+    expect(bounds.y).toBeCloseTo(surface.y, 0);
     expect(bounds.height).toBeCloseTo(surface.height, 0);
     const board = page.getByRole("region", { name: "Desktop artboard", exact: true });
     const boardBounds = await board.boundingBox();
@@ -34,7 +36,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
       const emit = (event: unknown) => state.agentListeners.forEach((listener: (event: unknown) => void) => listener(event));
       emit({ type: "snapshot", snapshot: {
         ready: true, workspaceId: "test-workspace", providers: Array.from({ length: 20 }, (_, i) => ({ id: String(i), name: `Provider ${i}`, authenticated: false, authMethods: [{ type: "api_key", label: `Sign in ${i}` }] })),
-        models: [], sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+        models: [], messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       } });
       window.mauxi!.agentLogin = async () => { emit({ type: "dialog", dialog: { id: "overlay-login", kind: "secret", title: "Provider 0", message: "Enter API key" } }); };
       window.mauxi!.agentDialogResponse = async () => { emit({ type: "dialog-dismissed", id: "overlay-login" }); };

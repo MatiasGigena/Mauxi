@@ -9,8 +9,8 @@ Open a local project, explore live desktop and mobile previews on a freeform can
 - Opens React + Vite and supported Next.js projects with an explicit launch plan and temporary preview integration.
 - Keeps desktop and mobile previews live while you pan, zoom, focus, resize, and select elements linked to their source.
 - Offers resumable agent conversations, provider/model setup, and optional local design guidance.
-- Applies live edits with checkpoints, changed-file review, eligible undo, and one-time command approval.
-- Lets the agent inspect the same visible previews after an explicit handoff, with separate approvals for interactions and recorded checks.
+- Applies live edits with retained checkpoints, conflict-aware recovery, and one-time command approval.
+- Lets the agent inspect the same visible previews after an explicit handoff from chat, with separate approvals for interactions and checks retained in session history.
 
 Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) records the tested fixture scope and missing real-project/live-provider evidence. macOS and Windows are outside this repository's scope.
 

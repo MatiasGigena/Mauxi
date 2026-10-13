@@ -22,7 +22,7 @@ for (const width of [1280, 390]) {
           { id: "connected", name: "Connected provider", authenticated: true, authMethods: [{ type: "api_key", label: "API key" }] },
         ],
         models: [], sessions: [{ id: "old-session", name: "Previous conversation", active: true, updatedAt: Date.now() }],
-        messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+        messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       };
       state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
     });

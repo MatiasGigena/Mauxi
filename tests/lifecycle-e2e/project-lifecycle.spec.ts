@@ -1,3 +1,4 @@
+import { toggleRoutes, closeProject, expectRoutes } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -52,8 +53,7 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   });
   page = await workspaceWindow;
   await page.waitForLoadState("domcontentloaded");
-  await expect(page.locator(".connection")).toContainText("Two live previews are connected", { timeout: 45_000 });
-  await expect(page.locator(".bridge-ready")).toHaveCount(2);
+  await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 45_000 });
   const storage = await application.evaluate(({ BrowserWindow, session }) => ({
     workspace: BrowserWindow.getAllWindows()[0].webContents.session.getStoragePath(),
     shellDefault: session.defaultSession.getStoragePath(),
@@ -61,7 +61,7 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   expect(storage.workspace).not.toBe(storage.shellDefault);
   expect(await portIsFree()).toBe(false);
 
-  await page.getByRole("button", { name: "Routes linked", exact: true }).click();
+  await toggleRoutes(page, true);
   await page.getByRole("button", { name: "Move Mobile artboard with arrow keys" }).focus();
   await page.keyboard.press("ArrowRight");
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
@@ -71,11 +71,11 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   await page.getByRole("button", { name: "Focus Mobile", exact: true }).click();
   await expect.poll(() => page.evaluate(async () => (await window.mauxi!.getBootstrap()).active?.canvas?.focus?.previewId)).toBe("mobile");
   const saved = await page.evaluate(async () => (await window.mauxi!.getBootstrap()).active!.canvas!);
-  expect(saved).toMatchObject({ linked: false, chatHeight: 208, boards: { mobile: { width: 420 } } });
+  expect(saved).toMatchObject({ linked: false, boards: { mobile: { width: 420 } } });
 
   await writeFile(configPath, `${await readFile(configPath, "utf8")}\n// concurrent user edit kept by lifecycle e2e\n`);
   const welcomeWindow = application.waitForEvent("window");
-  await page.getByRole("button", { name: "Close project" }).click();
+  await closeProject(page);
   page = await welcomeWindow;
   await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   await expect.poll(portIsFree, { timeout: 10_000 }).toBe(true);
@@ -92,13 +92,13 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   await page.evaluate(async (request) => window.mauxi!.confirmProject(request), { discoveryId: reopened.discoveryId, planId: reopened.rememberedPlanId!, mode: "start" as const });
   page = await reopenedWindow;
   await expect(page.getByRole("button", { name: "Unfocus Mobile", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Routes unlinked", exact: true })).toBeVisible();
+  await expectRoutes(page, false, "Mobile");
   await expect(page.getByTestId("mobile-preview")).toHaveAttribute("width", "420");
   const restored = await page.evaluate(async () => (await window.mauxi!.getBootstrap()).active!.canvas!);
   expect(restored.boards).toEqual(saved.boards); expect(restored.focus).toEqual(saved.focus);
   await page.getByRole("button", { name: "Unfocus Mobile", exact: true }).click();
   const secondWelcome = application.waitForEvent("window");
-  await page.getByRole("button", { name: "Close project", exact: true }).click();
+  await closeProject(page);
   page = await secondWelcome;
   await expect.poll(portIsFree, { timeout: 10_000 }).toBe(true);
 });

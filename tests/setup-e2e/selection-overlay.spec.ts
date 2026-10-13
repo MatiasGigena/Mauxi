@@ -1,3 +1,4 @@
+import { toggleRoutes } from "../helpers/workspace-controls";
 import { expect, test, type Page, type FrameLocator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { mockDesktop } from "./fixtures";
@@ -66,7 +67,7 @@ test.beforeEach(async ({ page }) => {
     const snapshot = {
       ready: true, workspaceId: "test-workspace", sessionId: "session", providers: [],
       models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
-      selectedModel: "fake/one", sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
   });
@@ -177,7 +178,7 @@ test("draft marks follow scrolling, layout and zoom; removal never clicks throug
 });
 
 test("navigation and removed instances clear markers without transferring them to replacements", async ({ page }) => {
-  await page.getByRole("button", { name: "Routes linked", exact: true }).click();
+  await toggleRoutes(page, true);
   const frame = preview(page);
   await picker(page); await frame.locator("#one").click();
   await expect(markers(frame)).toBeVisible();

@@ -435,7 +435,7 @@ export class PiAgentHost {
 
     const browserTargets = defineTool({
       name: "browser_targets", label: "Visible preview targets",
-      description: "Get host-owned identities for the EXISTING visible previews and current control generation. This does not grant control. Ask the user to use Give agent control if needed. Never substitute a separate browser.",
+      description: "Get host-owned identities for the EXISTING visible previews and current control generation. This does not grant control. Ask the user to use the Give agent control button beside Send in chat if needed. Never substitute a separate browser.",
       parameters: Type.Object({ workspaceId: Type.String({ maxLength: 128 }) }),
       execute: async (_id, input) => {
         this.assertWorkspace(input.workspaceId);

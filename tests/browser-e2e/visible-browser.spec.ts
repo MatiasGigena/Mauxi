@@ -1,3 +1,4 @@
+import { toggleRoutes, closeProject } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -95,10 +96,9 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await expect(page.getByRole("button", { name: "Interact with Desktop preview", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await expect(page.getByTestId("desktop-preview")).not.toHaveAttribute("inert");
-    await page.getByText(/^Checks ·/).click();
-    await expect(page.getByAltText("Actual desktop preview capture")).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("recorded-checks.png") });
-    await page.getByText(/^Checks ·/).click();
+    const recorded = await page.evaluate(async () => (await window.mauxi!.browserState()).evidence);
+    expect(recorded.some(check => check.previewId === "desktop" && !!check.image)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("returned-preview-control.png") });
     // A side-effectful submit changes the source route but never replays its POST/GET in the peer.
     let submissions = 0;
     await page.route("**/side-effect", async route => { if (route.request().method() === "POST") submissions++; await route.fulfill({ status: 200, body: "safe local counter" }); });
@@ -116,11 +116,11 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     expect(new URL(page.frames().find(f => f.url().includes("mauxiPreview=mobile"))!.url()).pathname).toBe("/");
     await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
     // Ordinary human route linking remains available after an explicit opt-in.
-    await page.getByRole("button", { name: "Routes unlinked", exact: true }).click();
+    await toggleRoutes(page, false);
     await child.evaluate(() => history.pushState(null, "", "/ordinary-proof"));
     await expect.poll(() => page.frames().filter(f => { try { return new URL(f.url()).pathname === "/ordinary-proof"; } catch { return false; } }).length).toBe(2);
     await page.screenshot({ path: testInfo.outputPath("returned-control.png") });
-    const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
+    const welcome = app.waitForEvent("window"); await closeProject(page);
     page = await welcome; await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally { await writeFile(testInfo.outputPath("electron-stderr.log"), stderr); await app.close(); await writeFile(config, before); await rm(state, { recursive: true, force: true }); }
 });

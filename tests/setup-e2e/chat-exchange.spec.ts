@@ -10,7 +10,7 @@ async function start(page: Page) {
     state.agentSnapshot = {
       ready: true, workspaceId: "test-workspace", sessionId: "session",
       providers: [], models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
-      selectedModel: "fake/one", sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     state.emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } }));
     state.emit();
@@ -308,7 +308,8 @@ test("clicking inside a preview minimizes, unrelated shell clicks do not", async
   await editor.press("Enter");
   await output(page, "Completed response", false);
   await settled(page);
-  await page.getByRole("button", { name: "Routes linked", exact: true }).click();
+  await page.getByRole("button", { name: "Project menu" }).click();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
   await editor.focus();
   await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();

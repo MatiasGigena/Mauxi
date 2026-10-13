@@ -10,7 +10,8 @@ import { CanvasBackground } from "./CanvasBackground";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
-import { BrowserControlBar, useBrowserControl } from "./BrowserControl";
+import { useBrowserControl } from "./BrowserControl";
+import { RepositoryMenu } from "./RepositoryMenu";
 import logo from "./assets/logo-mauxi.png";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
@@ -28,15 +29,14 @@ function previewUrl(base: string, id: PreviewId, session: string): string {
   return url.toString();
 }
 
-export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => void }) {
+export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => Promise<void> }) {
   const browser = useBrowserControl(active?.workspaceId);
   const browserLocked = useRef(false); browserLocked.current = browser.locked;
-  const [fixture, setFixture] = useState<Fixture>("vite");
+  const [fixture] = useState<Fixture>(() => new URLSearchParams(location.search).get("fixture") === "next" ? "next" : "vite");
   // Changing projects/fixtures creates a fresh bridge capability, not on focus/zoom.
   const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
   const [layout, setLayout] = useState<CanvasState>(() => active?.canvas ?? defaultCanvas());
   const layoutRef = useRef(layout); layoutRef.current = layout;
-  const [hand, setHand] = useState(false);
   const [selecting, setSelecting] = useState<PreviewId | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewId>("desktop");
   const [tools, setTools] = useState<PreviewId | null>(null);
@@ -60,7 +60,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [notice, setNotice] = useState("");
   const [chatMinimizeRequest, setChatMinimizeRequest] = useState(0);
   const minimizeChat = useCallback(() => setChatMinimizeRequest(request => request + 1), []);
-  const [bridgeDetail, setBridgeDetail] = useState("Preparing instrumented previews…");
   const [dragging, setDragging] = useState(false);
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
@@ -69,12 +68,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const dragMoved = useRef(false);
   const navigation = useCanvasNavigation({ canvas, frames, locked: browser.locked, onExit: () => {
-    setHand(false); setSelecting(null);
+    setSelecting(null);
     if (active && selecting) void browser.owner("human");
   } });
   const navigationRef = useRef({ ...navigation, selecting });
   navigationRef.current = { ...navigation, selecting };
-  const navigationHeld = hand || navigation.space;
+  const navigationHeld = navigation.space;
   const applyWheel = useCallback((event: Pick<WheelEvent, "deltaMode" | "deltaX" | "deltaY" | "ctrlKey" | "metaKey" | "clientX" | "clientY">) => {
     const element = canvas.current;
     if (!element || browserLocked.current) return;
@@ -151,7 +150,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         if (previous.generation && previous.generation !== message.generation) setSelections((items) => markSelectionsAfterDocumentChange(items, id, message.generation));
         runtimeRef.current = { ...runtimeRef.current, [id]: { ...previous, generation: message.generation, ready: true, route: projectRoute(message.url, origin)! } };
         setRuntimes(runtimeRef.current);
-        setBridgeDetail(`${active?.framework === "next" || fixture === "next" ? "Next.js" : "Vite"} bridge connected`);
         if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(String(error)));
         return;
       }
@@ -261,9 +259,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return () => window.removeEventListener("keydown", onPickerKey, true);
   }, [selecting, navigationHeld, send, navigation.exit]);
 
-  function fit(ids: readonly PreviewId[] = PREVIEW_IDS) {
-    setLayout((current) => fitBoards(current, ids, geometry.current, geometry.current.headerHeight));
-  }
   function focus(id: PreviewId) {
     setLayout((current) => {
       const restored = unfocus(current);
@@ -274,7 +269,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
   function toggleSelection(id: PreviewId) {
     const next = selecting === id ? null : id;
-    navigation.exit(false); setSelecting(next); setHand(false);
+    navigation.exit(false); setSelecting(next);
     if (active) void browser.owner(next ? "picker" : "human");
   }
   function changeZoom(zoom: number) {
@@ -308,15 +303,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setLayout((current) => start.id ? { ...current, boards: { ...current.boards, [start.id]: dragBoard(start.state.boards[start.id], delta, start.state.camera.zoom) } } : { ...current, camera: { ...start.state.camera, x: start.state.camera.x + delta.x, y: start.state.camera.y + delta.y } });
   }
   function endDrag() { drag.current = null; setDragging(false); }
-  function switchFixture(next: Fixture) {
-    if (next === fixture) return;
-    navigation.exit(); setFixture(next); setSelecting(null); setTools(null); setSelections([]);
-    runtimeRef.current = emptyRuntimes(); setRuntimes(runtimeRef.current); setNotice(""); setBridgeDetail("Connecting previews…");
-  }
   function connectFrame(id: PreviewId) {
     runtimeRef.current = { ...runtimeRef.current, [id]: { ...runtimeRef.current[id], ready: false } };
     setRuntimes(runtimeRef.current);
-    setBridgeDetail("Waiting for preview bridge. Reload from Actions if it cannot connect.");
     frames.current[id]?.contentWindow?.postMessage({ protocol: BRIDGE_PROTOCOL, session, generation: "", kind: "connect" }, origin);
   }
   function fullyVisible(id: PreviewId) {
@@ -447,30 +436,24 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     } catch (error) { setNotice(`Capture failed: ${String(error)}`); }
   }
 
-  const allReady = PREVIEW_IDS.every((id) => runtimes[id].ready);
-  const serverFailed = active?.status === "failed";
-  const statusText = serverFailed ? active.statusDetail : notice || (allReady ? active?.statusDetail : undefined) || bridgeDetail;
+  function grantBrowserControl() {
+    if (browser.locked || !PREVIEW_IDS.every(id => runtimeRef.current[id].ready) || active?.status === "failed") return;
+    navigation.exit(false); setSelecting(null); setTools(null);
+    setLayout(current => ({ ...fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight), linked: false }));
+    setNotice("Route linking paused during agent checks. Re-enable it in preview actions when needed.");
+    // owner() synchronously installs pointer/keyboard shields before the host
+    // validates the handoff. Never grant from an agent tool or a chat message.
+    void browser.owner("agent");
+  }
+  const statusText = active?.status === "failed" ? active.statusDetail : notice;
   return <div className="workspace">
-    <header className="topbar">
-      <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong title={active?.appRoot}>{active ? active.appRoot.split("/").pop() : "Mauxi"}</strong></div>
-      {!active && <div className="fixture-switch" aria-label="Fixture"><button aria-pressed={fixture === "vite"} onClick={() => switchFixture("vite")}>Vite</button><button aria-pressed={fixture === "next"} onClick={() => switchFixture("next")}>Next.js</button></div>}
-      <div className="canvas-actions" aria-label="Canvas controls" inert={browser.locked}>
-        <button aria-pressed={hand} title="Pan anywhere · hold Space temporarily" onClick={() => { navigation.exit(); setHand(!hand); }}>{hand ? "Hand on" : "Hand"}</button>
-        <button onClick={() => fit()}>Fit both</button><button onClick={() => { setLayout((current) => ({ ...unfocus(current), camera: { x: 24, y: 24, zoom: 1 } })); }}>Reset</button>
-        <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
-        <button aria-pressed={layout.linked} title="Link same-project routes, never clicks or forms. Unlink for custom action routes." onClick={() => setLayout((current) => ({ ...current, linked: !current.linked }))}>{layout.linked ? "Routes linked" : "Routes unlinked"}</button>
-      </div>
-      {active && <BrowserControlBar control={browser} ready={allReady && !serverFailed} onGrant={() => {
-        setSelecting(null); setTools(null); setHand(false);
-        setLayout(current => ({ ...fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight), linked: false }));
-        setNotice("Route linking paused to avoid replaying side effects. Use test accounts; interactions require separate approval.");
-        // Focus remains in the trusted shell; inert removes existing iframe focus.
-        void browser.owner("agent");
-      }} />}
-      <div className="connection"><span className={allReady && !serverFailed ? "online" : ""} aria-hidden="true">●</span><span className="status-text" role="status" title={`${active?.statusDetail ?? bridgeDetail}\n${notice}`}>{statusText}</span>{active && <button onClick={() => { void persist(layoutRef.current).then(onClose); }}>Close project</button>}</div>
-    </header>
     <div className="canvas-surface">
     <CanvasBackground />
+    <header className="topbar">
+      {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+    </header>
+    {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
       onPointerDown={(event) => {
@@ -504,8 +487,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock workspaceId={active?.workspaceId} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
     </div>
-    {tools && <PreviewTools id={tools} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
+    {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } }; return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
   </div>;
 }

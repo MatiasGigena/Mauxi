@@ -1,3 +1,4 @@
+import { fitCanvas } from "../helpers/workspace-controls";
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { mockDesktop } from "./fixtures";
@@ -44,7 +45,7 @@ test("default pan and pinch work above previews; one click activates without cli
   await page.keyboard.down("Control"); await page.mouse.wheel(0, -45); await page.keyboard.up("Control");
   await expect.poll(async () => (await camera(page)).zoom).not.toBe(pan.zoom);
   await idle(page);
-  await page.getByRole("button", { name: "Fit both", exact: true }).click();
+  await fitCanvas(page);
   // The first click lands directly above a page action but must only activate.
   const action = (await preview(page).locator("#action").boundingBox())!;
   await page.mouse.click(action.x + 10, action.y + 5);
@@ -133,10 +134,10 @@ test("dragging a passive preview never activates it; hand and picker still work"
   await page.mouse.move(bounds.x + 150, bounds.y + 130, { steps: 4 }); await page.mouse.up();
   await expect(activate(page)).toBeVisible();
   await expect(board(page)).toHaveAttribute("data-interacting", "false");
-  await page.getByRole("button", { name: "Hand", exact: true }).click();
+  await page.getByTestId("canvas").focus(); await page.keyboard.down("Space");
   await activate(page).click();
   await expect(board(page)).toHaveAttribute("data-interacting", "false");
-  await page.getByRole("button", { name: "Hand on", exact: true }).click();
+  await page.keyboard.up("Space");
   await page.getByRole("button", { name: "Select in Desktop", exact: true }).click();
   await expect(page.getByTestId("desktop-preview")).not.toHaveAttribute("inert");
   await preview(page).locator("#empty").click();

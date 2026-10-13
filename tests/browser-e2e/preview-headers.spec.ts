@@ -1,3 +1,4 @@
+import { closeProject } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -88,7 +89,7 @@ test("only the two approved previews may override embedding headers", async ({},
     expect(page.frames().some(frame => frame.url().startsWith(foreignOrigin))).toBe(false);
     await page.screenshot({ path: testInfo.outputPath("preview-headers.png") });
     const welcome = app.waitForEvent("window");
-    await page.getByRole("button", { name: "Close project", exact: true }).click();
+    await closeProject(page);
     page = await welcome;
     await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
     expect(await readFile(path.join(root, "vite.config.mjs"), "utf8")).toBe(config);

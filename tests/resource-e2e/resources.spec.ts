@@ -1,3 +1,4 @@
+import { closeProject } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -19,9 +20,10 @@ test("references load in the background without design setup or controls", async
 
     // Real main-process wiring, fresh private profile, no native picker or approval.
     const agent = await page.evaluate(() => window.mauxi!.agentBootstrap());
-    expect(agent.resources?.catalog).toMatchObject({ enabled: true, count: 10 });
-    expect(agent.resources?.catalog?.error).toBeUndefined();
-    expect(agent.resources?.skills).toEqual([]);
+    expect(agent.ready).toBe(true);
+    // Loading/content is covered by the real-SDK design-workflow tests. Private
+    // resource diagnostics and historical data are no longer broadcast to chat.
+    for (const key of ["resources", "sessions", "changeSets", "tools"]) expect(agent).not.toHaveProperty(key);
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();
@@ -33,7 +35,7 @@ test("references load in the background without design setup or controls", async
     await page.screenshot({ path: testInfo.outputPath("background-guidance-settings.png") });
     await page.getByRole("button", { name: "Close models and providers" }).click();
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
-    const welcome = app.waitForEvent("window"); await page.getByRole("button", { name: "Close project", exact: true }).click();
+    const welcome = app.waitForEvent("window"); await closeProject(page);
     page = await welcome;
     await expect(page.getByRole("button", { name: "Open Project" })).toBeVisible();
   } finally {

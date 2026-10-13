@@ -13,12 +13,11 @@ export interface CanvasState {
   camera: Camera;
   boards: Record<PreviewId, Artboard>;
   linked: boolean;
-  chatHeight: number;
   focus: { previewId: PreviewId; camera: Camera; positions: Record<PreviewId, Point> } | null;
 }
 export function defaultCanvas(): CanvasState {
   return {
-    version: 1, camera: { x: 0, y: 0, zoom: 0.55 }, linked: true, chatHeight: 208, focus: null,
+    version: 1, camera: { x: 0, y: 0, zoom: 0.55 }, linked: true, focus: null,
     boards: { desktop: { x: 0, y: 0, width: 1440, height: 900 }, mobile: { x: 1518, y: 0, width: 390, height: 844 } },
   };
 }
@@ -65,7 +64,7 @@ export function isCanvasState(value: unknown): value is CanvasState {
   if (!value || typeof value !== "object") return false;
   try { if (JSON.stringify(value).length > 4096) return false; } catch { return false; }
   const v = value as CanvasState;
-  return v.version === 1 && camera(v.camera) && typeof v.linked === "boolean" && numberIn(v.chatHeight, 144, 600)
+  return v.version === 1 && camera(v.camera) && typeof v.linked === "boolean"
     && !!v.boards && PREVIEW_IDS.every((id) => point(v.boards[id]) && Number.isInteger(v.boards[id].width) && numberIn(v.boards[id].width, 240, 3840) && Number.isInteger(v.boards[id].height) && numberIn(v.boards[id].height, 240, 2160))
     && (v.focus === null || (!!v.focus && PREVIEW_IDS.includes(v.focus.previewId) && camera(v.focus.camera) && !!v.focus.positions && PREVIEW_IDS.every((id) => point(v.focus!.positions[id]))));
 }

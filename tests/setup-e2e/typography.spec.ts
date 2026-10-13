@@ -28,7 +28,7 @@ test("model and provider labels use onboarding's rendered Poppins and medium wei
     const snapshot = {
       ready: true, workspaceId: "test-workspace", providers: [{ id: "openai-codex", name: "OpenAI Codex", authenticated: true, authMethods: [] }],
       models: [{ key: "openai-codex/gpt-6-sol", provider: "openai-codex", id: "gpt-6-sol", name: "GPT-6 Sol", available: true, supportsImages: true, thinkingLevels: ["low"] }],
-      sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "low", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      messages: [], thinkingLevel: "low", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
   });

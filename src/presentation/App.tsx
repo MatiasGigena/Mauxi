@@ -55,21 +55,11 @@ export function App() {
     }
   }
 
-  async function closeProject() {
-    if (!window.mauxi) return;
-    setBusy(true); setError("");
-    try {
-      await window.mauxi.closeProject();
-      setDiscovery(null);
-    } catch (reason) { setError(errorMessage(reason)); }
-    finally { setBusy(false); }
-  }
-
   if (!bootstrap && !error) return <main className="launch-screen is-empty"><img className="launch-logo" src={logoText} alt="Mauxi" /><p>Checking recovery records…</p></main>;
   if (bootstrap?.mode === "proof") return <Workspace />;
   if (bootstrap?.active) return (
     <>
-      <Workspace active={bootstrap.active} onClose={() => void closeProject()} />
+      <Workspace active={bootstrap.active} onClose={async () => { if (!window.mauxi) return; const result = await window.mauxi.closeProject(); setDiscovery(null); setBusy(false); setError(""); setBootstrap(current => ({ mode: current?.mode ?? "project", ...result })); }} />
       {error && <div className="floating-error" role="alert">{error}</div>}
     </>
   );

@@ -1,3 +1,4 @@
+import { fitCanvas, resetCamera, toggleRoutes } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import path from "node:path";
 import { latestSelection, observeSelections, revalidateSelection } from "../helpers/selection-evidence";
@@ -9,7 +10,7 @@ const mobile = () => page.frameLocator('[data-testid="mobile-preview"]');
 const button = (name: string) => page.getByRole("button", { name, exact: true });
 
 test.beforeAll(async ({}, testInfo) => {
-  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
   page = await application.firstWindow();
 });
 test.afterAll(async () => { await application?.close(); });
@@ -46,7 +47,7 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
     await page.getByLabel("Message", { exact: true }).fill(`Typing at ${zoom}`);
     expect(await page.getByLabel("Message", { exact: true }).evaluate((node) => getComputedStyle(node).fontSize)).toBe("14px");
   }
-  await button("Fit both").click();
+  await fitCanvas(page);
   await actions("Mobile");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(button("Close actions")).toBeFocused();
@@ -63,35 +64,39 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
   expect(dock!.x + dock!.width).toBeLessThan(surface!.x + surface!.width);
   expect(dock!.y + dock!.height).toBeLessThan(surface!.y + surface!.height);
   expect((await page.getByLabel("Message", { exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(36);
-  await button("Hand").click();
+  await page.getByTestId("canvas").focus(); await page.keyboard.down("Space");
   await page.getByLabel("Message", { exact: true }).fill("Typing does not pan the canvas.");
   await page.getByLabel("Message", { exact: true }).press("ArrowLeft");
   expect(await page.locator(".chat-dock").boundingBox()).toEqual(dock);
-  await button("Hand on").click();
+  await page.keyboard.up("Space");
 });
 
 test("1:1 header dragging, pointer cancellation, independent wheel and hand/selection input", async () => {
   const board = page.locator('[data-preview-id="desktop"]');
   for (const zoom of [.25, .5, 1, 2]) {
-    await button("Reset").click();
+    await resetCamera(page);
     const bounds = await page.getByTestId("canvas").boundingBox();
     await page.mouse.move(5, bounds!.y + 5);
     await page.keyboard.down("Control"); await page.mouse.wheel(0, Math.log(1 / zoom) / .005); await page.keyboard.up("Control");
     await expect.poll(async () => Number(await page.getByLabel("Camera zoom").inputValue())).toBeCloseTo(zoom, 2);
+    await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
+    await resetCamera(page, zoom); // Keep the grip below the floating header islands.
     const before = await board.boundingBox(); const grip = await board.locator(".board-grip").boundingBox();
     await page.mouse.move(grip!.x + 10, grip!.y + 10); await page.mouse.down();
     await page.mouse.move(grip!.x + 47, grip!.y + 39); await page.mouse.up();
     const after = await board.boundingBox();
     expect(after!.x - before!.x).toBeCloseTo(37, 0); expect(after!.y - before!.y).toBeCloseTo(29, 0);
   }
-  await button("Fit both").click();
+  await fitCanvas(page);
   await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
+  if (await button("Interact with Desktop preview").isVisible()) await button("Interact with Desktop preview").click();
+  await expect(board).toHaveAttribute("data-interacting", "true");
   await desktop().locator("body").evaluate(() => scrollTo(0, 0));
   const frame = await page.getByTestId("desktop-preview").boundingBox();
   await page.mouse.move(frame!.x + 100, frame!.y + 100); await page.mouse.wheel(0, 220);
   await expect.poll(() => desktop().locator("body").evaluate(() => scrollY)).toBeGreaterThan(0);
   expect(await mobile().locator("body").evaluate(() => scrollY)).toBe(0);
-  await button("Hand").click();
+  await page.getByTestId("canvas").focus(); await page.keyboard.down("Space");
   const scrollBefore = await desktop().locator("body").evaluate(() => scrollY);
   const before = await board.boundingBox();
   await page.mouse.move(frame!.x + 100, frame!.y + 100); await page.mouse.down(); await page.mouse.move(frame!.x + 143, frame!.y + 125); await page.mouse.up();
@@ -99,7 +104,7 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
   await page.mouse.wheel(0, 80);
   expect(await desktop().locator("body").evaluate(() => scrollY)).toBe(scrollBefore);
   await expect(desktop().getByTestId("click-count")).toContainText("0");
-  await button("Hand on").click(); await button("Fit both").click();
+  await page.keyboard.up("Space"); await fitCanvas(page);
   await button("Select in Desktop").click();
   await desktop().getByTestId("known-target").click();
   await expect(desktop().getByTestId("click-count")).toContainText("0");
@@ -143,7 +148,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await page.getByLabel("Camera zoom").fill("0.5");
   await button("Select in Desktop").click();
 
-  await button("Fit both").click();
+  await fitCanvas(page);
   await button("Select in Desktop").click();
   await target.hover();
   await page.keyboard.press("ArrowUp");
@@ -251,13 +256,13 @@ test("linked client/document routes arrive once; unlink/copy, POST and auth isol
   expect(navigations.filter((url) => url.endsWith("/details?view=wide#overview"))).toHaveLength(1);
   expect(await mobile().locator("body").evaluate(() => history.state)).toBeNull();
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
-  await button("Routes linked").click();
+  await toggleRoutes(page, true);
   await desktop().getByRole("link", { name: "Document route", exact: true }).click();
   await expect.poll(() => route("desktop")).toBe("/document");
   expect(await route("mobile")).toBe("/details?view=wide#overview");
   await actions(); await button("Copy route to mobile").click();
   await expect.poll(() => route("mobile")).toBe("/document");
-  await button("Routes unlinked").click();
+  await toggleRoutes(page, false);
   const posts: string[] = [];
   page.on("request", (request) => { if (request.method() === "POST" && request.url().endsWith("/side-effect")) posts.push(request.url()); });
   await desktop().getByRole("button", { name: "Submit once", exact: true }).click();
@@ -271,7 +276,7 @@ test("linked client/document routes arrive once; unlink/copy, POST and auth isol
   await actions(); await expect(button("Copy route to mobile")).toBeDisabled(); await button("Close actions").click();
   await desktop().getByRole("link", { name: "External route", exact: true }).click();
   expect(await route("desktop")).toBe("/auth/callback?code=private");
-  await expect(page.locator(".connection [role=status]")).toContainText("External navigation blocked");
+  await expect(page.locator(".workspace-notice")).toContainText("External navigation blocked");
   await desktop().getByRole("link", { name: "Document route", exact: true }).click();
   await desktop().getByRole("link", { name: "Client route", exact: true }).click();
   await expect.poll(() => route("mobile")).toBe("/details?view=wide#overview");
@@ -310,7 +315,7 @@ for (const submission of [
 }
 
 test("SPA route changes invalidate only that preview's selections and require a fresh pick", async () => {
-  await button("Routes linked").click();
+  await toggleRoutes(page, true);
   for (const side of ["Mobile", "Desktop"]) {
     await button(`Select in ${side}`).click();
     await (side === "Desktop" ? desktop() : mobile()).getByTestId("known-target").click();
@@ -347,7 +352,7 @@ test("SPA route changes invalidate only that preview's selections and require a 
 test("readable text, reduced motion, immediate feedback and minimal resting composition", async ({}, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
   await page.evaluate(() => document.documentElement.style.fontSize = "20px");
-  await button("Fit both").click();
+  await fitCanvas(page);
   await expect(page.locator("dialog")).toHaveCount(0);
   await expect(page.locator(".artboard-actions button")).toHaveCount(6);
   await page.getByLabel("Message", { exact: true }).fill("Keyboard text stays in chat: + - 0 f h");
@@ -363,7 +368,7 @@ test("readable text, reduced motion, immediate feedback and minimal resting comp
   await page.screenshot({ path: testInfo.outputPath("large-text-reduced-motion.png") });
   await page.evaluate(() => document.documentElement.style.fontSize = "16px");
   await page.emulateMedia({ reducedMotion: "no-preference", contrast: "no-preference" });
-  await button("Fit both").click();
+  await fitCanvas(page);
   await page.screenshot({ path: testInfo.outputPath("workspace.png") });
   await actions();
   await expect(page.getByText("Preview diagnostics", { exact: true })).toHaveCount(0);

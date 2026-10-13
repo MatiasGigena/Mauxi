@@ -29,7 +29,12 @@ export class WorkspaceStore {
   async startPath(root: string): Promise<string | undefined> { return (await this.read(root))?.startPath; }
   async canvas(root: string): Promise<CanvasState | null> {
     const canvas = (await this.read(root))?.canvas;
-    return isCanvasState(canvas) ? canvas : null;
+    return isCanvasState(canvas) ? this.currentCanvas(canvas) : null;
+  }
+  private currentCanvas(canvas: CanvasState): CanvasState {
+    // Accept legacy v1 layouts but stop re-saving removed fields (chatHeight).
+    const { version, camera, boards, linked, focus } = structuredClone(canvas);
+    return { version, camera, boards, linked, focus };
   }
   private update(root: string, change: (current: RememberedWorkspace | null) => RememberedWorkspace): Promise<void> {
     const write = this.writes.catch(() => undefined).then(async () => {
@@ -46,7 +51,7 @@ export class WorkspaceStore {
   }
   async saveCanvas(root: string, canvas: CanvasState): Promise<void> {
     if (!isCanvasState(canvas)) throw new Error("Invalid canvas layout");
-    const snapshot = structuredClone(canvas);
+    const snapshot = this.currentCanvas(canvas);
     return this.update(root, (current) => {
       if (!current) throw new Error("Workspace has not been confirmed");
       return { ...current, canvas: snapshot };

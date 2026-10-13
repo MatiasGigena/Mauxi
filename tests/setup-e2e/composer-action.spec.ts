@@ -10,7 +10,7 @@ async function start(page: Page) {
     state.agentSnapshot = {
       ready: true, workspaceId: "test-workspace", sessionId: "session", providers: [],
       models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
-      selectedModel: "fake/one", sessions: [], messages: [], tools: [], changeSets: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
     state.emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } }));
     state.sent = [];
@@ -132,7 +132,7 @@ for (const sendMode of ["reject", "throw"]) {
 
 test("one stable action sends, queues follow-ups, and stops without losing a new draft", async ({ page }) => {
   await start(page);
-  const action = page.locator(".send-actions button");
+  const action = page.locator(".send-action");
   const editor = page.getByRole("textbox", { name: "Message", exact: true });
   await expect(action).toHaveCount(1);
   await expect(action).toHaveAccessibleName("Send");
