@@ -420,6 +420,25 @@ describe("managed change checkpoints", () => {
     expect(view.unexpectedPaths).toContain("package-lock.json");
   });
 
+  it("reports files skipped by the scan budget as outside the baseline", async () => {
+    const { root, changes, begin } = await setup();
+    for (let index = 0; index < 9; index++) await writeFile(path.join(root, `a-${index}.bin`), Buffer.alloc(2 * 1024 * 1024, 97));
+    await writeFile(path.join(root, "b.bin"), Buffer.alloc(1.5 * 1024 * 1024, 98));
+    await writeFile(path.join(root, "c.txt"), Buffer.alloc(1024 * 1024, 99));
+    await begin();
+    await expect(changes.write("c.txt", "agent\n")).rejects.toThrow(/outside this request's bounded baseline/);
+  });
+
+  it("leaves a checkpoint abandonable when persisting its activation fails", async () => {
+    const { changes } = await setup();
+    const id = await changes.prepare("Polish the card");
+    vi.spyOn(changes as unknown as { persist(): Promise<void> }, "persist").mockRejectedValueOnce(new Error("disk full"));
+    await expect(changes.activate(id)).rejects.toThrow(/disk full/);
+    await changes.abandonPrepared(id, "Activation failed");
+    const next = await changes.prepare("Next request");
+    await expect(changes.activate(next)).resolves.toBeUndefined();
+  });
+
   it("undoes only the explicitly selected latest eligible change set", async () => {
     const { root, changes, begin } = await setup();
     await writeFile(path.join(root, "src/one.txt"), "one\n"); await writeFile(path.join(root, "src/two.txt"), "two\n");

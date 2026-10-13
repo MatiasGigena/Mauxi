@@ -175,6 +175,7 @@ export class WorkspaceManager {
       await waitForHttp(new URL(plan.startPath ?? "/", plan.origin).href, 45_000,
         () => !this.active || this.active !== active || active.closing || (request.mode === "start" && active.process?.pid == null),
         plan.framework === "vite" ? ".mauxi/bridge.js" : undefined);
+      if (active.closing) throw new Error("Setup was cancelled because the project is closing.");
       active.value.status = "connecting-previews";
       active.value.statusDetail = request.mode === "attach"
         ? "Server responded. Waiting for its preview bridge; restart the external server if its config was already loaded."
@@ -186,6 +187,7 @@ export class WorkspaceManager {
         this.emit();
       }, 30_000);
       await this.workspaces.remember(plan.projectRoot, plan.id, plan.startPath);
+      if (active.closing) throw new Error("Setup was cancelled because the project is closing.");
       this.emit();
       return structuredClone(active.value);
     } catch (error) {

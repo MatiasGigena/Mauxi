@@ -322,8 +322,15 @@ export class ChangeCoordinator {
       if (!set || set.state !== "prepared") throw new Error("Prepared checkpoint is unavailable.");
       if (this.store.activeId && this.store.activeId !== id) throw new Error("Another request checkpoint is active.");
       await this.captureBaseline(set);
+      const previousActiveId = this.store.activeId;
       set.state = "active"; set.updatedAt = new Date().toISOString(); this.store.activeId = id;
-      await this.persist();
+      try { await this.persist(); }
+      catch (error) {
+        // Leave the set prepared so the caller can abandon it.
+        set.state = "prepared";
+        if (previousActiveId) this.store.activeId = previousActiveId; else delete this.store.activeId;
+        throw error;
+      }
     });
   }
 
@@ -435,7 +442,8 @@ export class ChangeCoordinator {
   private assertRequestBaseline(set: StoredChangeSet, before: FileSnapshot, existing?: FileRecord): void {
     if (existing) return;
     const baseline = set.baseline ?? {};
-    const covered = Object.prototype.hasOwnProperty.call(baseline, before.path);
+    // An unhashed marker records that a file was seen, not its content.
+    const covered = Object.prototype.hasOwnProperty.call(baseline, before.path) && !baseline[before.path]?.startsWith("unhashed:");
     if (set.baselineIncomplete && !covered) throw new Error(`File was outside this request's bounded baseline: ${before.path}. Start a new request after reducing project coverage.`);
     const expected = covered ? baseline[before.path] : null;
     if (expected !== before.hash) throw new Error(`File changed after this request checkpoint was created: ${before.path}`);

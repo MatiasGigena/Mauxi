@@ -88,7 +88,16 @@ function safeHtml(element: Element): string {
 // The shell rejects a whole bridge message when any field exceeds the
 // preview contract's bounds, so page-controlled attributes are clipped here.
 function testIdOf(element: Element): string | null {
-  return element.getAttribute("data-testid")?.slice(0, 512) ?? null;
+  // A clipped test ID would name no element, so an oversized one is dropped.
+  const testId = element.getAttribute("data-testid");
+  return testId && testId.length <= 512 ? testId : null;
+}
+function tagOf(element: Element): string {
+  return element.tagName.toLowerCase().slice(0, 64);
+}
+function boundedUrl(): string {
+  if (location.href.length <= 4_096) return location.href;
+  return `${location.origin}${location.pathname}`.slice(0, 4_096);
 }
 function labelOf(element: Element, text: string, limit: number): string {
   return (element.getAttribute("aria-label") ?? (text.slice(0, 80) || element.tagName.toLowerCase())).slice(0, limit);
@@ -209,7 +218,7 @@ function unsupportedReason(element: Element): string | null {
 }
 function ancestryFor(element: Element): DomAncestryEntry[] {
   return hierarchy(element).map((entry, index) => ({
-    tag: entry.tagName.toLowerCase(), label: labelOf(entry, boundedText(entry), 256),
+    tag: tagOf(entry), label: labelOf(entry, boundedText(entry), 256),
     selector: boundedSelector(simpleSelector(entry)), testId: testIdOf(entry), selected: index === 0,
   }));
 }
@@ -242,7 +251,7 @@ async function describe(element: Element, clientX: number, clientY: number, sele
   const selector = boundedSelector(context?.selector ?? simpleSelector(element));
   const text = boundedText(element);
   const fingerprint: ElementFingerprint = {
-    selector, tag: element.tagName.toLowerCase(), testId: testIdOf(element), text,
+    selector, tag: tagOf(element), testId: testIdOf(element), text,
     sourceKey: source.filePath ? `${source.filePath}:${source.lineNumber ?? "?"}:${source.columnNumber ?? "?"}`.slice(0, 1_024) : null,
     instanceKey: instanceKey(element),
   };
@@ -254,7 +263,7 @@ async function describe(element: Element, clientX: number, clientY: number, sele
   const crop = { x: cropX, y: cropY, width: desiredWidth, height: desiredHeight, space: "preview-css-pixels" as const };
   const reason = unsupportedReason(element);
   return {
-    selectionId, documentGeneration: generation, capturedAt: new Date().toISOString(), url: location.href,
+    selectionId, documentGeneration: generation, capturedAt: new Date().toISOString(), url: boundedUrl(),
     viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
     coordinates: { clientX, clientY, space: "preview-css-pixels" as const },
     element: { tag: fingerprint.tag, label: labelOf(element, text, 1_024), role: element.getAttribute("role")?.slice(0, 128) ?? null, text, html: safeHtml(element) },
@@ -356,7 +365,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     const candidate = selectedElements.get(message.selectionId) ?? null;
     const valid = Boolean(candidate && candidate.isConnected
       && instanceKey(candidate) === message.fingerprint.instanceKey
-      && candidate.tagName.toLowerCase() === message.fingerprint.tag
+      && tagOf(candidate) === message.fingerprint.tag
       && testIdOf(candidate) === message.fingerprint.testId
       && boundedText(candidate) === message.fingerprint.text);
     send({ kind: "revalidation", selectionId: message.selectionId, status: valid ? "valid" : "stale",
@@ -369,7 +378,7 @@ function reportRoute() {
     reportedUrl = location.href; reportedSafe = !unsafeRoute; unsafeRoute = false; routeRevision++;
     markedSelections = []; selectedElements.clear(); hoverBase = null; refinementPath = []; overlapTargets = []; drawOutline(null);
   }
-  send({ kind: "route", url: location.href, navigationId, safe: reportedSafe }); navigationId = null; saveBootstrap();
+  send({ kind: "route", url: boundedUrl(), navigationId, safe: reportedSafe }); navigationId = null; saveBootstrap();
 }
 for (const method of ["pushState", "replaceState"] as const) {
   const original = history[method];
@@ -423,6 +432,6 @@ document.addEventListener("click", (event) => {
 }, true);
 
 function reportReady() {
-  send({ kind: "ready", url: location.href, viewport: { width: innerWidth, height: innerHeight }, reactGrab: true, previewId });
+  send({ kind: "ready", url: boundedUrl(), viewport: { width: innerWidth, height: innerHeight }, reactGrab: true, previewId });
 }
 reportReady(); reportRoute();
