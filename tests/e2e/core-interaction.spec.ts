@@ -25,7 +25,7 @@ async function waitForBridge() {
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
 }
 
-async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, mappingMethod: "react-grab" | "jsx-attribute" = "react-grab") {
+async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string) {
   await waitForBridge();
   await observeSelections(page);
   await page.waitForTimeout(250);
@@ -61,7 +61,7 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   await expect(page.locator(".selection-chip")).toHaveCount(initialSelectionCount + 1);
   const evidence = await resolvedSelection(page);
   expect(evidence.source?.filePath).toContain(sourceName);
-  expect(evidence.capture.source.method).toBe(mappingMethod);
+  expect(evidence.capture.source.method).toBe("react-grab");
 
   await page.getByRole("button", { name: "Select in Mobile", exact: true }).click();
   await mobile.locator('[data-testid="known-target"]').click();
@@ -110,7 +110,7 @@ test("Vite local cookies are shared by the two same-workspace previews", async (
 
 test("Next App Router/Webpack: server-client fixture has precise source picking", async () => {
   await selectFixture(page, "next");
-  await proveFixture("Next.js", "components/ProofCard.tsx", "jsx-attribute");
+  await proveFixture("Next.js", "components/ProofCard.tsx");
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByText("Use local test account").click();

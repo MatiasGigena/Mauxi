@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { latestSelection, observeSelections, resolvedSelection } from "../helpers/selection-evidence";
 
-async function pick(page: Page, id: string, file: string, anchor: string, method: string) {
+async function pick(page: Page, id: string, file: string, anchor: string) {
   const frame = page.frameLocator('[data-testid="desktop-preview"]');
   const target = id === "button-text" ? frame.getByTestId("known-target").locator("span") : frame.getByTestId(id);
   await target.evaluate(node => node.scrollIntoView({ block: "center" }));
@@ -26,7 +26,7 @@ async function pick(page: Page, id: string, file: string, anchor: string, method
   const chip = page.locator(".selection-chip");
   await expect(chip).toHaveCount(1);
   const evidence = await resolvedSelection(page);
-  expect(evidence.capture.source.method).toBe(method);
+  expect(evidence.capture.source.method).toBe("react-grab");
   expect(evidence.source).not.toBeNull();
   const source = await readFile(file, "utf8");
   const offset = source.indexOf(anchor); expect(offset).toBeGreaterThanOrEqual(0);
@@ -53,7 +53,6 @@ for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
       const desktop = page.frameLocator('[data-testid="desktop-preview"]');
       expect(await desktop.locator("body").evaluate(() => devicePixelRatio)).toBe(scale);
       const base = `fixtures/${fixture}/${fixture === "vite" ? "src" : "app"}`;
-      const method = fixture === "vite" ? "react-grab" : "jsx-attribute";
       const samples: Record<string, number[]> = {};
 
       for (const id of ["motion-target", "gsap-target"]) {
@@ -72,18 +71,18 @@ for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
       for (const zoom of ["0.25", "0.5", "1", "2"]) {
         await page.getByLabel("Camera zoom").fill(zoom);
 
-        for (const id of ["motion-target", "gsap-target"]) await pick(page, id, `${base}/components/MotionProof.tsx`, id === "motion-target" ? '<button data-testid="motion-target"' : '<button ref={target}', method);
+        for (const id of ["motion-target", "gsap-target"]) await pick(page, id, `${base}/components/MotionProof.tsx`, id === "motion-target" ? '<button data-testid="motion-target"' : '<button ref={target}');
         await expect(desktop.getByTestId("motion-clicks")).toHaveText("Animation clicks: 0");
-        await pick(page, "known-icon", `${base}/components/ProofCard.tsx`, '<path d=', method);
+        await pick(page, "known-icon", `${base}/components/ProofCard.tsx`, '<path d=');
         await expect(desktop.getByTestId("click-count")).toContainText("0");
-        await pick(page, "known-target", `${base}/components/ProofCard.tsx`, '<button className="primary"', method);
-        await pick(page, "button-text", `${base}/components/ProofCard.tsx`, '<span>Run action', method);
+        await pick(page, "known-target", `${base}/components/ProofCard.tsx`, '<button className="primary"');
+        await pick(page, "button-text", `${base}/components/ProofCard.tsx`, '<span>Run action');
 
         if (fixture === "vite") {
-          for (const [id, anchor] of [["portal-target", '<aside className="portal-note"'], ["overlap-front", '<button data-testid="overlap-front"'], ["scrolled-target", '<button data-testid="scrolled-target"']] as const) await pick(page, id, `${base}/App.tsx`, anchor, method);
+          for (const [id, anchor] of [["portal-target", '<aside className="portal-note"'], ["overlap-front", '<button data-testid="overlap-front"'], ["scrolled-target", '<button data-testid="scrolled-target"']] as const) await pick(page, id, `${base}/App.tsx`, anchor);
         } else {
-          await pick(page, "next-scrolled-target", `${base}/page.tsx`, '<button data-testid="next-scrolled-target"', method);
-          await pick(page, "server-heading", `${base}/page.tsx`, '<h1 data-testid="server-heading"', method);
+          await pick(page, "next-scrolled-target", `${base}/page.tsx`, '<button data-testid="next-scrolled-target"');
+          await pick(page, "server-heading", `${base}/page.tsx`, '<h1 data-testid="server-heading"');
         }
       }
 
@@ -150,6 +149,7 @@ test("Next: delayed server bytes, visible fallback, hydrated card and client rou
     const mobile = page.frameLocator('[data-testid="mobile-preview"]');
     const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
     await desktop.locator("body").evaluate(() => { document.body.dataset.instance = "stream-route-instance"; });
+    await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await desktop.getByRole("link", { name: "Delayed streaming route", exact: true }).click();
     await expect(desktop.getByTestId("streaming-fallback")).toBeVisible();
     await expect(desktop.getByTestId("streamed-content")).toBeVisible();
