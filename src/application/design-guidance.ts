@@ -8,9 +8,10 @@ export const GUIDANCE_MARKER = "\n\n<mauxi_guidance>";
 
 export function classifyDesignRequest(text: string, mobileSelection = false): DesignSkillName[] {
   const result = new Set<DesignSkillName>();
-  const explicit = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];
+  const command = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];
+  const explicit = DESIGN_SKILLS.find((skill) => skill === command);
 
-  if (explicit && DESIGN_SKILLS.includes(explicit as DesignSkillName)) result.add(explicit as DesignSkillName);
+  if (explicit) result.add(explicit);
 
   if (/\b(ui|ux|layout|design|interface|polish|spacing|typography|button|card|header|hero|footer|pricing|navigation|responsive|redesign|diseño|interfaz|espaciado)\b/i.test(text)) result.add("apple-design");
 

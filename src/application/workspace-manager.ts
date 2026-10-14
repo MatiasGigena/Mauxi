@@ -19,6 +19,7 @@ import {
   transactionIdFor,
   type IntegrationPlan,
 } from "../infrastructure/instrumentation/plan";
+import { hasErrorCode } from "../infrastructure/error-code";
 
 interface ActiveInternal {
   value: ActiveWorkspace;
@@ -229,9 +230,9 @@ export class WorkspaceManager {
         this.recoveryConflicts = [...new Set([...this.recoveryConflicts, ...cleanup.conflicts])];
         cleanupComplete = cleanup.state === "clean";
       } catch (cleanupError) {
-        if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") {
+        if (hasErrorCode(cleanupError, "ENOENT")) {
           try { await this.journals.read(transactionIdFor(integration)); }
-          catch (journalError) { cleanupComplete = (journalError as NodeJS.ErrnoException).code === "ENOENT"; }
+          catch (journalError) { cleanupComplete = hasErrorCode(journalError, "ENOENT"); }
         }
 
         if (!cleanupComplete) this.recoveryConflicts.push(`Setup cleanup failed for ${plan.appRoot}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);

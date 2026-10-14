@@ -1,3 +1,5 @@
+import { Type, type TSchema } from "typebox";
+import { Check } from "typebox/schema";
 import type { PreviewId } from "./preview-contract";
 
 export type BrowserOwner = "human" | "picker" | "agent";
@@ -43,26 +45,53 @@ export interface BrowserPort {
 
 export const BROWSER_OPERATIONS: BrowserOperation[] = ["screenshot", "inspect", "source", "console", "navigate", "click", "type", "hover", "scroll"];
 
+const boundedString = (limit: number, min = 0) => Type.Refine(Type.String(), (value) => value.length >= min && value.length <= limit);
+
+const coordinate = Type.Number({ minimum: -2000, maximum: 2000 });
+
+const requestFields = {
+  workspaceId: boundedString(128, 1),
+  previewId: Type.Union([Type.Literal("desktop"), Type.Literal("mobile")]),
+  documentId: boundedString(128, 1),
+  url: boundedString(4096, 1),
+  generation: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+  operation: Type.Union(BROWSER_OPERATIONS.map((operation) => Type.Literal(operation))),
+  target: Type.Optional(boundedString(128)),
+  text: Type.Optional(boundedString(4096)),
+  route: Type.Optional(boundedString(4096)),
+  x: Type.Optional(coordinate),
+  y: Type.Optional(coordinate),
+};
+
+const allowedKeys = Object.keys(requestFields);
+
+const requestSchema = Type.Object(requestFields, { additionalProperties: false });
+
+const requestChecks: [schema: TSchema, message: string][] = [
+  [Type.Object({}), "Invalid browser request"],
+  [Type.Refine(Type.Object({}), (value) => Object.keys(value).every((key) => allowedKeys.includes(key))), "Unsupported browser capability"],
+  [Type.Object({ workspaceId: requestFields.workspaceId }), "Invalid workspaceId"],
+  [Type.Object({ documentId: requestFields.documentId }), "Invalid documentId"],
+  [Type.Object({ url: requestFields.url }), "Invalid url"],
+  [Type.Object({ previewId: requestFields.previewId }), "Invalid preview"],
+  [Type.Object({ generation: requestFields.generation, operation: requestFields.operation }), "Invalid browser operation"],
+  [Type.Object({ target: requestFields.target }), "Invalid target"],
+  [Type.Object({ text: requestFields.text }), "Invalid text"],
+  [Type.Object({ route: requestFields.route }), "Invalid route"],
+  [Type.Object({ x: requestFields.x }), "Invalid x"],
+  [Type.Object({ y: requestFields.y }), "Invalid y"],
+];
+
+const targetedOperations: BrowserOperation[] = ["click", "type", "hover", "source"];
+
 export function assertBrowserRequest(value: unknown): asserts value is BrowserRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid browser request");
-  const r = value as Record<string, unknown>;
-  const allowed = ["workspaceId", "previewId", "documentId", "url", "generation", "operation", "target", "text", "route", "x", "y"];
+  for (const [schema, message] of requestChecks) if (!Check(schema, value)) throw new Error(message);
 
-  if (Object.keys(r).some(key => !allowed.includes(key))) throw new Error("Unsupported browser capability");
+  if (!Check(requestSchema, value)) throw new Error("Invalid browser request");
 
-  for (const key of ["workspaceId", "documentId", "url"]) if (typeof r[key] !== "string" || !r[key] || r[key].length > (key === "url" ? 4096 : 128)) throw new Error(`Invalid ${key}`);
+  if (targetedOperations.includes(value.operation) && !value.target) throw new Error("Inspect first and use its document-scoped target ID");
 
-  if (r.previewId !== "desktop" && r.previewId !== "mobile") throw new Error("Invalid preview");
+  if (value.operation === "type" && value.text === undefined) throw new Error("Missing text");
 
-  if (!Number.isSafeInteger(r.generation) || Number(r.generation) < 0 || !BROWSER_OPERATIONS.includes(r.operation as BrowserOperation)) throw new Error("Invalid browser operation");
-
-  for (const key of ["target", "text", "route"]) if (r[key] !== undefined && (typeof r[key] !== "string" || r[key].length > (key === "target" ? 128 : 4096))) throw new Error(`Invalid ${key}`);
-
-  for (const key of ["x", "y"]) if (r[key] !== undefined && (typeof r[key] !== "number" || !Number.isFinite(r[key]) || Math.abs(r[key]) > 2000)) throw new Error(`Invalid ${key}`);
-
-  if (["click", "type", "hover", "source"].includes(String(r.operation)) && !r.target) throw new Error("Inspect first and use its document-scoped target ID");
-
-  if (r.operation === "type" && typeof r.text !== "string") throw new Error("Missing text");
-
-  if (r.operation === "navigate" && typeof r.route !== "string") throw new Error("Missing route");
+  if (value.operation === "navigate" && value.route === undefined) throw new Error("Missing route");
 }

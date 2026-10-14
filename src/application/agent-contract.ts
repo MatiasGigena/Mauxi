@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import type { StoredSelection } from "./selection-state";
 import type { ResourceView } from "./design-resource-contract";
 
@@ -138,11 +140,13 @@ export interface AgentDialogResponse {
 }
 
 export function isThinkingLevel(value: unknown): value is AgentThinkingLevel {
-  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+  return THINKING_LEVELS.some((level) => level === value);
 }
 
+const stringSchema = Type.String();
+
 export function assertShortString(value: unknown, label: string, max = 4_096): asserts value is string {
-  if (typeof value !== "string" || value.length > max) throw new Error(`Invalid ${label}`);
+  if (!Check(stringSchema, value) || value.length > max) throw new Error(`Invalid ${label}`);
 }
 
 export function selectionContext(selections: readonly StoredSelection[]): string {

@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import type { PreviewId } from "./preview-contract";
 
 export const PREVIEW_IDS = ["desktop", "mobile"] as const;
@@ -64,7 +66,10 @@ export function fitCamera(boards: Artboard[], area: { width: number; height: num
 export function unfocus(state: CanvasState): CanvasState {
   if (!state.focus) return state;
 
-  return { ...state, camera: state.focus.camera, boards: Object.fromEntries(PREVIEW_IDS.map((id) => [id, { ...state.boards[id], x: state.focus!.positions[id].x, y: state.focus!.positions[id].y }])) as CanvasState["boards"], focus: null };
+  const { positions } = state.focus;
+  const restore = (id: PreviewId): Artboard => ({ ...state.boards[id], x: positions[id].x, y: positions[id].y });
+
+  return { ...state, camera: state.focus.camera, boards: { desktop: restore("desktop"), mobile: restore("mobile") }, focus: null };
 }
 
 export function fitBoards(state: CanvasState, ids: readonly PreviewId[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT): CanvasState {
@@ -73,25 +78,33 @@ export function fitBoards(state: CanvasState, ids: readonly PreviewId[], area: {
   return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), area, headerHeight) };
 }
 
-const numberIn = (n: unknown, min: number, max: number) => typeof n === "number" && Number.isFinite(n) && n >= min && n <= max;
+const numberIn = (minimum: number, maximum: number) => Type.Number({ minimum, maximum });
 
-function point(value: unknown): value is Point {
-  if (!value || typeof value !== "object") return false;
-  const p = value as Point;
+const pointFields = { x: numberIn(-1e6, 1e6), y: numberIn(-1e6, 1e6) };
 
-  return numberIn(p.x, -1e6, 1e6) && numberIn(p.y, -1e6, 1e6);
-}
+const cameraSchema = Type.Object({ ...pointFields, zoom: numberIn(MIN_ZOOM, MAX_ZOOM) });
 
-const camera = (value: unknown) => point(value) && numberIn((value as Camera).zoom, MIN_ZOOM, MAX_ZOOM);
+const artboardSchema = Type.Object({ ...pointFields, width: Type.Integer({ minimum: 240, maximum: 3840 }), height: Type.Integer({ minimum: 240, maximum: 2160 }) });
+
+const pointSchema = Type.Object(pointFields);
+
+const canvasSchema = Type.Object({
+  version: Type.Literal(1),
+  camera: cameraSchema,
+  linked: Type.Boolean(),
+  boards: Type.Object({ desktop: artboardSchema, mobile: artboardSchema }),
+  focus: Type.Union([
+    Type.Null(),
+    Type.Object({
+      previewId: Type.Union([Type.Literal("desktop"), Type.Literal("mobile")]),
+      camera: cameraSchema,
+      positions: Type.Object({ desktop: pointSchema, mobile: pointSchema }),
+    }),
+  ]),
+});
 
 export function isCanvasState(value: unknown): value is CanvasState {
-  if (!value || typeof value !== "object") return false;
-
   try { if (JSON.stringify(value).length > 4096) return false; } catch { return false; }
 
-  const v = value as CanvasState;
-
-  return v.version === 1 && camera(v.camera) && typeof v.linked === "boolean"
-    && !!v.boards && PREVIEW_IDS.every((id) => point(v.boards[id]) && Number.isInteger(v.boards[id].width) && numberIn(v.boards[id].width, 240, 3840) && Number.isInteger(v.boards[id].height) && numberIn(v.boards[id].height, 240, 2160))
-    && (v.focus === null || (!!v.focus && PREVIEW_IDS.includes(v.focus.previewId) && camera(v.focus.camera) && !!v.focus.positions && PREVIEW_IDS.every((id) => point(v.focus!.positions[id]))));
+  return Check(canvasSchema, value);
 }
