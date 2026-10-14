@@ -2,14 +2,28 @@ import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectionContext } from "../../src/application/agent-contract";
 import type { StoredSelection } from "../../src/application/selection-state";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
+import { selectionCapture } from "../fixtures/selection";
 
 const temporary: string[] = [];
 const servers: Server[] = [];
+const ServerAddress = Type.Object({ port: Type.Integer() });
+const ProviderRequest = Type.Object({ messages: Type.Optional(Type.Array(Type.Object({ role: Type.Optional(Type.String()), content: Type.Optional(Type.Unknown()) }))) });
 const PROVIDER_CREDENTIAL = /^(AWS_|ANTHROPIC_|GOOGLE_APPLICATION_CREDENTIALS$|CLOUDFLARE_)|_(API_KEY|TOKEN)$/;
+
+interface CompletionChunk {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{ index: number; delta: { role?: string; content?: string; tool_calls?: Array<{ index: number; id: string; type: "function"; function: { name: string; arguments: string } }> }; finish_reason: string | null }>;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
 
 beforeEach(() => {
   for (const name of Object.keys(process.env)) if (PROVIDER_CREDENTIAL.test(name)) vi.stubEnv(name, undefined);
@@ -32,19 +46,29 @@ async function waitFor(predicate: () => boolean, timeout = 6_000): Promise<void>
 }
 
 function selection(): StoredSelection {
+  const capture = selectionCapture("selection-1", "Save");
+
   return {
     status: "current",
     capture: {
-      workspaceId: "workspace-1", previewId: "desktop", selectionId: "selection-1",
+      ...capture,
       documentGeneration: "generation", url: "http://127.0.0.1:4000/account", capturedAt: "2026-01-01T00:00:00.000Z",
-      viewport: { width: 1280, height: 720, devicePixelRatio: 1 }, bounds: { x: 10, y: 20, width: 200, height: 40 },
-      element: { tag: "button", label: "Save", text: "Save", html: `<button>${"x".repeat(10_000)}</button>` },
+      viewport: { width: 1280, height: 720, deviceScaleFactor: 1 }, bounds: { x: 10, y: 20, width: 200, height: 40 },
+      element: { tag: "button", label: "Save", role: null, text: "Save", html: `<button>${"x".repeat(10_000)}</button>` },
       domAncestry: [], componentOwners: [], computedStyles: { color: "red" },
-      fingerprint: { instanceKey: "one", tag: "button", sourceKey: "src/App.tsx:4:2", text: "Save" },
-      source: { filePath: "src/App.tsx", fileFingerprint: "abc", lineNumber: 4, columnNumber: 2, method: "react-grab", ownership: "application", verification: "verified", role: "jsx-element" },
-      support: { status: "supported" }, screenshot: { status: "unavailable", crop: { x: 10, y: 20, width: 200, height: 40, space: "preview-css-pixels" }, reason: "test" },
+      fingerprint: { ...capture.fingerprint, instanceKey: "one", sourceKey: "src/App.tsx:4:2", text: "Save" },
+      source: { filePath: "src/App.tsx", componentName: null, fileFingerprint: "abc", lineNumber: 4, columnNumber: 2, method: "react-grab", ownership: "application", verification: "verified", role: "jsx-element" },
+      support: { status: "supported", reason: null }, screenshot: { status: "unavailable", crop: { x: 10, y: 20, width: 200, height: 40, space: "preview-css-pixels" }, reason: "test" },
     },
-  } as unknown as StoredSelection;
+  };
+}
+
+function changeCoordinator(host: PiAgentHost) {
+  const changes = host["changes"];
+
+  if (!changes) throw new Error("Change coordinator is not initialized");
+
+  return changes;
 }
 
 describe("agent request context", () => {
@@ -145,7 +169,7 @@ describe("bundled pi host", () => {
     try {
       await host.initialize();
       await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/one" });
-      const changes = (host as unknown as { changes: { prepare: (label: string) => Promise<string>; activate: (id: string) => Promise<void> } }).changes;
+      const changes = changeCoordinator(host);
       await changes.activate(await changes.prepare("Already running"));
 
       for (const behavior of ["prompt", "followUp"] as const) {
@@ -171,10 +195,13 @@ describe("bundled pi host", () => {
     try {
       await host.initialize();
       await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/one" });
-      const internals = host as unknown as { changes: { prepare: (label: string) => Promise<string>; activate: (id: string) => Promise<void>; write: (file: string, content: string) => Promise<unknown>; settle: () => Promise<void> }; runtime: { session: { prompt: (...args: unknown[]) => Promise<void> } } };
-      const id = await internals.changes.prepare("Agent edit"); await internals.changes.activate(id);
-      await internals.changes.write("a.txt", "after"); await internals.changes.settle();
-      const prompt = vi.spyOn(internals.runtime.session, "prompt").mockRejectedValue(new Error("No API key found for fake"));
+      const changes = changeCoordinator(host);
+      const runtime = host["runtime"];
+
+      if (!runtime) throw new Error("Agent runtime is not initialized");
+      const id = await changes.prepare("Agent edit"); await changes.activate(id);
+      await changes.write("a.txt", "after"); await changes.settle();
+      const prompt = vi.spyOn(runtime.session, "prompt").mockRejectedValue(new Error("No API key found for fake"));
 
       try {
         expect(await host.send({ workspaceId: "workspace-1", text: "rejected", behavior: "prompt", selections: [] })).toEqual({ accepted: false });
@@ -214,14 +241,14 @@ describe("bundled pi host", () => {
 
         if (expired) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: { message: "Expired API credential", type: "authentication_error" } }));
 
- return; }
+        return; }
 
-        const parsed = JSON.parse(body) as { messages?: Array<{ role?: string; content?: unknown }> };
+        const parsed = Value.Parse(ProviderRequest, JSON.parse(body));
         const messages = parsed.messages ?? [];
         const hasToolResult = messages.some((message) => message.role === "tool");
         const userText = messages.filter((message) => message.role === "user").map((message) => JSON.stringify(message.content)).join(" ");
         response.writeHead(200, { "content-type": "text/event-stream" });
-        const push = (value: unknown) => { if (!response.destroyed) response.write(`data: ${JSON.stringify(value)}\n\n`); };
+        const push = (value: CompletionChunk) => { if (!response.destroyed) response.write(`data: ${JSON.stringify(value)}\n\n`); };
         const base = { id: `fake-${requests}`, object: "chat.completion.chunk", created: 1, model: "fake" };
         push({ ...base, choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] });
 
@@ -256,7 +283,7 @@ describe("bundled pi host", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
 
-    if (!address || typeof address === "string") throw new Error("Fake provider did not bind");
+    if (!Value.Check(ServerAddress, address)) throw new Error("Fake provider did not bind");
 
     const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-fake-agent-")); temporary.push(root);
     const profile = path.join(root, "profile"); await mkdir(profile, { recursive: true });
@@ -339,7 +366,9 @@ describe("bundled pi host", () => {
     await host.send({ workspaceId: "workspace-1", text: "Recovered authentication", behavior: "prompt", selections: [] });
     await waitFor(() => latest.runState === "idle" && latest.messages.some(message => message.text.includes("Fake response")));
     expect(latest.error).toBeUndefined();
-    const runtime = (host as unknown as { modelRuntime: { refresh: (...args: any[]) => Promise<any> } }).modelRuntime;
+    const runtime = host["modelRuntime"];
+
+    if (!runtime) throw new Error("Model runtime is not initialized");
     const models = latest.models.map(model => model.key);
     const refresh = vi.spyOn(runtime, "refresh").mockResolvedValue({ errors: new Map([["fake", new Error("offline")]]), aborted: false });
 

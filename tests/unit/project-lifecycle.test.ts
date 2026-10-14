@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { access, chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceManager } from "../../src/application/workspace-manager";
 import { JournalStore } from "../../src/infrastructure/instrumentation/journal";
@@ -11,6 +13,7 @@ import { resolveWorkspaceSource } from "../../src/infrastructure/project/source-
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
 
 const servers: Array<ReturnType<typeof createServer>> = [];
+const ServerAddress = Type.Object({ port: Type.Integer() });
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
@@ -144,7 +147,7 @@ describe("ownership and source boundaries", () => {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
 
-    if (!address || typeof address === "string") throw new Error("Missing test port");
+    if (!Value.Check(ServerAddress, address)) throw new Error("Missing test port");
     await waitForHttp(`http://127.0.0.1:${address.port}`, 4_000, () => false, ".mauxi/bridge.js");
     expect(requests).toBe(3);
   });
@@ -160,7 +163,7 @@ describe("ownership and source boundaries", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
 
-    if (!address || typeof address === "string") throw new Error("Missing test port");
+    if (!Value.Check(ServerAddress, address)) throw new Error("Missing test port");
     expect(await isPortOccupied(address.port)).toBe(true);
 
     const root = await temporaryRoot();
@@ -255,7 +258,7 @@ it("waits for an in-flight setup before closing instead of cleaning up concurren
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
 
-  if (!address || typeof address === "string") throw new Error("Missing test port");
+  if (!Value.Check(ServerAddress, address)) throw new Error("Missing test port");
   const root = await temporaryRoot();
   await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
   await writeFile(path.join(root, "node_modules", ".bin", "vite"), "");
@@ -287,7 +290,7 @@ it("waits for an in-flight setup before closing instead of cleaning up concurren
 
     const closing = manager.close().then((event) => { closed = true;
 
- return event; });
+    return event; });
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(closed).toBe(false);
@@ -309,7 +312,7 @@ it("shares one cleanup when the project is closed and the app quits at the same 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
 
-  if (!address || typeof address === "string") throw new Error("Missing test port");
+  if (!Value.Check(ServerAddress, address)) throw new Error("Missing test port");
   const root = await temporaryRoot();
   await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
   await writeFile(path.join(root, "node_modules", ".bin", "vite"), "");

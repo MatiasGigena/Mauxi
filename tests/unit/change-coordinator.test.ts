@@ -1,56 +1,48 @@
-import { chmod, mkdtemp, mkdir, open, readFile, readdir, readlink, rename, rm, stat, symlink, truncate, writeFile, type FileHandle } from "node:fs/promises";
+import { chmod, link, mkdtemp, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, stat, symlink, truncate, writeFile, type FileHandle } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChangeCoordinator, changeDiff, RECOVERY_VAULT_LIMITS } from "../../src/infrastructure/agent/change-coordinator";
+import { ChangeCoordinator, changeDiff, RECOVERY_VAULT_LIMITS, type ChangeFileSystem } from "../../src/infrastructure/agent/change-coordinator";
+import { exchangeLinuxFiles } from "../../src/infrastructure/agent/linux-file-metadata";
 
-const hooks = vi.hoisted(() => ({
-  beforeRename: undefined as undefined | ((from: string, to: string) => Promise<void>),
-  afterRename: undefined as undefined | ((from: string, to: string) => Promise<void>),
-  beforeLink: undefined as undefined | ((from: string, to: string) => Promise<void>),
-  beforeWriteFile: undefined as undefined | ((file: string) => Promise<void>),
-  differentDevice: false,
-  beforeOpen: undefined as undefined | ((target: string) => Promise<void>),
-  afterOpen: undefined as undefined | ((target: string, file: FileHandle) => void),
-}));
+interface FileSystemHooks {
+  beforeRename?: (from: string, to: string) => Promise<void>;
+  afterRename?: (from: string, to: string) => Promise<void>;
+  beforeLink?: (from: string, to: string) => Promise<void>;
+  beforeWriteFile?: (file: string) => Promise<void>;
+  differentDevice: boolean;
+  beforeOpen?: (target: string) => Promise<void>;
+  afterOpen?: (target: string, file: FileHandle) => void;
+}
 
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const fs = await importOriginal<typeof import("node:fs/promises")>();
+const hooks: FileSystemHooks = { differentDevice: false };
 
-  return { ...fs,
-    open: async (...args: Parameters<typeof fs.open>) => {
-      await hooks.beforeOpen?.(String(args[0]));
-      const file = await fs.open(...args);
-      hooks.afterOpen?.(String(args[0]), file);
+const files: ChangeFileSystem = {
+  async open(target, flags, mode) {
+    await hooks.beforeOpen?.(target);
+    const file = await open(target, flags, mode);
+    hooks.afterOpen?.(target, file);
 
-      return file;
-    },
-    rename: async (from: string, to: string) => { await hooks.beforeRename?.(from, to); await fs.rename(from, to); await hooks.afterRename?.(from, to); },
-    link: async (from: string, to: string) => { await hooks.beforeLink?.(from, to); await fs.link(from, to); },
-    writeFile: async (...args: Parameters<typeof fs.writeFile>) => { await hooks.beforeWriteFile?.(String(args[0]));
+    return file;
+  },
+  async rename(from, to) { await hooks.beforeRename?.(from, to); await rename(from, to); await hooks.afterRename?.(from, to); },
+  async link(from, to) { await hooks.beforeLink?.(from, to); await link(from, to); },
+  async writeFile(target, data, options) { await hooks.beforeWriteFile?.(target); await writeFile(target, data, options); },
+  async stat(target) {
+    const info = await stat(target);
 
- return fs.writeFile(...args); },
-    stat: async (target: string) => {
-      const info = await fs.stat(target);
+    if (hooks.differentDevice && path.basename(await realpath(target)) === "recovery") Object.defineProperty(info, "dev", { value: info.dev + 1 });
 
-      if (hooks.differentDevice && path.basename(await fs.realpath(target)) === "recovery") Object.defineProperty(info, "dev", { value: info.dev + 1 });
-
-      return info;
-    },
-  };
-});
-
-vi.mock("../../src/infrastructure/agent/linux-file-metadata", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/infrastructure/agent/linux-file-metadata")>();
-
-  return { ...actual, exchangeLinuxFiles: async (from: string, to: string) => {
+    return info;
+  },
+  async exchangeLinuxFiles(from, to) {
     await hooks.beforeRename?.(from, to);
-    await actual.exchangeLinuxFiles(from, to);
+    await exchangeLinuxFiles(from, to);
     await hooks.afterRename?.(from, to);
-  } };
-});
+  },
+};
 
 const temporary: string[] = [];
 
@@ -65,11 +57,11 @@ async function setup() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "mauxi-changes-")); temporary.push(directory);
   const root = path.join(directory, "project"); const state = path.join(directory, "state");
   await mkdir(path.join(root, "src"), { recursive: true });
-  const changes = await ChangeCoordinator.create("workspace-one", root, state);
+  const changes = await ChangeCoordinator.create("workspace-one", root, state, files);
 
   const begin = async () => { const id = await changes.prepare("Polish the card"); await changes.activate(id);
 
- return id; };
+  return id; };
 
   return { root, state, changes, begin };
 }
@@ -128,7 +120,7 @@ describe("managed change checkpoints", () => {
 
     expect(changes.views().find((set) => set.id === first)?.files).toEqual([]);
     expect(await readFile(file, "utf8")).toBe("before");
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views().filter((set) => set.state === "failed")).toHaveLength(9);
     await begin();
     await changes.write("src/a.txt", "new request");
@@ -147,7 +139,7 @@ describe("managed change checkpoints", () => {
     const next = await changes.prepare("Queued follow-up");
     await changes.switchToPrepared(next);
     expect(changes.views().find((set) => set.id === first)?.state).toBe("conflicted");
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views().find((set) => set.id === first)?.state).toBe("conflicted");
   });
 
@@ -161,7 +153,7 @@ describe("managed change checkpoints", () => {
 
     const results = await Promise.allSettled([changes.switchToPrepared(next), changes.write("src/a.txt", "bad")]);
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views().find((set) => set.id === next)?.state).toBe("failed");
     expect(await readFile(path.join(root, "src/a.txt"), "utf8")).toBe("before");
   });
@@ -208,11 +200,15 @@ describe("managed change checkpoints", () => {
         return info;
       });
       const originalRead = file.read.bind(file);
-      vi.spyOn(file, "read").mockImplementation(async (...args: unknown[]) => {
-        requested += args[2] as number;
 
-        return Reflect.apply(originalRead, file, args);
-      });
+      const countedRead = async <T extends NodeJS.ArrayBufferView>(buffer: T, offset: number, length: number, position: number) => {
+        requested += length;
+
+        return originalRead(buffer, offset, length, position);
+      };
+
+      // SAFETY: ChangeCoordinator calls FileHandle.read only positionally as read(buffer, offset, length, position), the overload countedRead implements.
+      vi.spyOn(file, "read").mockImplementation(countedRead as typeof originalRead);
     };
 
     await expect(begin()).rejects.toThrow(/changed during bounded workspace scan/);
@@ -234,7 +230,7 @@ describe("managed change checkpoints", () => {
       if (operation === "chmod-back") await chmod(file, mode);
     }
 
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     await expect(recovered.undo(id)).rejects.toThrow(/stopped safely/);
     expect(await readFile(file, "utf8")).toBe("agent");
   });
@@ -260,7 +256,7 @@ describe("managed change checkpoints", () => {
     const first = await begin(); await changes.write("src/a.txt", "first"); await changes.settle();
     const second = await begin(); await changes.write("src/a.txt", "second"); await changes.settle();
     await changes.undo(second);
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     await recovered.undo(first);
     expect(await readFile(file, "utf8")).toBe("original");
   });
@@ -316,7 +312,7 @@ describe("managed change checkpoints", () => {
     const stored = JSON.parse(await readFile(storePath, "utf8"));
     delete stored.changeSets[0].files[0].installedMetadata; stored.changeSets[0].files[0].pending = pending;
     await writeFile(storePath, JSON.stringify(stored));
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views()[0].undoEligible).toBe(false);
     expect(recovered.views()[0].coverageWarnings.join(" ")).toContain("no automatic undo");
     expect(await readFile(path.join(root, "src/a.txt"), "utf8")).toBe("agent");
@@ -479,7 +475,7 @@ describe("managed change checkpoints", () => {
   it("leaves a checkpoint abandonable when persisting its activation fails", async () => {
     const { changes } = await setup();
     const id = await changes.prepare("Polish the card");
-    vi.spyOn(changes as unknown as { persist(): Promise<void> }, "persist").mockRejectedValueOnce(new Error("disk full"));
+    changes["persist"] = vi.fn(changes["persist"].bind(changes)).mockRejectedValueOnce(new Error("disk full"));
     await expect(changes.activate(id)).rejects.toThrow(/disk full/);
     await changes.abandonPrepared(id, "Activation failed");
     const next = await changes.prepare("Next request");
@@ -523,7 +519,7 @@ describe("managed change checkpoints", () => {
     let observed = changes;
 
     if (mode === "finish") { await changes.finishCommand(checkpoint); await changes.settle(); }
-    else observed = await ChangeCoordinator.create("reopened", root, state);
+    else observed = await ChangeCoordinator.create("reopened", root, state, files);
     const stored = JSON.parse(await readFile(path.join(state, (await readdir(state)).find((name) => name.endsWith(".json"))!), "utf8"));
     const bytes = stored.changeSets[0].files.reduce((total: number, file: { beforeContent: string | null; afterContent: string | null }) => total + Buffer.byteLength(file.beforeContent ?? "") + Buffer.byteLength(file.afterContent ?? ""), 0);
     expect(bytes).toBeLessThanOrEqual(10 * 1024 * 1024);
@@ -541,7 +537,7 @@ describe("managed change checkpoints", () => {
     await writeFile(path.join(root, "src/a.txt"), "partial command plus possible external work");
     await writeFile(path.join(root, "src/large.txt"), "x".repeat(2 * 1024 * 1024 + 1));
     await writeFile(path.join(root, "src/binary.txt"), "\0binary");
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     const view = recovered.views()[0];
     expect(view).toMatchObject({ state: "failed", undoEligible: false });
     expect(view.files.find((file) => file.path === "src/a.txt")?.diff).toContain("+partial command");
@@ -569,7 +565,7 @@ describe("managed change checkpoints", () => {
       expect(await Promise.all(dirs.map(dir => readFile(path.join(dir, "displaced"), "utf8")))).toContain("external race");
     }
 
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views()[0].state).toBe("conflicted");
   });
 
@@ -590,7 +586,7 @@ describe("managed change checkpoints", () => {
     const { root, state, changes, begin } = await setup();
     const file = path.join(root, "src/a.txt");
 
- if (!creating) await writeFile(file, "before"); await begin();
+    if (!creating) await writeFile(file, "before"); await begin();
     hooks.beforeLink = async (from) => {
       if (from.endsWith("/replacement")) { hooks.beforeLink = undefined; await writeFile(file, "external arrival"); }
     };
@@ -667,7 +663,7 @@ describe("managed change checkpoints", () => {
 
     await expect(changes.write("src/a.txt", "agent")).rejects.toThrow(/stopped safely/);
     hooks.afterRename = hooks.beforeLink = undefined;
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views()[0].errors.join(" ")).toContain("Interrupted mutation");
     const [recovery] = await recoveries(state);
     expect(await readFile(path.join(recovery, "displaced"), "utf8")).toBe("before");
@@ -692,13 +688,13 @@ describe("managed change checkpoints", () => {
 
   it("rejects checkpoint storage inside the project", async () => {
     const { root } = await setup();
-    await expect(ChangeCoordinator.create("bad", root, path.join(root, "state"))).rejects.toThrow(/outside the project/);
+    await expect(ChangeCoordinator.create("bad", root, path.join(root, "state"), files)).rejects.toThrow(/outside the project/);
     expect((await readdir(root)).sort()).toEqual(["src"]);
   });
 
   it("rejects storage inside a parent repository when the open workspace is a subdirectory", async () => {
     const { root } = await setup(); await mkdir(path.join(root, ".git"));
-    await expect(ChangeCoordinator.create("nested", path.join(root, "src"), path.join(root, "profile"))).rejects.toThrow(/outside the project and its repository/);
+    await expect(ChangeCoordinator.create("nested", path.join(root, "src"), path.join(root, "profile"), files)).rejects.toThrow(/outside the project and its repository/);
     expect((await readdir(root)).sort()).toEqual([".git", "src"]);
   });
 
@@ -720,7 +716,7 @@ describe("managed change checkpoints", () => {
 
     for (let i = 0; i < RECOVERY_VAULT_LIMITS.entries - 1; i++) await mkdir(path.join(vault, `retained-${i}`));
     const otherRoot = path.join(path.dirname(root), "other-project"); await mkdir(otherRoot);
-    const other = await ChangeCoordinator.create("other", otherRoot, state);
+    const other = await ChangeCoordinator.create("other", otherRoot, state, files);
     await begin(); const id = await other.prepare("Other request"); await other.activate(id);
     const results = await Promise.allSettled([changes.write("src/a.txt", "one"), other.write("a.txt", "two")]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -791,7 +787,7 @@ describe("managed change checkpoints", () => {
     for (let i = 0; i < 64; i++) {
       const id = await begin();
 
- if (i === 0) first = id;
+      if (i === 0) first = id;
       await changes.write("src/a.txt", `change-${i}`); await changes.settle();
     }
 
@@ -820,7 +816,7 @@ describe("managed change checkpoints", () => {
     const stored = JSON.parse(await readFile(storePath, "utf8"));
     stored.changeSets[0].recoveries[0].directory = legacyRelative;
     await writeFile(storePath, JSON.stringify(stored));
-    const recovered = await ChangeCoordinator.create("reopened", root, state);
+    const recovered = await ChangeCoordinator.create("reopened", root, state, files);
     expect(recovered.views()[0].coverageWarnings.join(" ")).toContain("Legacy in-project recovery");
     expect(recovered.views()[0].coverageWarnings.join(" ")).toContain("outside the external vault quota");
     expect(await readFile(path.join(root, legacyRelative, "displaced"), "utf8")).toBe("before");
@@ -860,7 +856,7 @@ describe("managed change checkpoints", () => {
     const { root, state, changes, begin } = await setup();
     await writeFile(path.join(root, "src/a.txt"), "before\n"); await begin();
     await changes.write("src/a.txt", "partial\n");
-    const recovered = await ChangeCoordinator.create("workspace-after-restart", root, state);
+    const recovered = await ChangeCoordinator.create("workspace-after-restart", root, state, files);
     expect(recovered.views()[0].state).toBe("failed");
     expect(recovered.views()[0].errors.join(" ")).toMatch(/partial changes/i);
     await recovered.undo(recovered.views()[0].id);

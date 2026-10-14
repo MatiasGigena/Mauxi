@@ -22,7 +22,7 @@ async function skill(source: string, name = "apple-design", body = "Preserve pro
   const file = path.join(source, "SKILL.md");
   await writeFile(file, `---\nname: ${name}\ndescription: UI guidance\ndisable-model-invocation: true\n---\n${body}`);
 
- return file;
+  return file;
 }
 
 const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
@@ -33,7 +33,7 @@ async function catalog(source: string) {
   const entry = { id: "calm-pricing", family: "pricing", cue: "Quiet subscription tiers", source: "https://example.com", tags: ["light", "serif"], reviewStatus: "reviewed", imagePath: "images/pricing.webp", mobileImagePath: "images/pricing.webp", sha256: { imagePath: digest(bytes), mobileImagePath: digest(bytes) } };
   const file = path.join(source, "catalog.json"); await writeFile(file, JSON.stringify({ version: 1, references: [entry] }));
 
- return { file, entry };
+  return { file, entry };
 }
 
 describe("reviewed local design resources", () => {
@@ -211,11 +211,11 @@ describe("reviewed local design resources", () => {
 });
 
 describe("request classification", () => {
-  it.each([
+  it.each<[string, string[]]>([
     ["Improve responsive layout on phone", ["apple-design", "mobile-native"]],
     ["Polish hover animation with reduced-motion", ["apple-design", "emil-design-eng"]],
     ["Show three pricing variants", ["apple-design", "prototype"]],
     ["Fix database query", []],
     ["Mejorar diseño móvil", ["apple-design", "mobile-native"]],
-  ])("routes %s", (text, names) => { expect(classifyDesignRequest(text as string)).toEqual(names); });
+  ])("routes %s", (text, names) => { expect(classifyDesignRequest(text)).toEqual(names); });
 });

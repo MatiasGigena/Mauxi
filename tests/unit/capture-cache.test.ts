@@ -83,7 +83,7 @@ it("retains a draft for retry when a send is rejected or throws", async () => {
       const result = await (fails ? Promise.reject(new Error("provider refused")) : Promise.resolve({ accepted: false }));
 
       if (result.accepted) cache.releaseDrafts([file]);
-    } catch (error) { expect((error as Error).message).toBe("provider refused"); }
+    } catch (error) { expect(error).toMatchObject({ message: "provider refused" }); }
     finally { release(); cache.cleanup(); }
 
     expect(readFileSync(file, "utf8")).toBe("retry");

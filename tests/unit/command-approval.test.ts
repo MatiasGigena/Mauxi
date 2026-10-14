@@ -2,11 +2,24 @@ import { createServer, type Server } from "node:http";
 import { access, mkdir, mkdtemp, open, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentSnapshot } from "../../src/application/agent-contract";
 import { executeCommand, PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 
 const temporary: string[] = []; const servers: Server[] = [];
+const ServerAddress = Type.Object({ port: Type.Integer() });
+const ProviderRequest = Type.Object({ messages: Type.Array(Type.Object({ role: Type.Optional(Type.String()), content: Type.Optional(Type.Unknown()) })) });
+
+interface CompletionChunk {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{ index: number; delta: { role?: string; content?: string; tool_calls?: Array<{ index: number; id: string; type: "function"; function: { name: string; arguments: string } }> }; finish_reason: string | null }>;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -21,7 +34,7 @@ async function waitFor(predicate: () => boolean, timeout = 5_000) {
 
 async function missing(file: string) { try { await access(file);
 
- return false; } catch { return true; } }
+return false; } catch { return true; } }
 
 describe("host-side command approval", () => {
   it.each(["timeout", "abort", "early-exit", "early-exit-closed-pipes", "escaped-pipes"])("bounds command completion and cleans ordinary descendants (%s)", async (scenario) => {
@@ -81,7 +94,7 @@ describe("host-side command approval", () => {
     await writeFile(path.join(project, "package.json"), "{}");
     await symlink("loop", path.join(project, "loop"));
     const host = new PiAgentHost("workspace-1", project, path.join(root, "profile"), path.join(root, "captures"));
-    const fingerprint = (host as unknown as { commandConfigurationFingerprint: (operation: { executable: string; args: string[]; cwd: string }) => Promise<string> }).commandConfigurationFingerprint.bind(host);
+    const fingerprint = host["commandConfigurationFingerprint"].bind(host);
     const cwd = await realpath(project);
     await expect(fingerprint({ executable: "git", args: ["commit", "-m", "x".repeat(300)], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
     await expect(fingerprint({ executable: "cat", args: ["loop"], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
@@ -129,12 +142,12 @@ describe("host-side command approval", () => {
     const server = createServer((request, response) => {
       let body = ""; request.on("data", (chunk) => { body += String(chunk); });
       request.on("end", () => {
-        const parsed = JSON.parse(body) as { messages: Array<{ role?: string; content?: unknown }> };
+        const parsed = Value.Parse(ProviderRequest, JSON.parse(body));
         const lastUser = parsed.messages.map((item) => item.role).lastIndexOf("user");
         const user = JSON.stringify(parsed.messages[lastUser]?.content ?? "");
         const hasResult = parsed.messages.slice(lastUser + 1).some((item) => item.role === "tool");
         response.writeHead(200, { "content-type": "text/event-stream" });
-        const push = (value: unknown) => response.write(`data: ${JSON.stringify(value)}\n\n`);
+        const push = (value: CompletionChunk) => response.write(`data: ${JSON.stringify(value)}\n\n`);
         const base = { id: `command-${Date.now()}`, object: "chat.completion.chunk", created: 1, model: "fake" };
         push({ ...base, choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] });
 
@@ -148,7 +161,7 @@ describe("host-side command approval", () => {
 
           const executable = user.includes("wrapped-env") ? "/usr/bin/env" : user.includes("wrapped-corepack") ? "corepack" : user.includes("wrapped-npx") ? "npx" : process.execPath;
           const args = user.includes("wrapped-env") ? ["npm", "install"] : user.includes("wrapped-corepack") ? ["pnpm", "add", "example"] : user.includes("wrapped-npx") ? ["example"] : ["-e", script];
-          push({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `command-${file}`, type: "function", function: { name: "workspace_command", arguments: JSON.stringify({ executable, args, purpose: `Create ${file}`, coveredPaths: user.includes("running-stop") ? [file] : [], ...(cwd ? { cwd } : {}) }) } }] }, finish_reason: null }] });
+          push({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `command-${file}`, type: "function", function: { name: "workspace_command", arguments: JSON.stringify({ executable, args, purpose: `Create ${file}`, coveredPaths: user.includes("running-stop") ? [file] : [], cwd }) } }] }, finish_reason: null }] });
           push({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
         } else {
           push({ ...base, choices: [{ index: 0, delta: { content: "Command decision recorded." }, finish_reason: null }] });
@@ -162,7 +175,7 @@ describe("host-side command approval", () => {
     servers.push(server); await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
 
- if (!address || typeof address === "string") throw new Error("No fake provider address");
+    if (!Value.Check(ServerAddress, address)) throw new Error("No fake provider address");
 
     const directory = await mkdtemp(path.join(os.tmpdir(), "mauxi-command-")); temporary.push(directory);
     const project = path.join(directory, "project"); const profile = path.join(directory, "profile");
@@ -192,7 +205,7 @@ describe("host-side command approval", () => {
 
         if (mode === "pending-stop") { pendingApproval = event.dialog.id;
 
- return; }
+        return; }
 
         if (mode === "cwd-swap") void (async () => {
           await rename(path.join(project, "packages/app"), path.join(project, "packages/approved-original"));

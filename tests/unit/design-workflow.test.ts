@@ -3,8 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 import type { AgentSnapshot } from "../../src/application/agent-contract";
+
+interface CompletionDelta {
+  role?: string;
+  content?: string;
+  tool_calls?: Array<{ index: number; id: string; type: "function"; function: { name: string; arguments: string } }>;
+}
+
+const ServerAddress = Type.Object({ port: Type.Integer() });
 
 it.each([false, true])("runs the automatic library and approved native guidance through the real SDK (bundled skills: %s)", async (bundled) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-design-workflow-"));
@@ -35,7 +45,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
       ];
 
       response.writeHead(200, { "content-type": "text/event-stream" });
-      const push = (delta: unknown, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "fake", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+      const push = (delta: CompletionDelta, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "fake", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
       push({ role: "assistant", content: "" });
 
       if (content.includes("inspect examples") && results.length < tools.length) {
@@ -51,7 +61,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
 
- if (!address || typeof address === "string") throw new Error("No server");
+  if (!Value.Check(ServerAddress, address)) throw new Error("No server");
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { fake: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "test", api: "openai-completions", models: [{ id: "fake", name: "Fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
   const host = new PiAgentHost("design", project, profile, path.join(root, "captures"), undefined, undefined, undefined, path.resolve("design-references/library/catalog.json"), bundled ? path.resolve("design-skills") : undefined);
   let latest: AgentSnapshot; let consent = false; let sawApproval = false;

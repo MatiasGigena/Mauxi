@@ -10,14 +10,21 @@ function setup(approve: (request: BrowserRequest, signal: AbortSignal, target?: 
   const adapter: VisibleBrowserAdapter = { targets: vi.fn(async () => [target]), describeTarget: vi.fn(async () => structuredClone(actionTarget)), execute: vi.fn(async () => ({ text: "actual observation" })) };
   const control = new BrowserControl("workspace", adapter, vi.fn(approve));
   control.grant();
-  const request = (operation: BrowserRequest["operation"] = "inspect"): BrowserRequest => ({ ...target, generation: control.state().generation, operation, ...(operation === "click" ? { target: "node-1" } : {}) });
+
+  const request = (operation: BrowserRequest["operation"] = "inspect"): BrowserRequest => {
+    const value: BrowserRequest = { ...target, generation: control.state().generation, operation };
+
+    if (operation === "click") value.target = "node-1";
+
+    return value;
+  };
 
   return { adapter, control, request };
 }
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; });
 
- return { promise, resolve }; }
+return { promise, resolve }; }
 
 describe("visible browser host ownership", () => {
   it("serializes both previews and records only completed actual checks", async () => {
@@ -60,7 +67,9 @@ describe("visible browser host ownership", () => {
   it.each(["click", "type", "hover"] as const)("binds %s approval and execution to the host-resolved description", async operation => {
     const approval = vi.fn(async (_request: BrowserRequest, _signal: AbortSignal, _target?: BrowserActionTarget) => true);
     const { adapter, control, request } = setup(approval);
-    const r = { ...request(), operation, target: "1", ...(operation === "type" ? { text: "fixture text" } : {}) };
+    const r: BrowserRequest = { ...request(), operation, target: "1" };
+
+    if (operation === "type") r.text = "fixture text";
     await control.run(r);
     expect(adapter.describeTarget).toHaveBeenCalledWith(r, expect.any(AbortSignal));
     expect(approval.mock.calls[0][2]).toEqual(actionTarget);

@@ -4,6 +4,8 @@ import { ChatDock } from "../../src/presentation/ChatDock";
 import { SelectionComposer } from "../../src/presentation/SelectionComposer";
 import { selectionCapture } from "../fixtures/selection";
 
+interface FakeAnimation { cancel: ReturnType<typeof vi.fn>; onfinish?: () => void }
+
 describe("minimal canvas composer", () => {
   function render(workspaceId?: string) {
     return renderToStaticMarkup(<ChatDock workspaceId={workspaceId} selections={[]} onRemove={vi.fn()} onBeforeSend={async () => ({ ok: true, selections: [] })} onSelectionsSent={vi.fn()} />);
@@ -67,14 +69,14 @@ describe("minimal canvas composer", () => {
     const panel = <section>Settings</section>;
     const props = { selections: [item], onRemove: vi.fn(), children: null, panel };
     const composer = new SelectionComposer(props);
-    const rect = { left: 0, top: 0, bottom: 100, width: 200, height: 100 } as DOMRect;
-    const animations: { cancel: ReturnType<typeof vi.fn>; onfinish?: () => void }[] = [];
+    const rect: DOMRect = { x: 0, y: 0, left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100, toJSON: () => ({}) };
+    const animations: FakeAnimation[] = [];
 
     const nodes = [`badge:${item.capture.selectionId}`, "panel"].map(key => ({
       dataset: { composerMotion: key, exiting: "" }, style: {}, hasAttribute: () => false,
       getBoundingClientRect: () => rect,
       animate: vi.fn(() => {
-        const animation = { cancel: vi.fn(), onfinish: undefined as (() => void) | undefined };
+        const animation: FakeAnimation = { cancel: vi.fn() };
         animations.push(animation);
 
         return animation;
@@ -125,8 +127,10 @@ describe("minimal canvas composer", () => {
       expect(animations[0].cancel).toHaveBeenCalled();
       expect(animations[1].cancel).toHaveBeenCalled();
       animations[3].onfinish!();
-      const cleanup = setState.mock.calls.at(-1)![0] as (state: typeof composer.state) => typeof composer.state;
-      expect(cleanup(composer.state).panel).toBeUndefined();
+      const cleanup = setState.mock.calls.at(-1)![0];
+
+      if (!(cleanup instanceof Function)) throw new Error("Expected a state updater");
+      expect(cleanup(composer.state, props)).toMatchObject({ panel: undefined });
     } else {
       nodes.forEach(node => expect(node.animate).not.toHaveBeenCalled());
     }

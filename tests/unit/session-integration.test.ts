@@ -131,6 +131,12 @@ it("does not block recovery when the recorded session leader PID now belongs to 
   const runtime = path.join(base, "app", ".mauxi", "runtime"); await mkdir(runtime, { recursive: true });
   await writeFile(path.join(runtime, "owner"), "token");
   await writeFile(path.join(runtime, "process.json"), JSON.stringify({ pid: process.pid, start: "-1" }));
-  const journal = { runtime: { path: runtime, token: "token", created: true } } as InstrumentationJournal;
+
+  const journal: InstrumentationJournal = {
+    version: 1, transactionId: "stale-leader", workspaceRoot: path.join(base, "app"), framework: "vite", state: "applied",
+    createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), patches: [], artifacts: [], conflicts: [],
+    runtime: { path: runtime, token: "token", created: true },
+  };
+
   await expect(stopSessionProcess(journal)).resolves.toBeUndefined();
 });
