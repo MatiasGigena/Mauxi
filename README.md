@@ -12,7 +12,7 @@ Open a local project, explore live desktop and mobile previews on a freeform can
 - Applies live edits with retained checkpoints, conflict-aware recovery, and one-time command approval.
 - Lets the agent inspect the same visible previews after an explicit handoff from chat, with separate approvals for interactions and checks retained in session history.
 
-Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) records the tested fixture scope and missing real-project/live-provider evidence. macOS and Windows are outside this repository's scope.
+Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) defines the required checks, validation scope and remaining blockers. macOS and Windows are outside this repository's scope.
 
 ## Run locally
 
@@ -41,6 +41,5 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
 - [AC-01–AC-21 acceptance gate and blockers](docs/alpha-acceptance.md)
 - [Development and automated checks](docs/development.md)
-- [Original product requirements](SPEC.md) — planning reference, not current implementation status
 
 The application uses one simple layered architecture: **presentation → application → infrastructure**. Automated tests and their fixtures stay in the repository; generated screenshots, logs, traces, and reports do not.

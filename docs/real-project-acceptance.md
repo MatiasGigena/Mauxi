@@ -1,6 +1,6 @@
 # Remaining private acceptance run
 
-The full design-agent acceptance run below is **not executed**. The founder nominated Coverantia-FRONTEND, Rondo and nenazo-nicho. Local connection checks passed on all three on 2026-09-23: two live previews and reload; Coverantia at its login page, Rondo with WebGL, and nenazo-nicho with an isolated test database. These checks do not establish authenticated Coverantia flows or design-agent acceptance. AC-11, AC-19 and live AC-20 still require the remaining evidence, including explicit provider/auth authorization and a spending cap. Current approval remains **$0**. Do not publish project contents, credentials, session bodies or screenshots.
+The full design-agent acceptance run below is **not executed**. The founder nominated Coverantia-FRONTEND, Rondo and nenazo-nicho. AC-11, AC-19 and live AC-20 require real-project validation, explicit provider/auth authorization and a spending cap. Current approval remains **$0**. Do not publish project contents, credentials, session bodies or screenshots.
 
 ## Inputs to record privately
 

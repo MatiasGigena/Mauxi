@@ -24,8 +24,7 @@ Design guidance works in the background: the visual reference library is availab
 
 ## Known blockers and limits
 
-- Fixes for [#11](https://github.com/MatiasGigena/Mauxi/issues/11), [#12](https://github.com/MatiasGigena/Mauxi/issues/12), and [#13](https://github.com/MatiasGigena/Mauxi/issues/13) are covered by the regression suites: atomic managed replacement, explicit moved-hook conflicts, owned process-group cleanup, and storage admission limits. This does not complete the alpha acceptance matrix.
-- [#14](https://github.com/MatiasGigena/Mauxi/issues/14): pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance have fixture evidence. Turbopack still has only a bridge smoke. Other versions/routers, real projects, live auth, real-model quality and other tester environments remain unverified. See the [remaining private run](real-project-acceptance.md).
+- Regression suites cover atomic managed replacement, moved-hook conflicts, owned process-group cleanup, storage admission limits, pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance. Run them against the current source; they do not complete the alpha acceptance matrix. Turbopack coverage is bridge loading only. Other versions/routers, real projects, live auth, real-model quality and other tester environments remain unverified. See the [remaining private run](real-project-acceptance.md).
 - Mobile is a Chromium viewport, not Safari/hardware simulation. Both previews share cookies/storage **inside one workspace**; canonical workspaces have separate browser partitions.
 
 ## Local storage, privacy and network behavior
