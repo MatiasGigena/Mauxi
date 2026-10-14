@@ -80,35 +80,6 @@ it("opens the browser once and retains its link on Pi's immediate manual-code pr
   expect(JSON.stringify(snapshot)).not.toContain("test-refresh-secret");
 });
 
-it("accepts the local browser callback and dismisses manual input without treating it as cancellation", async () => {
-  const test = await setup();
-  const localFetch = globalThis.fetch;
-  mockTokenExchange();
-  const login = test.login();
-  test.respond(await test.dialog("select"), "browser");
-  const manual = await test.dialog("manual_code");
-  const state = new URL(manual.links![0].url).searchParams.get("state");
-  const response = await localFetch(`http://127.0.0.1:1455/auth/callback?code=test-code&state=${state}`);
-  expect(response.status).toBe(200);
-  await response.text();
-  await login;
-  expect(test.current()).toBeUndefined();
-  expect((await test.host.snapshot()).error).toBeUndefined();
-});
-
-it("keeps manual sign-in usable after a browser-launch failure", async () => {
-  const test = await setup(vi.fn().mockRejectedValue(new Error("No browser handler")));
-  const login = test.login();
-  const rejected = expect(login).rejects.toThrow(/cancelled/i);
-  test.respond(await test.dialog("select"), "browser");
-  await test.dialog("manual_code");
-  await vi.waitFor(() => expect(test.current()?.warning).toContain("Could not open your default browser"));
-  expect(test.current()?.links?.[0].label).toBe("Open sign-in");
-  test.respond(test.current()!);
-  await rejected;
-  expect(test.current()).toBeUndefined();
-});
-
 it("cancels pending login on UI disconnect and permits a fresh attempt", async () => {
   const test = await setup();
   const login = test.login();

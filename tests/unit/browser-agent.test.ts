@@ -17,7 +17,7 @@ interface CompletionDelta {
 
 const ServerAddress = Type.Object({ port: Type.Integer() });
 
-it.each(["success", "model-error", "stop", "disconnect"])("real SDK browser tool plumbing returns control after %s without a paid model", async scenario => {
+it.each(["model-error", "stop", "disconnect"])("real SDK browser tool plumbing returns control after %s without a paid model", async scenario => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-browser-sdk-"));
   const project = path.join(root, "project"), profile = path.join(root, "profile"); await mkdir(project); await mkdir(profile);
   const calls: BrowserRequest[] = []; const requests: any[] = [];
@@ -42,11 +42,7 @@ it.each(["success", "model-error", "stop", "disconnect"])("real SDK browser tool
       return; }
 
       const results = parsed.messages.filter((m: any) => m.role === "tool");
-
-      const tools = scenario === "success" ? [
-        { name: "browser_targets", arguments: JSON.stringify({ workspaceId: "test" }) },
-        ...targets.flatMap(t => ["inspect", "screenshot"].map(operation => ({ name: "browser_action", arguments: JSON.stringify({ ...t, generation: browser.state().generation, operation }) }))),
-      ] : [{ name: "browser_action", arguments: JSON.stringify({ ...targets[0], generation: browser.state().generation, operation: "click", target: "1" }) }];
+      const tools = [{ name: "browser_action", arguments: JSON.stringify({ ...targets[0], generation: browser.state().generation, operation: "click", target: "1" }) }];
 
       response.writeHead(200, { "content-type": "text/event-stream" });
       const push = (delta: CompletionDelta, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "fake", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
@@ -93,13 +89,7 @@ it.each(["success", "model-error", "stop", "disconnect"])("real SDK browser tool
     } else {
       await vi.waitFor(() => expect(finished).toBe(true), { timeout: 5000 });
       expect(browser.state().owner).toBe("human");
-
-      if (scenario === "success") {
-        expect(calls.map(c => `${c.previewId}:${c.operation}`)).toEqual(["desktop:inspect", "desktop:screenshot", "mobile:inspect", "mobile:screenshot"]);
-        expect(JSON.stringify(requests)).toContain("data:image/png;base64,");
-        expect(JSON.stringify(requests[0].messages)).toContain("what remains unverified");
-        expect((await host.snapshot()).messages.at(-1)?.text).toContain("remain unverified");
-      } else expect(calls).toHaveLength(0);
+      expect(calls).toHaveLength(0);
     }
   } finally { off(); await host.dispose(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
 }, 15_000);

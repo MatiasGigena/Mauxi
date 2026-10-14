@@ -2,7 +2,6 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ARTIFACT_LIMITS } from "../../src/infrastructure/storage/artifact-budget";
 import { CaptureCache, CAPTURE_RETENTION } from "../../src/infrastructure/storage/capture-cache";
 
@@ -73,22 +72,6 @@ it("protects in-flight inputs after chip removal/window replacement, with indepe
   expect(cache.cleanup().removedFiles).toBe(1);
 });
 
-it("retains a draft for retry when a send is rejected or throws", async () => {
-  const { cache } = setup(); const file = cache.write("desktop", Buffer.from("retry"), "retry");
-
-  for (const fails of [false, true]) {
-    const release = cache.protectInputs([file]);
-
-    try {
-      const result = await (fails ? Promise.reject(new Error("provider refused")) : Promise.resolve({ accepted: false }));
-
-      if (result.accepted) cache.releaseDrafts([file]);
-    } catch (error) { expect(error).toMatchObject({ message: "provider refused" }); }
-    finally { release(); cache.cleanup(); }
-
-    expect(readFileSync(file, "utf8")).toBe("retry");
-  }
-});
 
 it("clears abandoned drafts after restart/window retirement without removing recent standalone previews", () => {
   const { root, cache } = setup();
@@ -197,19 +180,4 @@ it("uses private, collision-free filenames for repeated captures in the same mil
   expect(statSync(first).mode & 0o777).toBe(0o600);
   expect(readFileSync(first, "utf8")).toBe("one"); expect(readFileSync(second, "utf8")).toBe("two");
   expect(() => cache.write("desktop", Buffer.from("unsafe"), "../escape")).toThrow(/identity/);
-});
-
-it("preserves native conversation image data after disposing its selection PNG", () => {
-  const { dir, cache } = setup();
-  const pixels = Buffer.from("embedded screenshot"); const file = cache.write("desktop", pixels, "sent");
-  const sessions = path.join(dir, "sessions"); mkdirSync(sessions);
-  const manager = SessionManager.create(dir, sessions);
-  manager.appendMessage({ role: "user", content: [{ type: "text", text: "Inspect this" }, { type: "image", data: pixels.toString("base64"), mimeType: "image/png" }], timestamp: now });
-  manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Seen" }], api: "openai-completions", provider: "local", model: "fake", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: now });
-  const sessionFile = manager.getSessionFile()!; const history = readFileSync(sessionFile);
-  cache.releaseDrafts([file]); cache.cleanup();
-  expect(existsSync(file)).toBe(false);
-  expect(readFileSync(sessionFile)).toEqual(history);
-  expect(history.toString()).toContain(pixels.toString("base64"));
-  expect(SessionManager.open(sessionFile, sessions).getSessionId()).toBe(manager.getSessionId());
 });

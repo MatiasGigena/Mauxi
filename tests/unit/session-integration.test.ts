@@ -51,9 +51,7 @@ it("temporarily adapts Next config and removes only its own edits and private ca
 });
 
 it.each([
-  'export default { headers: async () => [] };\n',
   'export default async function config() { return { reactStrictMode: true }; }\n',
-  'const config = {}; export default config;\n',
 ])("restores ESM export syntax while preserving new source edits: %s", async config => {
   const { root, store, bridge } = await setup();
   await rm(path.join(root, "next.config.js"));

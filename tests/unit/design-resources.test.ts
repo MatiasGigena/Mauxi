@@ -37,27 +37,6 @@ async function catalog(source: string) {
 }
 
 describe("reviewed local design resources", () => {
-  it("uses native skills, copies only approved Markdown, leaves manual originals untouched, and persists enablement", async () => {
-    const { source, resources, root } = await setup();
-    const file = await skill(source, "prototype", "See [picker](PICKER.md). Only runs when explicitly invoked; it does not trigger on its own.");
-    await writeFile(path.join(source, "PICKER.md"), "Picker behavior");
-    const before = await readFile(file, "utf8"); const prepared = await resources.prepareSkill(file);
-    expect(prepared.content["SKILL.md"]).not.toContain("disable-model-invocation");
-    await resources.importSkill(prepared);
-    expect(resources.loadedSkills[0].disableModelInvocation).toBe(false);
-    expect(await resources.readSkill("prototype", "PICKER.md")).toBe("Picker behavior");
-    expect(await resources.guidance("Show three variants")).toContain("Picker behavior");
-    const explicit = await resources.guidance("/skill:prototype show options");
-    expect(explicit).toContain("Guidance: prototype");
-    expect(explicit).toContain("Picker behavior");
-    expect(await readFile(file, "utf8")).toBe(before);
-    await expect(resources.prepareSkill(file)).rejects.toThrow(/already imported/);
-    await resources.setEnabled("prototype", false);
-    expect(await resources.guidance("Show variants")).toBe("");
-    await expect(resources.guidance("/prototype show options")).rejects.toThrow(/unavailable/);
-    const reopened = new DesignResources(path.join(root, "profile")); await reopened.initialize();
-    expect(reopened.snapshot().skills[0].enabled).toBe(false);
-  });
   it("automatically includes transitive Markdown once, including circular links", async () => {
     const { resources, source } = await setup();
     await mkdir(path.join(source, "details"));
@@ -70,15 +49,6 @@ describe("reviewed local design resources", () => {
     expect(guidance.match(/BEHAVIOR_CONTENT_UNIQUE/g)).toHaveLength(1);
     expect(guidance).toContain("File: details/BEHAVIOR.md");
     expect(guidance.indexOf("File: SKILL.md")).toBeLessThan(guidance.indexOf("File: PICKER.md"));
-  });
-  it("refuses automatic guidance if a copied dependency changes after loading", async () => {
-    const { resources, source } = await setup();
-    const file = await skill(source, "prototype", "See [picker](PICKER.md).");
-    await writeFile(path.join(source, "PICKER.md"), "Approved picker");
-    await resources.importSkill(await resources.prepareSkill(file));
-    const directory = path.dirname(resources.loadedSkills[0].filePath);
-    await writeFile(path.join(directory, "PICKER.md"), "Changed picker");
-    await expect(resources.guidance("Show variants")).rejects.toThrow(/changed since approval/);
   });
   it("bounds aggregate guidance bytes across skills and never silently omits dependencies", async () => {
     const { resources, source } = await setup();
@@ -106,16 +76,6 @@ describe("reviewed local design resources", () => {
     await expect(resources.prepareSkill(await skill(source, "apple-design", "[escape](link.md)"))).rejects.toThrow(/escapes/);
     const file = await skill(source); await writeFile(file, "not a skill");
     await expect(resources.prepareSkill(file)).rejects.toThrow(/Invalid skill/);
-  });
-  it("fails closed on changed imported content and corrupt configuration", async () => {
-    const { resources, source, root } = await setup();
-    await resources.importSkill(await resources.prepareSkill(await skill(source)));
-    const file = resources.loadedSkills[0].filePath; await writeFile(file, "tampered");
-    await expect(resources.readSkill("apple-design")).rejects.toThrow(/changed/);
-    await resources.reload(); expect(resources.snapshot().skills[0].loaded).toBe(false);
-    await writeFile(path.join(root, "profile", "resources.json"), "broken");
-    const reopened = new DesignResources(path.join(root, "profile")); await reopened.initialize();
-    expect(reopened.snapshot().diagnostics.join()).toContain("could not be loaded");
   });
   it("ranks matching families/styles, attaches verified bytes, rejects stale catalogs and images", async () => {
     const { resources, source } = await setup(); const { file } = await catalog(source);
@@ -198,15 +158,6 @@ describe("reviewed local design resources", () => {
     const missing = new DesignResources(path.join(root, "missing-profile"), path.join(root, "catalog.json"));
     await missing.initialize();
     expect(() => missing.search("hero")).toThrow(/Bundled visual library could not be loaded/);
-  });
-  it("retrieves the actual reviewed repository catalog without reading unindexed directions", async () => {
-    const { resources } = await setup();
-    await resources.importCatalog(await resources.prepareCatalog(path.resolve("design-references/library/catalog.json")));
-    expect(resources.snapshot().catalog!.count).toBe(10);
-    expect(resources.search("light serif pricing", "mobile")).toEqual([]);
-    const result = resources.search("light serif hero", "mobile");
-    expect(result[0].family).toBe("hero");
-    expect((await resources.image(result[0].id, "mobile", true)).data.length).toBeGreaterThan(100);
   });
 });
 

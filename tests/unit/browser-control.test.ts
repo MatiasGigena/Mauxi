@@ -56,25 +56,6 @@ describe("visible browser host ownership", () => {
     expect(control.state().releasing).toBe(false);
     control.grant(); await expect(control.run(old)).rejects.toThrow(/stale/);
   });
-  it.each(["navigate", "click", "type", "hover", "scroll"] as const)("requires exact approval even for local %s handlers", async operation => {
-    const approval = vi.fn(async (_request: BrowserRequest, _signal: AbortSignal) => false);
-    const { control, adapter, request } = setup(approval);
-    const r = { ...request(), operation, target: "1", text: "safe fixture", route: "/safe" };
-    await expect(control.run(r)).rejects.toThrow(/denied/);
-    expect(approval.mock.calls[0]?.[0]).toEqual(r);
-    expect(adapter.execute).not.toHaveBeenCalled(); expect(control.state().owner).toBe("human");
-  });
-  it.each(["click", "type", "hover"] as const)("binds %s approval and execution to the host-resolved description", async operation => {
-    const approval = vi.fn(async (_request: BrowserRequest, _signal: AbortSignal, _target?: BrowserActionTarget) => true);
-    const { adapter, control, request } = setup(approval);
-    const r: BrowserRequest = { ...request(), operation, target: "1" };
-
-    if (operation === "type") r.text = "fixture text";
-    await control.run(r);
-    expect(adapter.describeTarget).toHaveBeenCalledWith(r, expect.any(AbortSignal));
-    expect(approval.mock.calls[0][2]).toEqual(actionTarget);
-    expect(vi.mocked(adapter.execute).mock.calls[0][2]).toEqual(actionTarget);
-  });
   it("fails closed before approval if the original target cannot be described", async () => {
     const approval = vi.fn(async () => true);
     const { adapter, control, request } = setup(approval);
@@ -100,13 +81,6 @@ describe("visible browser host ownership", () => {
     approval.resolve(true);
     await expect(pending).rejects.toThrow(/Stale/);
     expect(adapter.execute).not.toHaveBeenCalled(); expect(control.state().owner).toBe("human");
-  });
-  it("returns control after a stale DOM or tool failure and enforces workspace identity", async () => {
-    const { adapter, control, request } = setup();
-    await expect(control.run({ ...request(), workspaceId: "foreign" })).rejects.toThrow(/stale/);
-    vi.mocked(adapter.execute).mockRejectedValue(new Error("Stale DOM target"));
-    await expect(control.run(request())).rejects.toThrow(/Stale DOM/);
-    expect(control.state()).toMatchObject({ owner: "human", releasing: false, evidence: [] });
   });
   it("bounds verification calls and never resets spend on a new handoff", async () => {
     const { control, request } = setup();

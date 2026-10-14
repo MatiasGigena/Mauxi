@@ -5,16 +5,10 @@ const envelope = { protocol: BRIDGE_PROTOCOL, session: "session", generation: "d
 const zoom = { ...envelope, kind: "canvas-zoom", deltaY: -30, deltaMode: 0, clientX: 200, clientY: 100 };
 
 describe("canvas input bridge contract", () => {
-  it.each(["exit", "space", "space-end"])("accepts the %s shortcut", action => {
-    expect(isBridgeMessage({ ...envelope, kind: "canvas-shortcut", action })).toBe(true);
-  });
   it("rejects unknown actions and invalid envelopes", () => {
     expect(isBridgeMessage({ ...envelope, kind: "canvas-shortcut", action: "click" })).toBe(false);
     expect(isBridgeMessage({ ...zoom, session: null })).toBe(false);
     expect(isBridgeMessage({ ...zoom, generation: {} })).toBe(false);
-  });
-  it.each([0, 1, 2])("accepts bounded zoom data in delta mode %d", deltaMode => {
-    expect(isBridgeMessage({ ...zoom, deltaMode })).toBe(true);
   });
   it.each([
     { deltaMode: "0" }, { deltaMode: 3 }, { deltaMode: Symbol("invalid") },

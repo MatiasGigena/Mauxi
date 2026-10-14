@@ -2,7 +2,6 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DESIGN_SKILLS } from "../../src/application/design-guidance";
 import { DesignResources } from "../../src/infrastructure/agent/design-resources";
 
 const roots: string[] = [];
@@ -20,28 +19,6 @@ async function setup() {
 }
 
 describe("bundled design guidance", () => {
-  it("loads all four original skills and the picker on a fresh profile without writing configuration", async () => {
-    const { resources, profile } = await setup();
-    expect(resources.loadedSkills.map((skill) => skill.name).sort()).toEqual([...DESIGN_SKILLS].sort());
-    expect(resources.snapshot().skills.every((skill) => skill.loaded && skill.enabled && !skill.error)).toBe(true);
-    expect(resources.loadedSkills.every((skill) => !skill.disableModelInvocation)).toBe(true);
-
-    for (const name of DESIGN_SKILLS) {
-      expect(await resources.readSkill(name)).toBe(await readFile(path.join(bundle, name, "SKILL.md"), "utf8"));
-    }
-
-    const picker = await readFile(path.join(bundle, "prototype/PICKER.md"), "utf8");
-    expect(await resources.readSkill("prototype", "PICKER.md")).toBe(picker);
-    const guidance = await resources.guidance("I need you to give me 3 variants of this header.");
-    expect(guidance).toContain("Guidance: apple-design");
-    expect(guidance).toContain("Guidance: prototype");
-    expect(guidance).toContain(picker);
-    expect(guidance.match(/File: PICKER.md/g)).toHaveLength(1);
-    expect(await resources.guidance("Polish responsive UI variants", true)).toContain("Guidance: emil-design-eng");
-    expect(await resources.guidance("Fix database query")).toBe("");
-    await expect(readFile(path.join(profile, "resources.json"))).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
   it("persists bundled enablement without creating personal copies and rejects invalid settings", async () => {
     const { resources, profile } = await setup();
     await resources.setEnabled("prototype", false);

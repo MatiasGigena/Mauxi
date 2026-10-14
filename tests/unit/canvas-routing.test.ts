@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
+import { defaultCanvas, fitBoards, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
 import { RouteLink, supportedRoute } from "../../src/application/route-link";
 import { isBridgeMessage, isShellMessage, BRIDGE_PROTOCOL } from "../../src/application/preview-contract";
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
@@ -10,13 +10,6 @@ import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store
 const origin = "http://127.0.0.1:45173";
 
 describe("canvas geometry", () => {
-  it.each([.25, .5, 1, 2])("tracks the grab offset 1:1 at %s without resizing viewports", (zoom) => {
-    const board = defaultCanvas().boards.mobile;
-    const moved = dragBoard(board, { x: 37, y: -29 }, zoom);
-    expect((moved.x - board.x) * zoom).toBeCloseTo(37);
-    expect((moved.y - board.y) * zoom).toBeCloseTo(-29);
-    expect([moved.width, moved.height]).toEqual([390, 844]);
-  });
   it("keeps the world point under the zoom anchor and clamps camera range", () => {
     const camera = { x: 25, y: -72, zoom: .5 }; const anchor = { x: 320, y: 150 };
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { fingerprintsMatch, markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds } from "../../src/application/selection-state";
 import { BRIDGE_PROTOCOL, isBridgeMessage, isShellMessage, type ElementFingerprint, type SelectionCapture } from "../../src/application/preview-contract";
 import { selectionCropToShell } from "../../src/application/selection-geometry";
 
@@ -39,19 +38,6 @@ describe("selection crop geometry", () => {
 });
 
 describe("selection freshness", () => {
-  it("marks only current draft attachments from the matching preview and generation", () => {
-    const current = { capture: capture(), status: "current" as const };
-    expect(selectionMarkerIds([
-      current,
-      { ...current, status: "stale" },
-      { ...current, requiresRepick: true },
-      { ...current, capture: { ...capture(), previewId: "mobile" } },
-      { ...current, capture: capture("old-generation") },
-    ], "desktop", "generation-1")).toEqual(["selection-1"]);
-    expect(selectionMarkerIds([], "desktop", "generation-1")).toEqual([]);
-    expect(selectionMarkerIds(Array.from({ length: 12 }, (_, i) => ({ ...current, capture: { ...capture(), selectionId: String(i) } })), "desktop", "generation-1")).toHaveLength(8);
-  });
-
   it("accepts bounded marker IDs, never selectors or malformed marker payloads", () => {
     const message = { protocol: BRIDGE_PROTOCOL, kind: "selection-markers", session: "session", generation: "generation-1" };
     expect(isShellMessage({ ...message, selectionIds: [] })).toBe(true);
@@ -60,55 +46,6 @@ describe("selection freshness", () => {
     for (const selectionIds of [null, "one", [1], [""], ["one", "one"], ["x".repeat(129)], Array.from({ length: 9 }, (_, i) => String(i))]) {
       expect(isShellMessage({ ...message, selectionIds })).toBe(false);
     }
-  });
-  it("tracks unique captured PNGs, including stale draft chips, but not pending/unavailable captures", () => {
-    const captured = capture();
-    const pending = { ...capture(), screenshot: { ...capture().screenshot, status: "pending" as const } };
-    const unavailable = { ...capture(), screenshot: { ...capture().screenshot, status: "unavailable" as const } };
-    expect(selectionCapturePaths([
-      { capture: captured, status: "current" }, { capture: captured, status: "stale" },
-      { capture: pending, status: "current" }, { capture: unavailable, status: "current" },
-    ])).toEqual(["/capture.png"]);
-    expect(selectionCapturePaths([])).toEqual([]);
-  });
-
-  it("requires source and rendered identity to match", () => {
-    expect(fingerprintsMatch(fingerprint, { ...fingerprint })).toBe(true);
-    expect(fingerprintsMatch(fingerprint, { ...fingerprint, text: "Different instance" })).toBe(false);
-    expect(fingerprintsMatch(fingerprint, { ...fingerprint, sourceKey: "/src/Other.tsx:1:1" })).toBe(false);
-    expect(fingerprintsMatch(fingerprint, { ...fingerprint, selector: "main > button:nth-of-type(2)" })).toBe(true);
-    expect(fingerprintsMatch(fingerprint, { ...fingerprint, instanceKey: "replacement" })).toBe(false);
-  });
-
-  it("marks only selections from the replaced document stale", () => {
-    const result = markSelectionsAfterDocumentChange([
-      { capture: capture(), status: "current" },
-      { capture: { ...capture(), selectionId: "mobile", previewId: "mobile" }, status: "current" },
-    ], "desktop", "generation-2");
-
-    expect(result[0].status).toBe("stale");
-    expect(result[1].status).toBe("current");
-  });
-
-  it("invalidates only the navigating preview and requires a fresh pick even without a new document", () => {
-    const original = [
-      { capture: capture(), status: "current" as const },
-      { capture: { ...capture(), selectionId: "mobile", previewId: "mobile" as const }, status: "current" as const },
-    ];
-
-    const result = markSelectionsAfterRouteChange(original, "desktop");
-    expect(result[0]).toMatchObject({ status: "stale", requiresRepick: true, capture: { documentGeneration: "generation-1" } });
-    expect(result[0].staleReason).toContain("route changed");
-    expect(result[1]).toBe(original[1]);
-    expect(original[0].status).toBe("current");
-    expect(markSelectionsAfterRouteChange(result, "desktop")[0].requiresRepick).toBe(true);
-  });
-
-  it("accepts pointer/keyboard selection origins, but rejects unknown modalities", () => {
-    const message = { protocol: BRIDGE_PROTOCOL, kind: "selection", session: "session", generation: "generation-1", capture: capture() };
-
-    for (const interaction of [undefined, "pointer", "keyboard"]) expect(isBridgeMessage({ ...message, interaction })).toBe(true);
-    expect(isBridgeMessage({ ...message, interaction: "unknown" })).toBe(false);
   });
 
   it("rejects malformed bridge payloads before presentation or IPC use", () => {

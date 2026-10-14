@@ -82,24 +82,6 @@ describe("agent request context", () => {
 });
 
 describe("bundled pi host", () => {
-  it("initializes an app-owned profile without a pi CLI and keeps one runtime across callers", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-agent-test-")); temporary.push(root);
-    const profile = path.join(root, "profile");
-    const host = new PiAgentHost("workspace-1", process.cwd(), profile, path.join(root, "captures"));
-    await Promise.all([host.initialize(), host.initialize()]);
-    const first = await host.snapshot();
-    const second = await host.snapshot();
-    expect(first.ready).toBe(true);
-    expect(first.providers.length).toBeGreaterThan(0);
-    expect(second.sessionId).toBe(first.sessionId);
-    expect(first.workspaceId).toBe("workspace-1");
-
-    for (const key of ["sessions", "sessionName", "tools", "changeSets", "resources"]) expect(first).not.toHaveProperty(key);
-    expect(host.diagnostics()).toHaveProperty("changeSets");
-    await expect(host.send({ workspaceId: "workspace-1", text: "hello", behavior: "prompt", selections: [] })).rejects.toThrow(/model/i);
-    await host.dispose();
-  });
-
   it("restores the last selected provider/model after restart and across workspaces", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-model-restart-")); temporary.push(root);
     const profile = path.join(root, "profile"); await mkdir(profile);

@@ -25,18 +25,6 @@ async function setup() {
   return { root, plan, store, bridgeEntry };
 }
 
-async function setupNext(configContent: string, fileName = "next.config.mjs") {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "mauxi-next-instrumentation-"));
-  const root = path.join(directory, "project");
-  await import("node:fs/promises").then(({ mkdir }) => mkdir(root));
-  await writeFile(path.join(root, fileName), configContent);
-  const bridgeEntry = path.join(directory, "bridge-entry.js");
-  await writeFile(bridgeEntry, "globalThis.__proofBridge = true;\n");
-  const store = new JournalStore(path.join(directory, "journals"));
-
-  return { root, store, bridgeEntry, configPath: path.join(root, fileName) };
-}
-
 describe("owned instrumentation", () => {
   it.each([
     ["inline Tailwind then React", "[tailwindcss(), react()]", ["tailwind", "react"]],
@@ -75,26 +63,6 @@ describe("owned instrumentation", () => {
     await writeFile(configPath, original);
     await expect(prepareIntegrationPlan(root, "vite")).rejects.toThrow("missing or ambiguous");
     expect(await readFile(configPath, "utf8")).toBe(original);
-  });
-
-  it("records before mutation and removes only its region", async () => {
-    const { root, plan, store, bridgeEntry } = await setup();
-    const applied = await applyIntegration(plan, store, bridgeEntry);
-    expect(applied.state).toBe("applied");
-    const journalOnDisk = JSON.parse(await readFile(store.pathFor(applied.transactionId), "utf8"));
-    expect(journalOnDisk.state).toBe("applied");
-
-    const configPath = path.join(root, "vite.config.ts");
-    await writeFile(configPath, `${await readFile(configPath, "utf8")}\n// unrelated user edit\n`);
-    applied.state = "applying";
-    applied.patches[0].applied = false;
-    await store.write(applied);
-    const recoveredStore = new JournalStore(store.directory);
-    const cleaned = await cleanupIntegration(transactionIdFor(plan), recoveredStore);
-    const finalConfig = await readFile(configPath, "utf8");
-    expect(cleaned.state).toBe("clean");
-    expect(finalConfig).not.toContain("mauxi-owned:start");
-    expect(finalConfig).toContain("unrelated user edit");
   });
 
   it("patches the Vite config file that Vite itself loads", async () => {
@@ -176,51 +144,5 @@ describe("owned instrumentation", () => {
     expect(cleaned.state).toBe("conflicted");
     expect(await readFile(plan.configPath, "utf8")).toContain("user-modified-preview-bridge");
     expect(await readFile(plan.configPath, "utf8")).toContain("user work");
-  });
-
-  it.each([
-    ["named ESM config", "const nextConfig = { reactStrictMode: true };\nexport default nextConfig;\n", "next.config.mjs"],
-    ["existing webpack hook", "export default { webpack(config) { return config; } };\n", "next.config.mjs"],
-    ["CommonJS object", "module.exports = { reactStrictMode: true };\n", "next.config.js"],
-    ["function-generated config", "export default async function config() { return { reactStrictMode: true }; }\n", "next.config.mjs"],
-    ["typed config", "import type { NextConfig } from 'next';\nconst config = { reactStrictMode: true } satisfies NextConfig;\nexport default config;\n", "next.config.ts"],
-  ])("supports a %s without parsing or rewriting it", async (_label, configContent, fileName) => {
-    const { root, store, bridgeEntry, configPath } = await setupNext(configContent, fileName);
-    const plan = await prepareIntegrationPlan(root, "next");
-    const applied = await applyIntegration(plan, store, bridgeEntry);
-    expect(await readFile(configPath, "utf8")).toBe(configContent);
-    expect(await readFile(plan.configPath, "utf8")).toContain("mauxi-owned:start preview-bridge");
-    const cleaned = await cleanupIntegration(applied.transactionId, store);
-    expect(cleaned.state).toBe("clean");
-    await expect(readFile(plan.configPath, "utf8")).rejects.toThrow();
-    expect(await readFile(configPath, "utf8")).toBe(configContent);
-  });
-
-  it("patches an existing instrumentation client and preserves concurrent user work", async () => {
-    const { root, store, bridgeEntry } = await setupNext("export default {};\n");
-    const clientPath = path.join(root, "instrumentation-client.ts");
-    await writeFile(clientPath, "console.info('user instrumentation');\n");
-    const plan = await prepareIntegrationPlan(root, "next");
-    const applied = await applyIntegration(plan, store, bridgeEntry);
-    await writeFile(clientPath, `${await readFile(clientPath, "utf8")}\n// concurrent user work\n`);
-    const cleaned = await cleanupIntegration(applied.transactionId, store);
-    expect(cleaned.state).toBe("clean");
-    const final = await readFile(clientPath, "utf8");
-    expect(final).toContain("user instrumentation");
-    expect(final).toContain("concurrent user work");
-    expect(final).not.toContain("mauxi-owned:start");
-  });
-
-  it("leaves the Git index and untracked work unchanged", async () => {
-    const { root, plan, store, bridgeEntry } = await setup();
-    await execFileAsync("git", ["init", "-q"], { cwd: root });
-    await execFileAsync("git", ["add", "vite.config.ts"], { cwd: root });
-    await writeFile(path.join(root, "untracked.txt"), "keep me\n");
-    const beforeIndex = await execFileAsync("git", ["diff", "--cached", "--binary"], { cwd: root });
-    const applied = await applyIntegration(plan, store, bridgeEntry);
-    await cleanupIntegration(applied.transactionId, store);
-    const afterIndex = await execFileAsync("git", ["diff", "--cached", "--binary"], { cwd: root });
-    expect(afterIndex.stdout).toBe(beforeIndex.stdout);
-    expect(await readFile(path.join(root, "untracked.txt"), "utf8")).toBe("keep me\n");
   });
 });

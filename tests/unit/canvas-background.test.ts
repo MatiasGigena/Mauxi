@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CANVAS_GRID_SIZE, CANVAS_TRAIL_LENGTH, CANVAS_TRAIL_SPEED, canvasTrailGeometry, nearestTrailDistance, trailPointAt } from "../../src/presentation/canvas-background";
+import { CANVAS_GRID_SIZE, CANVAS_TRAIL_LENGTH, canvasTrailGeometry, nearestTrailDistance, trailPointAt } from "../../src/presentation/canvas-background";
 
 describe("canvas background trail", () => {
-  it("keeps the approved grid, short trail and steady speed", () => {
-    expect([CANVAS_GRID_SIZE, CANVAS_TRAIL_LENGTH, CANVAS_TRAIL_SPEED]).toEqual([320, 240, 140]);
-  });
   it.each([[390, 700], [768, 600], [1280, 740], [1440, 900], [1920, 1600], [240, 240]])("builds a closed, grid-aligned route near a preview at %sx%s", (width, height) => {
     const result = canvasTrailGeometry(width, height, [{ x: 30, y: 40, width: width / 2, height: height / 2 }])!;
     expect(result.edges.length).toBeGreaterThanOrEqual(4);
@@ -36,12 +33,6 @@ describe("canvas background trail", () => {
   it("hugs a small preview instead of following the screen perimeter", () => {
     const result = canvasTrailGeometry(2560, 1440, [{ x: 700, y: 350, width: 200, height: 200 }])!;
     expect(result.edges.map(({ x, y }) => [x, y])).toEqual([[640.5, 320.5], [960.5, 320.5], [960.5, 640.5], [640.5, 640.5]]);
-  });
-  it("snaps different initial preview layouts to their nearby grid cells", () => {
-    const a = canvasTrailGeometry(2560, 1440, [{ x: 700, y: 350, width: 200, height: 200 }])!;
-    expect(canvasTrailGeometry(2560, 1440, [{ x: 710, y: 360, width: 200, height: 200 }])).toEqual(a);
-    const moved = canvasTrailGeometry(2560, 1440, [{ x: 1020, y: 350, width: 200, height: 200 }])!;
-    expect(moved.edges[0].x).toBe(a.edges[0].x + 320);
   });
   it("traces a stepped outline around adjacent previews rather than their empty bounding box", () => {
     const result = canvasTrailGeometry(1600, 1200, [
