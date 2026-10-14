@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
+
+const SavedLocation = Type.Object({ version: Type.Literal(1), directory: Type.String() });
 
 export class ProjectPickerLocation {
   private writes: Promise<void> = Promise.resolve();
@@ -13,8 +17,7 @@ export class ProjectPickerLocation {
     try {
       const saved: unknown = JSON.parse(await readFile(this.file, "utf8"));
 
-      if (!saved || typeof saved !== "object" || !("version" in saved) || saved.version !== 1
-        || !("directory" in saved) || typeof saved.directory !== "string" || !path.isAbsolute(saved.directory)) return home;
+      if (!Check(SavedLocation, saved) || !path.isAbsolute(saved.directory)) return home;
 
       if (!(await stat(saved.directory)).isDirectory()) return home;
       await access(saved.directory, constants.R_OK | constants.X_OK);

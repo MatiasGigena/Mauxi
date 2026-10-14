@@ -24,7 +24,7 @@ export function PreviewHeader({ id, board, ready, locked, interacting, selecting
   const FocusIcon = focused ? Minimize2 : Maximize2;
 
   return <header className="artboard-header" inert={locked} onPointerDown={event => {
-    if (!(event.target as Element).closest("button:not(.board-grip)")) onDrag(event);
+    if (!(event.target instanceof Element && event.target.closest("button:not(.board-grip)"))) onDrag(event);
   }}>
     <button type="button" className="board-grip" aria-label={`Move ${label} artboard with arrow keys`} title="Drag to move · arrow keys when focused" onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;

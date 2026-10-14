@@ -18,12 +18,13 @@ export function PreviewTools({ id, board, ready, linked, onToggleLinked, canCopy
   const FocusIcon = focused ? Minimize2 : Maximize2;
   useEffect(() => {
     const node = dialog.current!;
-    const opener = document.activeElement as HTMLElement | null;
+    const focused = document.activeElement;
+    const opener = focused instanceof HTMLElement || focused instanceof SVGElement ? focused : null;
     node.showModal();
 
     return () => { node.close();
 
- if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
+    if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
   }, []);
 
   return <dialog ref={dialog} className="preview-tools action-modal" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => {
@@ -59,7 +60,7 @@ export function PreviewTools({ id, board, ready, linked, onToggleLinked, canCopy
     </div>
     <form className="viewport-settings" onSubmit={event => { event.preventDefault();
 
- if (dimensionsChanged) onResize(Number(width), Number(height)); }}>
+    if (dimensionsChanged) onResize(Number(width), Number(height)); }}>
       <fieldset>
         <legend>Viewport <span>px</span></legend>
         <div className="viewport-fields">

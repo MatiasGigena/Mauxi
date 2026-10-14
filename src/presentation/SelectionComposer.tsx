@@ -107,7 +107,7 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
   componentDidUpdate(_props: Props, previous: State, before: Snapshot | null) {
     if (!before || !this.root.current || !this.surface.current) { this.fitEditor();
 
- return; }
+    return; }
 
     const root = this.root.current;
     const active = this.state.entries.filter(entry => !entry.exiting);
@@ -135,7 +135,7 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
 
     if (instant) { this.settle();
 
- return; }
+    return; }
 
     const after = this.surface.current.getBoundingClientRect();
     const opening = after.height > before.surface.height;
@@ -156,7 +156,9 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
         if (!from) return;
 
         if (node.hasAttribute("data-retained-motion")) {
-          const parent = node.offsetParent as HTMLElement;
+          const parent = node.offsetParent;
+
+          if (!(parent instanceof HTMLElement)) return;
           const origin = parent.getBoundingClientRect();
           Object.assign(node.style, { left: `${from.rect.left - origin.left - parent.clientLeft + parent.scrollLeft}px`, top: `${from.rect.top - origin.top - parent.clientTop + parent.scrollTop}px`, width: `${from.rect.width}px`, height: `${from.rect.height}px` });
           this.animate(node, [{ visibility: "visible", opacity: from.opacity, transform: "none" }, { visibility: "visible", opacity: 0, transform: "translateY(-12%) scale(.97)" }], 110, easeOut,

@@ -70,7 +70,9 @@ export class SelectionOverlay {
 
       if (bounds) {
         this.place(marker, bounds);
-        (marker.firstElementChild as HTMLElement).hidden = bounds.width < 80 || bounds.height < 32;
+        const badge = marker.firstElementChild;
+
+        if (badge instanceof HTMLElement) badge.hidden = bounds.width < 80 || bounds.height < 32;
       }
     }
 

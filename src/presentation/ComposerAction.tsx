@@ -5,6 +5,8 @@ export const ACTION_LABELS = { send: "Send", followUp: "Follow up", stop: "Stop"
 
 type Action = keyof typeof ACTION_LABELS;
 
+const ACTIONS: Action[] = ["send", "followUp", "stop", "stopping"];
+
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & { action: Action; instant: boolean };
 
 export class ComposerAction extends Component<Props, {}, number | null> {
@@ -47,7 +49,7 @@ export class ComposerAction extends Component<Props, {}, number | null> {
     this.animation = animation;
     animation.onfinish = () => { animation.cancel();
 
- if (this.animation === animation) this.animation = undefined; };
+    if (this.animation === animation) this.animation = undefined; };
   }
 
   render() {
@@ -56,7 +58,7 @@ export class ComposerAction extends Component<Props, {}, number | null> {
     return <button className="primary send-action" {...props} aria-label={ACTION_LABELS[action]} data-action={action} data-instant={instant || undefined}>
       <span ref={this.surface} className="send-action-surface" aria-hidden="true" />
       <span className="send-action-content" aria-hidden="true">
-        {(Object.keys(ACTION_LABELS) as Action[]).map(state => <span className="send-action-state" data-active={action === state} key={state}>
+        {ACTIONS.map(state => <span className="send-action-state" data-active={action === state} key={state}>
           <span>{ACTION_LABELS[state]}</span>{state === "stop" || state === "stopping" ? <Square size={14} fill="currentColor" strokeWidth={0} /> : <ArrowUpRight size={16} />}
         </span>)}
       </span>

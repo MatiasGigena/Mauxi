@@ -1,13 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import { isCanvasState, type CanvasState } from "../../application/canvas-state";
+
+const StoredWorkspace = Type.Object({
+  version: Type.Literal(1),
+  projectRoot: Type.String(),
+  planId: Type.String(),
+  confirmedAt: Type.Optional(Type.String()),
+  canvas: Type.Optional(Type.Unknown()),
+  startPath: Type.Optional(Type.Unknown()),
+});
+
+const StoredStartPath = Type.String();
 
 interface RememberedWorkspace {
   version: 1;
   projectRoot: string;
   planId: string;
-  confirmedAt: string;
+  confirmedAt?: string;
   canvas?: CanvasState;
   startPath?: string;
 }
@@ -22,9 +35,17 @@ export class WorkspaceStore {
   }
   private async read(root: string): Promise<RememberedWorkspace | null> {
     try {
-      const value = JSON.parse(await readFile(this.fileFor(root), "utf8")) as RememberedWorkspace;
+      const value: unknown = JSON.parse(await readFile(this.fileFor(root), "utf8"));
 
-      return value.version === 1 && value.projectRoot === root && typeof value.planId === "string" ? value : null;
+      if (!Check(StoredWorkspace, value) || value.projectRoot !== root) return null;
+      const { canvas, startPath, ...workspace } = value;
+      const remembered: RememberedWorkspace = workspace;
+
+      if (isCanvasState(canvas)) remembered.canvas = canvas;
+
+      if (Check(StoredStartPath, startPath)) remembered.startPath = startPath;
+
+      return remembered;
     } catch { return null; }
   }
   async rememberedPlan(root: string): Promise<string | null> { return (await this.read(root))?.planId ?? null; }

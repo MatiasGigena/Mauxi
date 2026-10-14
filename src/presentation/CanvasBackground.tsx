@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { CANVAS_GRID_SIZE, CANVAS_TRAIL_SPEED, canvasTrailGeometry, nearestTrailDistance, trailPointAt, type CanvasTrailGeometry, type CanvasViewBounds } from "./canvas-background";
 import "./canvas-background.css";
 
+type CanvasGridStyle = CSSProperties & { "--canvas-grid-size": string };
+
 export function CanvasBackground() {
   const layer = useRef<HTMLDivElement>(null);
 
@@ -75,13 +77,12 @@ export function CanvasBackground() {
         const origin = node.getBoundingClientRect();
 
         if (origin.width <= 0 || origin.height <= 0) return;
-        initialViews = [...surface.querySelectorAll<HTMLElement>(".artboard")]
-          .filter(board => getComputedStyle(board).visibility !== "hidden")
-          .map(board => {
-            const rect = board.getBoundingClientRect();
+        initialViews = [...surface.querySelectorAll<HTMLElement>(".artboard")].flatMap(board => {
+          if (getComputedStyle(board).visibility === "hidden") return [];
+          const rect = board.getBoundingClientRect();
 
-            return { x: (rect.x - origin.x) / origin.width, y: (rect.y - origin.y) / origin.height, width: rect.width / origin.width, height: rect.height / origin.height };
-          });
+          return [{ x: (rect.x - origin.x) / origin.width, y: (rect.y - origin.y) / origin.height, width: rect.width / origin.width, height: rect.height / origin.height }];
+        });
         build();
       });
     });
@@ -97,7 +98,9 @@ export function CanvasBackground() {
     };
   }, []);
 
-  return <div className="canvas-background" aria-hidden="true" style={{ "--canvas-grid-size": `${CANVAS_GRID_SIZE}px` } as CSSProperties}>
+  const style: CanvasGridStyle = { "--canvas-grid-size": `${CANVAS_GRID_SIZE}px` };
+
+  return <div className="canvas-background" aria-hidden="true" style={style}>
     <div className="canvas-trail" ref={layer} />
   </div>;
 }

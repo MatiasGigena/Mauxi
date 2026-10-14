@@ -3,6 +3,8 @@ import type { JSXElement, Node } from "@babel/types";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 
 const SKIP = new Set(["node_modules", ".git", ".next", "dist", "build", ".mauxi"]);
 const MAX_FILES_VISITED = 20_000;
@@ -15,6 +17,12 @@ export interface ResolvedWorkspaceSource {
   lineNumber?: number;
   columnNumber?: number;
   method?: "react-grab" | "jsx-attribute";
+}
+
+const BabelAstNode = Type.Object({ type: Type.String() });
+
+function isAstNode(value: unknown): value is Node {
+  return Check(BabelAstNode, value);
 }
 
 function jsxLocation(content: string, locator: SourceLocatorHint): { lineNumber: number; columnNumber: number } | null {
@@ -31,7 +39,7 @@ function jsxLocation(content: string, locator: SourceLocatorHint): { lineNumber:
 
       for (const value of Object.values(node)) {
         for (const child of Array.isArray(value) ? value : [value]) {
-          if (child && typeof child === "object" && typeof child.type === "string") pending.push(child as Node);
+          if (isAstNode(child)) pending.push(child);
         }
       }
     }
@@ -138,9 +146,16 @@ export async function resolveWorkspaceSource(
   const reportedLocationMatches = Boolean(mapped && lineNumber === mapped.lineNumber && columnNumber != null
     && Math.abs(columnNumber - mapped.columnNumber) <= 1);
 
-  return {
+  const resolved: ResolvedWorkspaceSource = {
     filePath: path.relative(canonicalRoot, valid[0]).split(path.sep).join("/"),
     fileFingerprint: createHash("sha256").update(content).digest("hex"),
-    ...(mapped ? { ...mapped, method: reportedLocationMatches ? "react-grab" as const : "jsx-attribute" as const } : {}),
   };
+
+  if (mapped) {
+    resolved.lineNumber = mapped.lineNumber;
+    resolved.columnNumber = mapped.columnNumber;
+    resolved.method = reportedLocationMatches ? "react-grab" : "jsx-attribute";
+  }
+
+  return resolved;
 }

@@ -2,10 +2,14 @@ import { readFile, readdir, realpath } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import type { LaunchPlan } from "../../application/project-contract";
+import { hasErrorCode } from "../error-code";
 
 const MAX_LOG_LINES = 400;
 const MAX_LINE_LENGTH = 4_000;
+const ListeningAddress = Type.Object({ port: Type.Number() });
 
 export async function isPortOccupied(port: number, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((resolve) => {
@@ -95,10 +99,10 @@ export class OwnedDevProcess {
     const signalGroup = (signal: NodeJS.Signals | 0): boolean => {
       try { process.kill(-pid, signal);
 
- return true; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      return true; }
+      catch (error) { if (!hasErrorCode(error, "ESRCH")) throw error;
 
- return false; }
+      return false; }
     };
 
     if (signalGroup("SIGTERM")) {
@@ -142,9 +146,9 @@ export async function availablePort(): Promise<number> {
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
 
-      if (!address || typeof address === "string") { server.close(); reject(new Error("No local port available"));
+      if (!Check(ListeningAddress, address)) { server.close(); reject(new Error("No local port available"));
 
- return; }
+      return; }
 
       server.close(error => error ? reject(error) : resolve(address.port));
     });
@@ -175,7 +179,7 @@ export async function existingNextServer(appRoot: string): Promise<number | null
 
       if (argv[0]?.startsWith("next-server (") || argv.some((arg, index) => /(?:^|\/)next$/.test(arg) && argv[index + 1] === "dev")) return Number(entry);
     } catch (error) {
-      if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      if (!hasErrorCode(error, "ENOENT", "ESRCH", "EACCES", "EPERM")) throw error;
     }
   }
 

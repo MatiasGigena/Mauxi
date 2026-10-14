@@ -9,9 +9,13 @@ import type {
 import type { CanvasState } from "../application/canvas-state";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../application/agent-contract";
 
-import type { BrowserOwner, BrowserState } from "../application/browser-contract";
+import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../application/browser-contract";
 
 export {};
+
+interface BrowserTestTargets { state: BrowserState; targets: BrowserTarget[] }
+
+type UnsupportedBrowserRequest = Omit<BrowserRequest, "operation"> & { operation: string; expression?: string };
 
 declare global {
   interface Window {
@@ -19,7 +23,8 @@ declare global {
       browserState(): Promise<BrowserState>;
       browserOwner(input: { workspaceId: string; owner: BrowserOwner }): Promise<BrowserState>;
       browserHeartbeat(workspaceId: string): Promise<void>;
-      browserTest(input: unknown): Promise<unknown>;
+      browserTest(input: "targets"): Promise<BrowserTestTargets>;
+      browserTest(input: BrowserRequest | UnsupportedBrowserRequest): Promise<BrowserResult>;
       onBrowserState(callback: (state: BrowserState) => void): () => void;
       getBootstrap(): Promise<WorkspaceBootstrap>;
       openProject(): Promise<ProjectDiscovery | null>;

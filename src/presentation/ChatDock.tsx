@@ -6,7 +6,7 @@ import { SelectionComposer } from "./SelectionComposer";
 import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
 import { ComposerAction } from "./ComposerAction";
 
-function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function errorMessage(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }
 
 const EMPTY_AGENT: AgentSnapshot = {
   ready: false, workspaceId: "", providers: [], models: [], messages: [],
@@ -17,7 +17,8 @@ function useModalFocus(onClose: () => void, trap = true, active = true) {
   const ref = useRef<HTMLElement>(null);
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
+    const focused = document.activeElement;
+    const previous = focused instanceof HTMLElement || focused instanceof SVGElement ? focused : null;
     const element = ref.current;
 
     if (!active || !element) return;
@@ -32,7 +33,7 @@ function useModalFocus(onClose: () => void, trap = true, active = true) {
 
       if (!first) { event.preventDefault();
 
- return; }
+      return; }
 
       if (event.shiftKey && (document.activeElement === first || !element.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && (document.activeElement === last || !element.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
@@ -126,7 +127,7 @@ function ModelSelect({ agent, busy, onSelect, children }: {
 
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setExpanded(false, false); };
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target instanceof Node ? event.target : null)) setExpanded(false, false); };
 
     document.addEventListener("pointerdown", outside);
 
@@ -147,11 +148,11 @@ function ModelSelect({ agent, busy, onSelect, children }: {
 
     if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setExpanded(false, true);
 
- return; }
+    return; }
 
     if (event.key === "Tab") { if (open) setExpanded(false, true);
 
- return; }
+    return; }
 
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault(); event.stopPropagation();
@@ -162,7 +163,7 @@ function ModelSelect({ agent, busy, onSelect, children }: {
     } else if (open && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault(); event.stopPropagation();
 
- if (options.length) choose(options[activeIndex].key);
+      if (options.length) choose(options[activeIndex].key);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault(); event.stopPropagation();
       activeFromPointer.current = false;
@@ -268,7 +269,7 @@ function ProviderScroller({ count, children }: { count: number; children: ReactN
     </div>
     {thumb.visible && <div ref={track} className="provider-scrollbar" aria-hidden="true" onPointerDown={event => {
       event.preventDefault();
-      const offset = thumbNode.current?.contains(event.target as Node) ? event.clientY - thumbNode.current.getBoundingClientRect().top : thumb.height / 2;
+      const offset = thumbNode.current?.contains(event.target instanceof Node ? event.target : null) ? event.clientY - thumbNode.current.getBoundingClientRect().top : thumb.height / 2;
       drag.current = { offset };
       event.currentTarget.setPointerCapture(event.pointerId);
       scrollToPointer(event.clientY, offset);
@@ -280,7 +281,7 @@ function ProviderScroller({ count, children }: { count: number; children: ReactN
 }
 
 function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
-  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; login: (action: () => Promise<unknown>, trigger: HTMLElement) => void; onClose: () => void;
+  agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<void>) => void; login: (action: () => Promise<void>, trigger: HTMLElement) => void; onClose: () => void;
 }) {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
 
@@ -384,12 +385,12 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
     return () => { live = false; off(); };
   }, [workspaceId]);
 
-  function run(action: () => Promise<unknown>) {
+  function run(action: () => Promise<void>) {
     setBusy(true); setSendError("");
     void action().catch((error) => setSendError(errorMessage(error))).finally(() => setBusy(false));
   }
 
-  function login(action: () => Promise<unknown>, trigger: HTMLElement) {
+  function login(action: () => Promise<void>, trigger: HTMLElement) {
     loginFocus.current = trigger;
     run(action);
   }
@@ -415,7 +416,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
 
       if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending.");
 
- return; }
+      return; }
 
       const attached = result.selections ?? [];
       const previousUserIds = agent.messages.filter(message => message.role === "user").map(message => message.id);
@@ -423,7 +424,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
 
       if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept.");
 
- return; }
+      return; }
 
       setAccepted({ text, previousUserIds, workspaceId, sessionId: agent.sessionId });
       setDraft((current) => current === submittedDraft ? "" : current);

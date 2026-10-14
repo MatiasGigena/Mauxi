@@ -44,7 +44,7 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
     if (!expanded) return;
 
     function outside(event: PointerEvent) {
-      if (!root.current?.contains(event.target as Node)) onOpenChange(false, false);
+      if (!root.current?.contains(event.target instanceof Node ? event.target : null)) onOpenChange(false, false);
     }
 
     document.addEventListener("pointerdown", outside);
@@ -68,12 +68,12 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
     if (event.key === "Escape" && expanded) {
       event.preventDefault(); event.stopPropagation(); onOpenChange(false, true);
 
- return;
+      return;
     }
 
     if (event.key === "Tab") { if (expanded) onOpenChange(false, true);
 
- return; }
+    return; }
 
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault(); event.stopPropagation();

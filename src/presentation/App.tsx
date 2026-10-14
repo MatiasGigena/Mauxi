@@ -5,8 +5,8 @@ import { Workspace } from "./Workspace";
 import { ProjectSetup } from "./ProjectSetup";
 import logoText from "./assets/logo-mauxi-text.png";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function App() {

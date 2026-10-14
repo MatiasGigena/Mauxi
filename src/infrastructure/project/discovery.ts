@@ -13,6 +13,8 @@ import type {
   SupportedFramework,
   SupportedPackageManager,
 } from "../../application/project-contract";
+import { Type, type Static } from "typebox";
+import { Check } from "typebox/schema";
 import { previewIntegrationPlan } from "../instrumentation/plan";
 
 const execFileAsync = promisify(execFile);
@@ -20,18 +22,61 @@ const MAX_MANIFEST_BYTES = 1_048_576;
 const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", ".next", "dist", "build", ".mauxi"]);
 
 interface PackageManifest {
-  name?: unknown;
-  version?: unknown;
-  scripts?: unknown;
-  dependencies?: unknown;
-  devDependencies?: unknown;
-  packageManager?: unknown;
-  workspaces?: unknown;
-  mauxi?: unknown;
+  name: string | null;
+  version: string | null;
+  scripts: Record<string, string>;
+  packages: Record<string, string>;
+  packageManager: string | null;
+  workspaces: string[];
+  startPath: string;
+  startPathError: string | null;
 }
 
-export function validateStartPath(value: unknown): string {
-  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//")
+const ManifestObject = Type.Record(Type.String(), Type.Unknown());
+const ManifestText = Type.String();
+const ManifestList = Type.Array(Type.Unknown());
+const WorkspaceObject = Type.Object({ packages: Type.Optional(Type.Unknown()) });
+
+function isText(value: unknown): value is string {
+  return Check(ManifestText, value);
+}
+
+function isTextEntry(entry: [string, unknown]): entry is [string, string] {
+  return isText(entry[1]);
+}
+
+function isManifestObject(value: unknown): value is Static<typeof ManifestObject> {
+  return Check(ManifestObject, value);
+}
+
+function isManifestList(value: unknown): value is Static<typeof ManifestList> {
+  return Check(ManifestList, value);
+}
+
+function textRecord(record: Static<typeof ManifestObject>, key: string): Record<string, string> {
+  const value = record[key];
+
+  return isManifestObject(value) ? Object.fromEntries(Object.entries(value).filter(isTextEntry)) : {};
+}
+
+function textList(record: Static<typeof ManifestObject>, key: string): string[] {
+  const value = record[key];
+
+  return isManifestList(value) ? value.filter(isText) : [];
+}
+
+function workspacePatterns(manifest: Static<typeof ManifestObject>): string[] {
+  const workspaces = manifest.workspaces;
+
+  if (isManifestList(workspaces)) return workspaces.filter(isText);
+
+  if (Check(WorkspaceObject, workspaces)) return textList(workspaces, "packages");
+
+  return [];
+}
+
+export function validateStartPath(value: string): string {
+  if (value.length > 2048 || !value.startsWith("/") || value.startsWith("//")
     || /[\\\s?#]/.test(value)) throw new Error("The initial route must be a local path such as /login, without an origin, query or fragment.");
   const url = new URL(value, "http://127.0.0.1");
 
@@ -40,14 +85,38 @@ export function validateStartPath(value: unknown): string {
   return url.pathname;
 }
 
-function projectStartPath(manifest: PackageManifest): string {
+function projectStartPath(manifest: Static<typeof ManifestObject>): string {
   if (manifest.mauxi === undefined) return "/";
   const config = manifest.mauxi;
 
-  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("package.json mauxi must be an object.");
-  const value = (config as Record<string, unknown>).startPath ?? "/";
+  if (!isManifestObject(config)) throw new Error("package.json mauxi must be an object.");
+  const value = config.startPath ?? "/";
+
+  if (!isText(value)) throw new Error("The initial route must be a local path such as /login, without an origin, query or fragment.");
 
   return validateStartPath(value);
+}
+
+function parseManifest(source: string, filePath: string): PackageManifest {
+  const value: unknown = JSON.parse(source);
+
+  if (!isManifestObject(value)) throw new Error(`Invalid package.json: ${filePath}`);
+  let startPath = "/";
+  let startPathError: string | null = null;
+
+  try { startPath = projectStartPath(value); }
+  catch (error) { startPathError = String(error); }
+
+  return {
+    name: isText(value.name) ? value.name : null,
+    version: isText(value.version) ? value.version : null,
+    scripts: textRecord(value, "scripts"),
+    packages: { ...textRecord(value, "dependencies"), ...textRecord(value, "devDependencies") },
+    packageManager: isText(value.packageManager) ? value.packageManager : null,
+    workspaces: workspacePatterns(value),
+    startPath,
+    startPathError,
+  };
 }
 
 function hash(value: string): string {
@@ -64,35 +133,22 @@ async function readManifest(filePath: string): Promise<PackageManifest> {
   if (!file.isFile() || file.isSymbolicLink()) throw new Error(`Manifest must be a regular file: ${filePath}`);
 
   if (file.size > MAX_MANIFEST_BYTES) throw new Error(`Manifest is larger than ${MAX_MANIFEST_BYTES} bytes: ${filePath}`);
-  const value: unknown = JSON.parse(await readFile(filePath, "utf8"));
 
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid package.json: ${filePath}`);
-
-  return value as PackageManifest;
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-}
-
-function packageVersions(manifest: PackageManifest): Record<string, string> {
-  return { ...stringRecord(manifest.dependencies), ...stringRecord(manifest.devDependencies) };
+  return parseManifest(await readFile(filePath, "utf8"), filePath);
 }
 
 function detectFramework(manifest: PackageManifest): SupportedFramework | null {
-  const packages = packageVersions(manifest);
+  const packages = manifest.packages;
 
-  if (typeof packages.next === "string") return "next";
+  if (Object.hasOwn(packages, "next")) return "next";
 
-  if (typeof packages.vite === "string" && (typeof packages.react === "string" || typeof packages["react-dom"] === "string")) return "vite";
+  if (Object.hasOwn(packages, "vite") && (Object.hasOwn(packages, "react") || Object.hasOwn(packages, "react-dom"))) return "vite";
 
   return null;
 }
 
 async function detectPackageManager(root: string, manifest: PackageManifest): Promise<SupportedPackageManager> {
-  const declared = typeof manifest.packageManager === "string" ? manifest.packageManager.split("@")[0] : "";
+  const declared = (manifest.packageManager ?? "").split("@")[0];
 
   if (declared === "pnpm" || declared === "yarn" || declared === "npm") return declared;
 
@@ -101,18 +157,6 @@ async function detectPackageManager(root: string, manifest: PackageManifest): Pr
   if (await isFile(path.join(root, "yarn.lock"))) return "yarn";
 
   return "npm";
-}
-
-function workspacePatterns(manifest: PackageManifest): string[] {
-  if (Array.isArray(manifest.workspaces)) return manifest.workspaces.filter((item): item is string => typeof item === "string");
-
-  if (manifest.workspaces && typeof manifest.workspaces === "object" && "packages" in manifest.workspaces) {
-    const packages = (manifest.workspaces as { packages?: unknown }).packages;
-
-    return Array.isArray(packages) ? packages.filter((item): item is string => typeof item === "string") : [];
-  }
-
-  return [];
 }
 
 function isInsideRoot(root: string, candidate: string): boolean {
@@ -165,7 +209,7 @@ function isNextClientVersion(value: string): boolean {
 }
 
 async function supportsNextClientInstrumentation(manifest: PackageManifest, appRoot: string, projectRoot: string): Promise<boolean> {
-  const declared = packageVersions(manifest).next ?? "";
+  const declared = manifest.packages.next ?? "";
 
   if (isNextClientVersion(declared)) return true;
 
@@ -177,7 +221,7 @@ async function supportsNextClientInstrumentation(manifest: PackageManifest, appR
     try {
       const installed = await readManifest(installedManifest);
 
-      if (typeof installed.version === "string" && isNextClientVersion(installed.version)) return true;
+      if (installed.version !== null && isNextClientVersion(installed.version)) return true;
     } catch {}
   }
 
@@ -185,7 +229,7 @@ async function supportsNextClientInstrumentation(manifest: PackageManifest, appR
 }
 
 function scriptCandidates(manifest: PackageManifest, framework: SupportedFramework): Array<[string, string]> {
-  const scripts = stringRecord(manifest.scripts);
+  const scripts = manifest.scripts;
   const preferred = ["dev", "start"];
 
   const candidates = Object.entries(scripts).filter(([, command]) => {
@@ -228,14 +272,14 @@ async function resolvePackageManagerExecutable(manager: SupportedPackageManager)
 
     try { await access(candidate, constants.X_OK);
 
- return candidate; }
+    return candidate; }
     catch {}
   }
 
   return null;
 }
 
-function commandFor(manager: SupportedPackageManager, executable: string, script: string): { executable: string; args: string[]; display: string } {
+function commandFor(manager: SupportedPackageManager, executable: string, script: string) {
   if (manager === "npm") return { executable, args: ["run", script], display: `npm run ${script}` };
 
   return { executable, args: [script], display: `${manager} ${script}` };
@@ -335,7 +379,7 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
   const rootManifest = await readManifest(rootManifestPath);
   const candidateRoots = new Set<string>([canonicalRoot]);
 
-  for (const pattern of workspacePatterns(rootManifest)) {
+  for (const pattern of rootManifest.workspaces) {
     const expanded = await expandWorkspacePattern(canonicalRoot, pattern);
 
     for (const candidate of expanded) {
@@ -375,10 +419,9 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
       const command = commandFor(manager, managerExecutable ?? manager, scriptName);
       const port = detectedPort(rawCommand, framework);
       const planDiagnostics: ProjectDiagnostic[] = [];
-      let startPath = "/";
+      const startPath = manifest.startPath;
 
-      try { startPath = projectStartPath(manifest); }
-      catch (error) { planDiagnostics.push({ level: "error", code: "invalid-start-path", message: String(error) }); }
+      if (manifest.startPathError !== null) planDiagnostics.push({ level: "error", code: "invalid-start-path", message: manifest.startPathError });
 
       if (!managerExecutable) planDiagnostics.push({ level: "error", code: "missing-toolchain", message: `${manager} was not found in PATH or the supported Linux user tool locations.` });
 
@@ -404,7 +447,7 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
 
       plans.push({
         id,
-        label: `${relative === "." ? (typeof manifest.name === "string" ? manifest.name : path.basename(candidateRoot)) : relative} — ${scriptName}`,
+        label: `${relative === "." ? (manifest.name ?? path.basename(candidateRoot)) : relative} — ${scriptName}`,
         projectRoot: canonicalRoot,
         appRoot: candidateRoot,
         framework,

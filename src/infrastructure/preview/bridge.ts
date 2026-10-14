@@ -4,8 +4,11 @@ import {
   getElementsAtPoint,
   isElementGrabbable,
 } from "react-grab/primitives";
+import { Type, type Static } from "typebox";
+import { Check } from "typebox/schema";
 import {
   BRIDGE_PROTOCOL,
+  type BridgeToShellMessage,
   type ComponentOwner,
   type DomAncestryEntry,
   type ElementFingerprint,
@@ -15,18 +18,53 @@ import {
 import { supportedRoute } from "../../application/route-link";
 import { SelectionOverlay } from "./selection-overlay";
 
+interface PreviousBootstrap {
+  session: string | null;
+  previewId: string | null;
+  parent: string | null;
+  navigationId: string | null;
+  unsafeRoute: boolean;
+}
+
+type OutgoingMessage<Message extends BridgeToShellMessage> = Message extends BridgeToShellMessage ? Omit<Message, "protocol" | "session" | "generation"> : never;
+
+type ReadyMessage = OutgoingMessage<Extract<BridgeToShellMessage, { kind: "ready" }>> & { previewId: string | null };
+
+const BootstrapRecord = Type.Record(Type.String(), Type.Unknown());
+const BootstrapText = Type.String();
+
+function bootstrapText(record: Static<typeof BootstrapRecord>, key: string): string | null {
+  const value = record[key];
+
+  return Check(BootstrapText, value) ? value : null;
+}
+
+function readPreviousBootstrap(): PreviousBootstrap {
+  const empty: PreviousBootstrap = { session: null, previewId: null, parent: null, navigationId: null, unsafeRoute: false };
+
+  if (!window.name.startsWith("mauxi:")) return empty;
+  let value: unknown;
+
+  try { value = JSON.parse(window.name.slice(6)); } catch { return empty; }
+
+  if (!Check(BootstrapRecord, value) || value.origin !== location.origin) return empty;
+
+  return {
+    session: bootstrapText(value, "session"),
+    previewId: bootstrapText(value, "previewId"),
+    parent: bootstrapText(value, "parent"),
+    navigationId: bootstrapText(value, "navigationId"),
+    unsafeRoute: value.unsafeRoute === true,
+  };
+}
+
 const params = new URLSearchParams(location.search);
-let previous: Record<string, unknown> = {};
-
-try { if (window.name.startsWith("mauxi:")) previous = JSON.parse(window.name.slice(6)); } catch {}
-
-if (previous.origin !== location.origin) previous = {};
-
-const session = params.get("mauxiSession") ?? (typeof previous.session === "string" ? previous.session : null);
+const previous = readPreviousBootstrap();
+const session = params.get("mauxiSession") ?? previous.session;
 const previewId = params.get("mauxiPreview") ?? previous.previewId;
-const expectedParent = params.get("mauxiParent") ?? (typeof previous.parent === "string" ? previous.parent : "null");
-let navigationId = typeof previous.navigationId === "string" ? previous.navigationId : null;
-let unsafeRoute = previous.unsafeRoute === true;
+const expectedParent = params.get("mauxiParent") ?? previous.parent ?? "null";
+let navigationId = previous.navigationId;
+let unsafeRoute = previous.unsafeRoute;
 let reportedUrl: string | null = null;
 let reportedSafe = true;
 let routeRevision = 0;
@@ -62,7 +100,7 @@ pickerCursorStyle.dataset.mauxiOverlay = "true";
 
 pickerCursorStyle.textContent = "html:root, html:root * { cursor: crosshair !important; }";
 
-function send(message: Record<string, unknown>): void {
+function send(message: OutgoingMessage<BridgeToShellMessage> | ReadyMessage): void {
   if (!session || window.parent === window) return;
   window.parent.postMessage({ protocol: BRIDGE_PROTOCOL, session, generation, ...message }, expectedParent === "null" ? "*" : expectedParent);
 }
@@ -73,9 +111,17 @@ function isSensitiveElement(element: Element): boolean {
   return element.matches(SENSITIVE_SELECTOR) || Boolean(element.closest('[contenteditable]:not([contenteditable="false"])'));
 }
 
+function cloneElement(element: Element): Element {
+  const clone = element.cloneNode(true);
+
+  if (!(clone instanceof Element)) throw new Error("Element clone did not produce an element.");
+
+  return clone;
+}
+
 function boundedText(element: Element): string {
   if (isSensitiveElement(element)) return "[redacted input]";
-  const clone = element.cloneNode(true) as Element;
+  const clone = cloneElement(element);
 
   for (const node of clone.querySelectorAll(SENSITIVE_SELECTOR)) node.replaceWith(document.createTextNode("[redacted input]"));
 
@@ -83,7 +129,7 @@ function boundedText(element: Element): string {
 }
 
 function safeHtml(element: Element): string {
-  const clone = element.cloneNode(true) as Element;
+  const clone = cloneElement(element);
   const sensitive = [...(clone.matches(SENSITIVE_SELECTOR) ? [clone] : []), ...clone.querySelectorAll(SENSITIVE_SELECTOR)];
 
   for (const node of sensitive) {
@@ -202,7 +248,7 @@ function updatePoint(x: number, y: number): void {
 
   if (!next) { hoverBase = null; refinementPath = []; overlapTargets = []; drawOutline(null);
 
- return; }
+  return; }
 
   if (next !== hoverBase) {
     hoverBase = next; refinementIndex = 0; overlapIndex = 0;
@@ -247,7 +293,7 @@ function syncChildFrameShields(): void {
       shield = document.createElement("div"); shield.dataset.mauxiOverlay = "true"; shield.dataset.mauxiFrameShield = "true";
       const frameTestId = frame.getAttribute("data-testid");
 
- if (frameTestId) shield.dataset.mauxiFrameTarget = frameTestId;
+      if (frameTestId) shield.dataset.mauxiFrameTarget = frameTestId;
       Object.assign(shield.style, { position: "fixed", zIndex: "2147483646", background: "transparent", cursor: "crosshair" });
       frameShieldOwners.set(shield, frame); document.documentElement.append(shield); childFrameShields.set(frame, shield);
       shield.addEventListener("pointermove", (event) => {
@@ -373,7 +419,7 @@ function trackMovingTarget() {
 
   if (!selectionEnabled && !markedSelections.some(id => selectedElements.get(id)?.isConnected)) { trackingPicker = false;
 
- return; }
+  return; }
 
   if (selectionEnabled) syncChildFrameShields();
   requestAnimationFrame(trackMovingTarget);
@@ -398,25 +444,25 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 
   if (message.kind === "connect") { reportReady();
 
- return; }
+  return; }
 
   if (message.generation !== generation) return;
 
   if (message.kind === "canvas-controls") { canvasControlsEnabled = message.enabled;
 
- return; }
+  return; }
 
   if (message.kind === "reload") { location.reload();
 
- return; }
+  return; }
 
   if (message.kind === "navigate") {
     const route = supportedRoute(message.route, location.origin);
 
- if (!route) return;
+    if (!route) return;
     navigationId = message.navigationId; unsafeRoute = false; saveBootstrap(); location.assign(route);
 
- return;
+    return;
   }
 
   if (message.kind === "selection-mode") {
@@ -444,7 +490,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (message.kind === "picker-visibility") {
     pickerHidden = message.hidden; drawSelectionChrome(); syncChildFrameShields();
 
- return;
+    return;
   }
 
   if (message.kind === "picker-refine") {
@@ -492,7 +538,7 @@ for (const method of ["pushState", "replaceState"] as const) {
 
 window.addEventListener("popstate", reportRoute);
 
- window.addEventListener("hashchange", reportRoute);
+window.addEventListener("hashchange", reportRoute);
 
 function markFormNavigation() { unsafeRoute = true; saveBootstrap(); }
 
@@ -507,9 +553,9 @@ HTMLFormElement.prototype.submit = function () {
 
 document.addEventListener("submit", (event) => { if (selectionEnabled) { cancelPageAction(event);
 
- return; }
+return; }
 
- markFormNavigation(); }, true);
+markFormNavigation(); }, true);
 
 document.addEventListener("keyup", (event) => {
   if (canvasControlsEnabled && event.code === "Space") send({ kind: "canvas-shortcut", action: "space-end" });
@@ -527,7 +573,7 @@ document.addEventListener("keydown", (event) => {
   if (canvasControlsEnabled && event.key === "Escape" && !selectionEnabled) {
     event.preventDefault(); event.stopImmediatePropagation(); send({ kind: "canvas-shortcut", action: "exit" });
 
- return;
+    return;
   }
 
   if (canvasControlsEnabled && event.code === "Space" && !event.ctrlKey && !event.metaKey && !event.altKey
@@ -543,23 +589,23 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key === "Escape") { cancelPageAction(event); send({ kind: "selection-cancelled" });
 
- return; }
+  return; }
 
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
     cancelPageAction(event);
     refinementIndex = Math.max(0, Math.min(refinementPath.length - 1, refinementIndex + (event.key === "ArrowUp" ? 1 : -1)));
     drawOutline(refinementPath[refinementIndex] ?? hoverBase);
 
- return;
+    return;
   }
 
   if (event.key === "[" || event.key === "]") { cancelPageAction(event); cycleOverlap(event.key === "]" ? 1 : -1);
 
- return; }
+  return; }
 
   if (event.key === "Enter") { cancelPageAction(event); void commitSelection(hoverTarget, pointer.x, pointer.y, "keyboard");
 
- return; }
+  return; }
 
   if (event.key === " ") cancelPageAction(event);
 }, true);
@@ -568,11 +614,11 @@ document.addEventListener("click", (event) => {
   if (!selectionEnabled && event.target instanceof Element) {
     const anchor = event.target.closest<HTMLAnchorElement>("a[href]");
 
- if (!anchor) return;
+    if (!anchor) return;
 
     if (new URL(anchor.href, location.href).origin !== location.origin) { event.preventDefault(); send({ kind: "navigation-blocked" });
 
- return; }
+    return; }
 
     unsafeRoute = false; saveBootstrap();
   }
@@ -584,4 +630,4 @@ function reportReady() {
 
 reportReady();
 
- reportRoute();
+reportRoute();

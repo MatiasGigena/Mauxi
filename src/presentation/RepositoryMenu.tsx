@@ -12,7 +12,7 @@ export function RepositoryMenu({ root, onClose }: { root: string; onClose: () =>
   useEffect(() => {
     if (!open) return;
     close.current?.focus();
-    const dismiss = (event: PointerEvent) => { if (!pending && !container.current?.contains(event.target as Node)) setOpen(false); };
+    const dismiss = (event: PointerEvent) => { if (!pending && !container.current?.contains(event.target instanceof Node ? event.target : null)) setOpen(false); };
 
     document.addEventListener("pointerdown", dismiss);
 
