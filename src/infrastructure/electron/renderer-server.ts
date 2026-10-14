@@ -3,9 +3,6 @@ import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 
-/** Serve only packaged UI bytes on an ephemeral loopback origin. Using the
- * preview's scheme/site permits ordinary SameSite cookies while distinct ports
- * retain the same-origin boundary. This server has no filesystem or IPC API. */
 export async function startRendererServer(directory: string) {
   const assets = new Map<string, { body: Buffer; type: string }>();
   const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
@@ -31,7 +28,7 @@ export async function startRendererServer(directory: string) {
     try {
       const url = new URL(request.url!, `http://${host}`);
       if (url.host === host && url.pathname.startsWith(prefix)) asset = assets.get(url.pathname.slice(prefix.length));
-    } catch { /* malformed or unknown names cannot reach the filesystem */ }
+    } catch {}
     if (!asset) { response.writeHead(404); response.end(); return; }
     response.writeHead(200, { "Content-Type": asset.type, "Content-Length": asset.body.length });
     response.end(request.method === "HEAD" ? undefined : asset.body);

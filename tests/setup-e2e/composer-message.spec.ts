@@ -46,7 +46,6 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
       expect(animations[1].frames[0]).toMatchObject({ opacity: 0, transform: "translateY(15%) scale(.97)" });
     } else expect(animations).toEqual([]);
 
-    // Reverse before either transition completes; the same field and draft survive.
     await page.evaluate(async () => {
       const button = document.querySelector<HTMLButtonElement>(".model-picker")!;
       for (let i = 0; i < 4; i++) {

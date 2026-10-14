@@ -1,9 +1,6 @@
 export interface RectEdges { left: number; top: number; right: number; bottom: number }
 export interface RectSize { x: number; y: number; width: number; height: number }
 
-/** Converts a frame-local CSS-pixel crop to shell CSS pixels and clips it to
- * the transformed iframe, canvas, and shell viewport. Device scaling is left
- * to Electron's capturePage, which accepts display-independent coordinates. */
 export function selectionCropToShell(
   crop: RectSize,
   viewport: { width: number; height: number },

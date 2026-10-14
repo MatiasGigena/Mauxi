@@ -48,7 +48,6 @@ export function unfocus(state: CanvasState): CanvasState {
   if (!state.focus) return state;
   return { ...state, camera: state.focus.camera, boards: Object.fromEntries(PREVIEW_IDS.map((id) => [id, { ...state.boards[id], x: state.focus!.positions[id].x, y: state.focus!.positions[id].y }])) as CanvasState["boards"], focus: null };
 }
-/** Leaves focus first, then fits the restored (not the focused) board positions. */
 export function fitBoards(state: CanvasState, ids: readonly PreviewId[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT): CanvasState {
   const next = unfocus(state);
   return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), area, headerHeight) };

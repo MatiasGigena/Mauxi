@@ -20,8 +20,6 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
   app.process().stderr?.on("data", chunk => { stderr += String(chunk); });
   try {
     const oldPage = await app.firstWindow();
-    // Hold the replacement window before load completes so the retirement
-    // race is deterministic, rather than depending on a 150 ms timer.
     await app.evaluate(({ BrowserWindow }) => {
       const original = BrowserWindow.prototype.loadURL;
       BrowserWindow.prototype.loadURL = async function (...args) {
@@ -43,12 +41,10 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
     const restored = await page.evaluate(() => window.mauxi!.getBootstrap());
     expect(restored.active?.canvas?.camera.x).not.toBe(987654);
 
-    // The new shell still saves normally.
     const current = defaultCanvas(); current.camera.x = 123456;
     await page.evaluate(input => window.mauxi!.saveCanvas(input), { workspaceId: active.workspaceId, canvas: current });
     expect((await page.evaluate(() => window.mauxi!.getBootstrap())).active?.canvas?.camera.x).toBe(123456);
 
-    // An unrelated renderer with the same preload is NOT a retired shell.
     const rejection = await app.evaluate(async ({ BrowserWindow }, { preload, input }) => {
       const rogue = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false } });
       try {

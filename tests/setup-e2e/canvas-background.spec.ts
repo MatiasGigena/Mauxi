@@ -78,7 +78,6 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
     };
   });
   const assertUnchanged = async () => {
-    // Allow ResizeObserver notifications to flush, catching accidental board observers.
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await page.evaluate(() => {
       const trail = document.querySelector(".canvas-trail")!;
@@ -98,7 +97,6 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await grip.focus();
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowLeft");
   await assertUnchanged();
-  // Real pointer dragging must be just as independent as keyboard movement.
   const header = await page.locator('[data-preview-id="mobile"] .artboard-header').boundingBox();
   await page.mouse.move(header!.x + 20, header!.y + 15);
   await page.mouse.down();
@@ -113,7 +111,6 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await page.getByTestId("canvas").focus();
   for (let i = 0; i < 60; i++) await page.keyboard.press("ArrowRight");
   await assertUnchanged();
-  // Even toggling the OS motion preference after a pan reuses the original route.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator(".canvas-trail-strip")).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -133,7 +130,6 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
     properties: Object.keys((a.effect as KeyframeEffect).getKeyframes()[0]).filter(key => !["offset", "computedOffset", "easing", "composite"].includes(key)),
   })));
   expect(motion.every(a => a.state === "running" && a.properties.join() === "transform")).toBe(true);
-  // Simulate the browser visibility event without a flaky focus/background-tab dependency.
   await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: true }); document.dispatchEvent(new Event("visibilitychange")); });
   const pausedTimes = await page.locator(".canvas-trail").evaluate(async el => {
     const animations = el.getAnimations({ subtree: true });

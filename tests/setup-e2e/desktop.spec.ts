@@ -20,7 +20,6 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
   };
   let application = await electron.launch(launchOptions);
   try {
-    // Substitute only the OS dialog result; preload, trusted IPC, discovery and UI are real.
     await application.evaluate(({ dialog }, folders) => {
       const selections: Array<string | null> = [folders.first, null, folders.second];
       (globalThis as any).setupDialogCalls = [];
@@ -61,7 +60,6 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     expect(calls.map((call: { defaultPath: string }) => call.defaultPath)).toEqual([home, first, first]);
     expect(errors).toEqual([]);
 
-    // A new Electron process must remember the last folder, not the cancelled selection.
     await application.close();
     application = await electron.launch(launchOptions);
     await application.evaluate(({ dialog }) => {

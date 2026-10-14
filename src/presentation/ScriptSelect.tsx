@@ -12,7 +12,6 @@ interface ScriptSelectProps {
   onOpenChange: (open: boolean, keyboard: boolean) => void;
 }
 
-/** Command-only select; plan IDs, not display strings, remain the source of identity. */
 export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange, onOpenChange }: ScriptSelectProps) {
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -48,7 +47,6 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
     return () => document.removeEventListener("pointerdown", outside);
   }, [expanded, onOpenChange]);
   useLayoutEffect(() => {
-    // Scroll the options, never the surrounding setup screen.
     const option = document.getElementById(activeId);
     if (!expanded || !option || !list.current) return;
     const itemBounds = option.getBoundingClientRect();
@@ -77,7 +75,6 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
       event.preventDefault(); event.stopPropagation();
       const now = Date.now();
       const text = (now - typeahead.current.time < 700 ? typeahead.current.text : "") + event.key.toLowerCase();
-      // Repeated letters cycle; otherwise match a command or script prefix.
       const prefix = [...text].every(char => char === text[0]) ? text[0] : text;
       const start = expanded ? activeIndex : plans.findIndex(plan => plan.id === value);
       const candidates = plans.map((_, offset) => (start + offset + 1) % plans.length);

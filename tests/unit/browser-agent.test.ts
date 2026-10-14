@@ -58,7 +58,7 @@ it.each(["success", "model-error", "stop", "disconnect"])("real SDK browser tool
       if (scenario === "stop") await host.stop("test"); else off();
       await vi.waitFor(() => expect(browser.state()).toMatchObject({ owner: "human", releasing: false }));
       expect(calls).toHaveLength(0);
-      expect(server.listening).toBe(true); // Stop did not terminate an unrelated server.
+      expect(server.listening).toBe(true);
     } else {
       await vi.waitFor(() => expect(finished).toBe(true), { timeout: 5000 });
       expect(browser.state().owner).toBe("human");

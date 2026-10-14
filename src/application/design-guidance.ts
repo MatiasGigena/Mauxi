@@ -4,7 +4,6 @@ export const WORKING_MESSAGES = ["Tinkering...", "Noodling...", "Percolating..."
 export const REQUEST_PREFIX = "[Mauxi request]\n";
 export const GUIDANCE_MARKER = "\n\n<mauxi_guidance>";
 
-/** Conservative initial routing. The model can refine intent with design_read. */
 export function classifyDesignRequest(text: string, mobileSelection = false): DesignSkillName[] {
   const result = new Set<DesignSkillName>();
   const explicit = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];

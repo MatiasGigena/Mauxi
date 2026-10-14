@@ -90,7 +90,6 @@ test("Apply viewport enables only for changed dimensions and resets after applyi
   await expect(apply).toBeDisabled();
   await height.press("Enter");
   await expect(dialog).toBeVisible();
-  // Guard no-op submissions, not only pointer clicks on the disabled button.
   await dialog.locator("form").dispatchEvent("submit");
   await expect(dialog).toBeVisible();
   await width.fill("420"); await expect(apply).toBeEnabled();
@@ -99,7 +98,6 @@ test("Apply viewport enables only for changed dimensions and resets after applyi
   await height.fill("900"); await expect(apply).toBeEnabled();
   await height.fill("844"); await expect(apply).toBeDisabled();
   await width.fill("420"); await height.fill("900");
-  // The enabled action joins the keyboard focus loop.
   await dialog.getByRole("button", { name: "Close actions" }).press("Shift+Tab");
   await expect(apply).toBeFocused();
   await apply.press("Enter");

@@ -7,7 +7,6 @@ interface ModelPreference {
   defaultModel: string;
 }
 
-/** Only model defaults are loaded; never import ambient SDK/project settings. */
 export async function loadModelPreference(profileDir: string): Promise<Partial<ModelPreference>> {
   try {
     const value: unknown = JSON.parse(await readFile(path.join(profileDir, "model-preference.json"), "utf8"));

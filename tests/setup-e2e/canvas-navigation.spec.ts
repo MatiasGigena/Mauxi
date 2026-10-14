@@ -46,7 +46,6 @@ test("default pan and pinch work above previews; one click activates without cli
   await expect.poll(async () => (await camera(page)).zoom).not.toBe(pan.zoom);
   await idle(page);
   await fitCanvas(page);
-  // The first click lands directly above a page action but must only activate.
   const action = (await preview(page).locator("#action").boundingBox())!;
   await page.mouse.click(action.x + 10, action.y + 5);
   await expect(board(page)).toHaveAttribute("data-interacting", "true");

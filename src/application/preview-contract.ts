@@ -39,7 +39,6 @@ export interface ElementFingerprint {
   testId: string | null;
   text: string;
   sourceKey: string | null;
-  /** Document-generation-scoped identity. It is never used as a cross-document selector. */
   instanceKey: string;
 }
 

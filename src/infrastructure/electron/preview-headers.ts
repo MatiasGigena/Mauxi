@@ -10,8 +10,6 @@ function localOrigin(value: string): string | null {
   } catch { return null; }
 }
 
-// A header can contain several independently enforced policies. Preserve every
-// other directive (including duplicate policies), changing only embedding.
 function allowAncestor(value: string, origin: string, addMissing: boolean): string {
   return value.split(",").map(policy => {
     let found = false;
@@ -63,8 +61,6 @@ export function installPreviewHeaders(window: BrowserWindow, options: {
     const frame = details.frame;
     if (!frame || frame.detached || frame.parent !== main || new URL(main.url).origin !== rendererOrigin) return false;
     if ([...frames.values()].includes(frame.frameTreeNodeId)) return true;
-    // The trusted shell names its two direct children before their first request.
-    // Keep Chromium's stable identity because the bridge later changes window.name.
     for (const id of ["desktop", "mobile"]) {
       if (frame.name !== `mauxi-preview:${options.workspaceId}:${id}`) continue;
       const previous = frames.get(id);
@@ -80,7 +76,7 @@ export function installPreviewHeaders(window: BrowserWindow, options: {
         callback({ responseHeaders: previewHeaders(details.responseHeaders ?? {}, rendererOrigin!) });
         return;
       }
-    } catch { /* Missing/detached frame metadata must retain the original policy. */ }
+    } catch {}
     callback({});
   });
   const dispose = () => {

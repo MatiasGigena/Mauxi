@@ -28,8 +28,6 @@ async function waitForBridge() {
 async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, mappingMethod: "react-grab" | "jsx-attribute" = "react-grab") {
   await waitForBridge();
   await observeSelections(page);
-  // Let the canvas ResizeObserver complete its one-time initial fit before the
-  // test applies an explicit camera and starts pointer geometry assertions.
   await page.waitForTimeout(250);
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   const mobile = page.frameLocator('[data-testid="mobile-preview"]');

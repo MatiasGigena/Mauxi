@@ -8,7 +8,6 @@ export interface VisibleBrowserAdapter {
 }
 type Approval = (request: BrowserRequest, signal: AbortSignal, target?: BrowserActionTarget) => Promise<boolean>;
 
-/** One in-memory owner and one mutation queue for BOTH visible previews. No page can grant control. */
 export class BrowserControl implements BrowserPort {
   private value: BrowserState;
   private controller = new AbortController();
@@ -24,7 +23,6 @@ export class BrowserControl implements BrowserPort {
   subscribe(listener: (state: BrowserState) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private publish() { for (const listener of this.listeners) listener(this.state()); }
   async targets() { return this.adapter.targets(); }
-  /** Called only after trusted shell has installed its pointer AND keyboard shield. */
   grant() {
     if (this.value.releasing || this.value.owner === "agent") throw new Error("Browser control is busy");
     this.controller.abort(); this.controller = new AbortController();
@@ -68,8 +66,6 @@ export class BrowserControl implements BrowserPort {
         };
         await validate();
         this.value.activity = `${r.operation} · ${r.previewId}`; this.publish();
-        // Arbitrary handlers can call production backends, even on hover/scroll.
-        // Conservatively approve EVERY interaction, not a model-supplied 'safe' bit.
         let approvedTarget: BrowserActionTarget | undefined;
         if (!["inspect", "source", "console", "screenshot"].includes(r.operation)) {
           if (["click", "type", "hover"].includes(r.operation)) approvedTarget = structuredClone(await this.adapter.describeTarget(r, signal));
@@ -78,11 +74,7 @@ export class BrowserControl implements BrowserPort {
           await validate();
         }
         this.check(r, signal);
-        // The adapter compares the displayed description in the same bounded
-        // page call that dispatches the action, closing the approval TOCTOU gap.
         const observation = await this.adapter.execute(r, signal, approvedTarget);
-        // Navigation intentionally revokes the generation while in flight. Keep
-        // evidence of a sent action, but never let it authorize the next action.
         this.value.evidence.push({ id: evidenceId, previewId: r.previewId, documentId: r.documentId, operation: r.operation, at: new Date().toISOString(), summary: observation.text.slice(0, 1600), image: observation.image });
         this.value.evidence = this.value.evidence.slice(-24);
         return observation;

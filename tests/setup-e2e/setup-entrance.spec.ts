@@ -71,7 +71,6 @@ test("entry can be interrupted immediately by keyboard or pointer disclosures", 
   await page.locator(".configure-trigger").focus();
   await page.keyboard.press("Escape");
   await expect(page.locator(".project-setup")).toHaveAttribute("data-view", "overview");
-  // A new mount: keyboard activation should settle entry and open instantly.
   const replacement = discovery(); replacement.discoveryId = "keyboard-entry";
   await page.evaluate(next => { (window as any).setupTest.next = next; }, replacement);
   await page.locator(".change-project").click();

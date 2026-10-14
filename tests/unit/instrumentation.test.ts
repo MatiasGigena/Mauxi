@@ -82,11 +82,9 @@ describe("owned instrumentation", () => {
 
     const configPath = path.join(root, "vite.config.ts");
     await writeFile(configPath, `${await readFile(configPath, "utf8")}\n// unrelated user edit\n`);
-    // Model a kill after the config write but before its final journal flag was persisted.
     applied.state = "applying";
     applied.patches[0].applied = false;
     await store.write(applied);
-    // A fresh store instance models next-launch recovery after the owner process died.
     const recoveredStore = new JournalStore(store.directory);
     const cleaned = await cleanupIntegration(transactionIdFor(plan), recoveredStore);
     const finalConfig = await readFile(configPath, "utf8");
@@ -97,7 +95,6 @@ describe("owned instrumentation", () => {
 
   it("patches the Vite config file that Vite itself loads", async () => {
     const { root } = await setup();
-    // A TypeScript build can emit vite.config.js beside the source; Vite prefers it.
     await writeFile(path.join(root, "vite.config.js"), "export default { plugins: [] };\n");
     expect((await prepareIntegrationPlan(root, "vite")).configPath).toBe(path.join(root, "vite.config.js"));
     await writeFile(path.join(root, "vite.config.cjs"), "module.exports = { plugins: [] };\n");
@@ -113,7 +110,6 @@ describe("owned instrumentation", () => {
     class EditingStore extends JournalStore {
       override async write(journal: Parameters<JournalStore["write"]>[0]) {
         await super.write(journal);
-        // The bridge artifact exists, so the config patch comes next.
         if (journal.state === "applying" && await readFile(plan.bridgePath).then(() => true, () => false)) {
           const current = await readFile(plan.configPath, "utf8");
           if (!current.includes(userEdit)) await writeFile(plan.configPath, current + userEdit);
@@ -135,7 +131,6 @@ describe("owned instrumentation", () => {
     class BlockingStore extends JournalStore {
       override async write(journal: Parameters<JournalStore["write"]>[0]) {
         await super.write(journal);
-        // Models an unwritable project directory: the artifact directory cannot be created.
         if (journal.state === "applying") await writeFile(blocker, "user file\n", { flag: "a" });
       }
     }

@@ -11,7 +11,6 @@ interface Frame { id: string; url: string; loaderId: string }
 interface FrameTree { frame: Frame; childFrames?: FrameTree[] }
 interface BoundTarget extends BrowserTarget { frameId: string; loaderId: string; context?: number; backendNodeId: number; bootstrapUrl: string }
 
-/** Uses ONLY direct child frames owned by the visible shell's actual iframe elements. */
 export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
   private bound = new Map<PreviewId, BoundTarget>();
   private sessions = new Map<string, string>();
@@ -40,9 +39,6 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
         if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument" || method === "Page.frameDetached" || method === "Page.frameStartedNavigating") {
           const id = params.frame?.id ?? params.frameId;
           for (const [preview, target] of this.bound) if (target.frameId === id) {
-            // Next hydration replaces history at the current URL. Chromium also
-            // emits frameStartedLoading for that operation, without replacing
-            // the document. Actual navigation starts still revoke immediately.
             if (method === "Page.navigatedWithinDocument" && params.url === target.url) continue;
             this.bound.delete(preview); this.logs.delete(id); this.invalidate("Preview navigated or disconnected; hand off again after it is ready");
           }
@@ -51,7 +47,6 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
           const data = params.exceptionDetails ?? params;
           const frameId = this.contexts.get(`${sessionId ?? ""}:${data.executionContextId}`);
           if (!frameId || ![...this.bound.values()].some(t => t.frameId === frameId)) return;
-          // Never evaluate console objects/getters or retrieve remote object properties.
           const text = method === "Runtime.consoleAPICalled"
             ? `${params.type}: ${(params.args ?? []).map((arg: { value?: unknown; type: string }) => typeof arg.value === "string" || typeof arg.value === "number" ? String(arg.value) : `[${arg.type}]`).join(" ")}`
             : `page-error: ${data.text ?? "Uncaught exception"} ${data.exception?.description ?? ""}`;
@@ -69,9 +64,6 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
     await this.initialize();
     const { frameTree } = await this.command("Page.getFrameTree") as { frameTree: FrameTree };
     const children = [...(frameTree.childFrames ?? [])];
-    // file:// production shells place http previews in OOPIF targets. The root
-    // Page tree omits those; join ONLY direct children of this exact shell and
-    // still authenticate their owner iframe through the shell DOM below.
     const { targetInfos } = await this.command("Target.getTargets");
     for (const info of targetInfos) {
       const sessionId = this.sessions.get(info.targetId);
@@ -133,7 +125,6 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
     signal.throwIfAborted();
     if (request.operation === "console") return { text: JSON.stringify({ entries: this.logs.get(target.frameId) ?? [], scope: "Up to 40 console/page errors observed since connection in this document; absence is not proof of no errors." }) };
     if (request.operation === "screenshot") {
-      // Geometry comes from the trusted shell, never from the project page.
       const geometryScript = `(() => { if (document.querySelector('.agent-dialog, .chat-settings, .preview-tools, .repository-popover')) return null; const f = document.querySelector('[data-testid="${request.previewId}-preview"]'); const c = document.querySelector('[data-testid="canvas"]'); if (!f || !c || f.getClientRects().length === 0 || getComputedStyle(f).visibility !== 'visible') return null; const r=f.getBoundingClientRect(), a=c.getBoundingClientRect(); if(r.left<a.left || r.top<a.top || r.right>a.right+1 || r.bottom>a.bottom+1 || r.right>innerWidth || r.bottom>innerHeight) return null; return {x:Math.ceil(r.x), y:Math.ceil(r.y), width:Math.floor(r.width), height:Math.floor(r.height)}; })()`;
       const geometry = await this.window.webContents.executeJavaScript(geometryScript);
       if (!geometry || geometry.width < 1 || geometry.height < 1) throw new Error("Close open panels and keep both previews fully visible before capturing; no hidden/offscreen capture was substituted");

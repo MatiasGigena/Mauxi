@@ -5,9 +5,6 @@ export const ACTION_LABELS = { send: "Send", followUp: "Follow up", stop: "Stop"
 type Action = keyof typeof ACTION_LABELS;
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & { action: Action; instant: boolean };
 
-/** Only the active label sizes the button. FLIP the separate surface from its
- * sampled in-flight width; text never scales with the expanding background.
- */
 export class ComposerAction extends Component<Props, {}, number | null> {
   private surface = createRef<HTMLSpanElement>();
   private animation?: Animation;

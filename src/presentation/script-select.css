@@ -12,8 +12,6 @@
 :is(.project-setup, .chat-settings) .script-select-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 12px; border-radius: 6px; cursor: pointer; }
 :is(.project-setup, .chat-settings) .script-select-option[data-active="true"] { background: #f5f4f2; }
 :is(.project-setup, .chat-settings) .script-select-option > svg { flex: none; }
-/* Both selects use the same reversible fade/slide for underlying details,
-   without a delayed height collapse or per-row stagger. */
 .select-details { opacity: 1; transform: translateY(0); transition: opacity 160ms cubic-bezier(.23,1,.32,1), transform 160ms cubic-bezier(.23,1,.32,1); }
 .select-details[data-selector-open="true"] { opacity: 0; transform: translateY(-6px); pointer-events: none; transition-duration: 90ms; }
 .select-details[data-selector-keyboard="true"] { transition: none; }

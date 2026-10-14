@@ -42,7 +42,6 @@ test("command-only menu fades details out and back without layout shift", async 
   await expect(details).not.toHaveAttribute("inert");
   await expect(details).toContainText("Next.js");
   await expect(page.locator(".project-path")).toHaveText("/projects/rondo/storefront");
-  // Outside dismissal and interrupted transitions restore the current state.
   await trigger.click();
   await page.locator(".guided-intro").click();
   await expect(details).toHaveCSS("opacity", "1");
@@ -50,7 +49,6 @@ test("command-only menu fades details out and back without layout shift", async 
   await expect(details).toHaveCSS("opacity", "0");
   await trigger.click();
   await expect(details).toHaveCSS("opacity", "1");
-  // Closing Configure must not leave a stale menu when reopened.
   await trigger.click();
   await page.locator(".configure-trigger").click();
   await page.locator(".configure-trigger").click();

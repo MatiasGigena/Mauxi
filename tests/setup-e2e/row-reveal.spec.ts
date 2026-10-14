@@ -36,7 +36,6 @@ test("both setup rows reveal labels without a filled hover or layout shift", asy
     await page.keyboard.press("Escape");
     await page.getByRole("heading", { name: /Let’s work/ }).click();
     await expect(text).toHaveCSS("opacity", "0");
-    // Rapid re-entry should settle to the current hover, not replay an animation.
     await row.hover(); await page.mouse.move(0, 0); await row.hover();
     await expect(text).toHaveCSS("opacity", "1");
     await page.mouse.move(0, 0);

@@ -74,7 +74,6 @@ export interface AgentSnapshot {
   error?: { kind: "auth" | "rate-limit" | "catalog" | "capability" | "runtime"; message: string };
 }
 
-/** On-demand trusted-host diagnostics; never included in renderer snapshots. */
 export interface AgentDiagnostics {
   tools: AgentToolActivityView[];
   changeSets: AgentChangeSetView[];

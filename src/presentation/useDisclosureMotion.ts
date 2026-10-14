@@ -12,7 +12,6 @@ type MotionChange = {
   keyboard?: boolean;
 };
 
-/** Shared choreography for the global rows and the nested file disclosures. */
 export function useDisclosureMotion() {
   const animations = useRef<Animation[]>([]);
   function cancel() {

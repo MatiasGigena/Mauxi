@@ -27,7 +27,6 @@ interface ActiveInternal {
   process: OwnedDevProcess | null;
   bridgeTimer: ReturnType<typeof setTimeout> | null;
   closing: boolean;
-  /** Settles once confirm() has finished setting up or failing (and cleaning up). */
   setup: Promise<void> | null;
 }
 
@@ -144,7 +143,6 @@ export class WorkspaceManager {
 
     try {
       await applyIntegration(integration, this.journals, this.bridgeEntry);
-      // close() waits for setup instead of cleaning concurrently; stop here.
       if (active.closing) throw new Error("Setup was cancelled because the project is closing.");
       if (request.mode === "start") {
         active.value.status = "starting";
@@ -169,9 +167,6 @@ export class WorkspaceManager {
       active.value.status = "waiting-for-server";
       active.value.statusDetail = `Waiting for ${plan.origin}…`;
       this.emit();
-      // An attached Vite server can answer with its old config while the file
-      // watcher is about to restart it. Wait for the instrumented HTML before
-      // creating previews, or their initial script requests can be interrupted.
       await waitForHttp(new URL(plan.startPath ?? "/", plan.origin).href, 45_000,
         () => !this.active || this.active !== active || active.closing || (request.mode === "start" && active.process?.pid == null),
         plan.framework === "vite" ? ".mauxi/bridge.js" : undefined);
@@ -205,8 +200,6 @@ export class WorkspaceManager {
         this.recoveryConflicts = [...new Set([...this.recoveryConflicts, ...cleanup.conflicts])];
         cleanupComplete = cleanup.state === "clean";
       } catch (cleanupError) {
-        // ENOENT may describe a missing owned artifact, not a missing journal.
-        // Only a setup that never recorded intent can be treated as untouched.
         if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") {
           try { await this.journals.read(transactionIdFor(integration)); }
           catch (journalError) { cleanupComplete = (journalError as NodeJS.ErrnoException).code === "ENOENT"; }
@@ -248,8 +241,6 @@ export class WorkspaceManager {
   }
 
   close(): Promise<WorkspaceEvent> {
-    // Closing the project and quitting can both request cleanup; share one run
-    // so two cleanups never race on the same project files and journal.
     this.closeTask ??= this.closeActive().finally(() => { this.closeTask = null; });
     return this.closeTask;
   }
@@ -263,11 +254,8 @@ export class WorkspaceManager {
     active.value.status = "stopped";
     active.value.statusDetail = "Stopping owned work and removing temporary integration…";
     this.emit();
-    // Never clean up while confirm() is still applying or cleaning the same
-    // integration: both would race on the project files and the journal.
     if (active.setup) await active.setup;
     if (this.active !== active) {
-      // The failed setup already removed its integration.
       this.discovery = null;
       return this.snapshot();
     }

@@ -19,7 +19,7 @@ async function projectProcesses(root: string): Promise<number[]> {
     try {
       const cwd = await readlink(`/proc/${pid}/cwd`);
       if (cwd === root || cwd.startsWith(`${root}/`)) result.push(Number(pid));
-    } catch { /* exited or inaccessible unrelated process */ }
+    } catch {}
   }
   return result;
 }
@@ -27,12 +27,11 @@ async function alive(pids: number[]): Promise<number[]> {
   const running: number[] = [];
   for (const pid of pids) {
     try { if (!(await readFile(`/proc/${pid}/stat`, "utf8")).split(") ")[1].startsWith("Z ")) running.push(pid); }
-    catch { /* reaped */ }
+    catch {}
   }
   return running;
 }
 async function openProject(app: ElectronApplication, page: Page, root: string) {
-  // Stub only the native folder picker, not discovery/confirmation/SDK/browser IPC.
   await app.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] }); }, root);
   await page.getByRole("button", { name: "Open Project", exact: true }).click();
   const next = app.waitForEvent("window");
@@ -54,26 +53,20 @@ async function expectProjectClean(project: string, framework: "vite" | "next", e
   await expect.poll(() => alive(pids), { timeout: 10_000 }).toEqual([]);
   await expect.poll(() => projectProcesses(project)).toEqual([]);
   expect(await readFile(path.join(project, framework === "next" ? "next.config.mjs" : "vite.config.ts"), "utf8")).toBe(expectedConfig);
-  // A clean journal is not proof of filesystem cleanup. lstat also catches
-  // dangling symlinks; only ENOENT establishes that the owned name is absent.
   await expect(lstat(path.join(project, ".mauxi", "bridge.js"))).rejects.toMatchObject({ code: "ENOENT" });
   if (framework === "next") await expect(lstat(path.join(project, "instrumentation-client.js"))).rejects.toMatchObject({ code: "ENOENT" });
 }
 
-// This is a real packaged Electron/SDK/file/preview loop with a LOCAL deterministic
-// provider, not evidence of live provider auth or real-model design quality.
 for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage without pi, selected edit, visible checks, undo and isolated reopen cycles`, async ({}, testInfo) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-package-"));
   const home = path.join(root, "home"); const bin = path.join(root, "bin");
   await mkdir(home); await mkdir(bin);
-  // Supply the target's external Node/npm, not the app's Electron runtime or pi CLI.
   await symlink(process.execPath, path.join(bin, "node"));
   const npm = (await exec("which", ["npm"])).stdout.trim();
   await symlink(npm, path.join(bin, "npm"));
   const env: Record<string, string> = {
     HOME: home, XDG_CONFIG_HOME: path.join(home, "config"), XDG_CACHE_HOME: path.join(home, "cache"),
     PATH: `${bin}:/usr/bin:/bin`, APPIMAGE_EXTRACT_AND_RUN: "1", NEXT_TELEMETRY_DISABLED: "1", PI_TELEMETRY: "0",
-    // Preserve desktop transport only. No ambient provider keys or terminal profile.
     ...Object.fromEntries(["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG"].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : [])),
   };
   await expect(exec("/bin/sh", ["-c", "command -v pi"], { env })).rejects.toThrow();
@@ -93,8 +86,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
       try {
         const parsed = JSON.parse(body); requests.push(parsed);
         const messages = parsed.messages as Array<{ role: string; content: any }>;
-        // Some OpenAI-compatible adapters send tool images as synthetic user
-        // messages; count tools since the actual request, not since that image.
         const lastUser = messages.findLastIndex(message => message.role === "user" && /Polish this selected fixture button|Verify both visible previews/.test(JSON.stringify(message.content)));
         const results = messages.slice(lastUser + 1).filter(message => message.role === "tool");
         const verify = JSON.stringify(messages[lastUser]).includes("Verify both visible previews");
@@ -191,11 +182,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await page.getByRole("option").filter({ hasText: "alpha-local" }).first().click();
           for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
             const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
-            // Server-rendered text can appear before Next hydrates after login.
-            // Wait for the actual client handler before changing its DOM pixels.
             await expect.poll(() => frame.getByTestId("known-target").evaluate(node => Object.keys(node).some(key => key.startsWith("__reactProps$") && typeof (node as any)[key]?.onClick === "function"))).toBe(true);
-            // Distinct rendered pixel markers independently prove crop/preview
-            // association; checking only image presence would accept swapped crops.
             await frame.getByTestId("known-target").evaluate((node, background) => { node.style.background = background; node.scrollIntoView({ block: "center" }); }, color);
             const label = side === "desktop" ? "Desktop" : "Mobile";
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
@@ -210,14 +197,10 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             const chip = page.locator(`.selection-chip[data-selection-preview="${side}"]`);
             await expect(chip).toHaveCount(1);
             await expect(chip.getByRole("button", { name: /Remove selection/ })).toBeVisible();
-            // Provenance and crop association are checked below in the actual
-            // provider request, rather than through removed debug controls.
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
           }
           await expect(page.locator(".selection-chip")).toHaveCount(2);
           const firstRequest = requests.length;
-          // Local responsiveness sample, not a cross-hardware benchmark. The real
-          // SDK streams while both live previews remain mounted and interactive.
           await page.evaluate(() => {
             const sample = { frames: [] as number[], longTasks: [] as number[], previous: performance.now(), running: true };
             const observer = new PerformanceObserver(list => sample.longTasks.push(...list.getEntries().map(entry => entry.duration)));
@@ -242,8 +225,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             const frames = sample.frames.slice(1).sort((a: number, b: number) => a - b);
             return { frames: frames.length, p95FrameMs: frames[Math.floor(frames.length * 0.95)], maxFrameMs: frames.at(-1), longTaskMs: sample.longTasks };
           });
-          // Checkpoint/undo correctness is covered by trusted-host tests; the
-          // minimal chat no longer advertises a review/undo surface.
           expect(await readFile(sourcePath, "utf8")).toBe(original.replace("Run action", "Polished action"));
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 1 [mobile]");
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 2 [desktop]");
@@ -255,8 +236,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             const image = nativeImage.createFromDataURL(url); const bytes = image.toBitmap();
             let red = 0; let blue = 0;
             for (let i = 0; i < bytes.length; i += 4) {
-              // Native captures carry the display color profile. Classify the
-              // distinctive hue rather than assuming unconverted sRGB bytes.
               const [b, g, r] = bytes.subarray(i, i + 3);
               if (r > 180 && r > g + 80 && r > b + 80) red++;
               if (b > 180 && b > g + 80 && b > r + 80) blue++;
@@ -278,12 +257,10 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           const checks = await page.evaluate(async () => (await window.mauxi!.browserState()).evidence);
           for (const id of ["desktop", "mobile"]) expect(checks.some(check => check.previewId === id && !!check.image)).toBe(true);
           await page.screenshot({ path: testInfo.outputPath(`${name}-packaged-verification.png`) });
-          // Explicit fixture restoration, not a claim of a renderer Undo flow.
           await writeFile(sourcePath, original);
           await expect(desktop.getByText("Run action", { exact: true })).toBeVisible();
           await expect(mobile.getByText("Run action", { exact: true })).toBeVisible();
         }
-        // Keep a deliberate user edit across cleanup, not merely the fixture baseline.
         const userEdit = `\n// retained alpha user edit ${cycle}\n`;
         expectedConfig += userEdit;
         await writeFile(config, `${await readFile(config, "utf8")}${userEdit}`);
@@ -293,8 +270,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
       }
       cleanConfigs.set(name, expectedConfig);
     }
-    // A renderer outside the trusted shell cannot read credentials/state or
-    // invoke ANY registered privileged handler, even with direct Electron IPC.
     report.untrustedIpc = await app.evaluate(async ({ BrowserWindow, ipcMain }) => {
       const attacker = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
       try {
@@ -333,7 +308,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
     await new Promise<void>(resolve => server.close(() => resolve()));
     await writeFile(testInfo.outputPath("package-evidence.json"), JSON.stringify(report, null, 2));
     await writeFile(testInfo.outputPath("electron-stderr.log"), stderr);
-    // Keep failed projects/journals for recovery; only successful test data is disposable.
     if (completed) await rm(root, { recursive: true, force: true });
     else await writeFile(testInfo.outputPath("recovery-location.txt"), root);
   }

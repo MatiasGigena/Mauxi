@@ -1,6 +1,5 @@
 interface HoverTarget { element: Element; index: number; depth: number }
 
-/** Isolated, non-interactive chrome: never changes the selected page's styles. */
 export class SelectionOverlay {
   private host = document.createElement("div");
   private root: ShadowRoot;
@@ -14,7 +13,6 @@ export class SelectionOverlay {
   constructor() {
     this.host.dataset.mauxiOverlay = "true";
     this.host.setAttribute("aria-hidden", "true");
-    // Important host styles resist page-wide resets; shadow styles isolate children.
     this.host.style.cssText = "all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;overflow:hidden!important;display:block!important;";
     this.root = this.host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
@@ -50,7 +48,6 @@ export class SelectionOverlay {
   }
 
   render(hover: HoverTarget | null, selected: Iterable<Element>, hidden: boolean): void {
-    // Hide all chrome together during screenshot capture; retain target identity.
     this.host.style.setProperty("visibility", hidden ? "hidden" : "visible", "important");
     const wanted = new Set([...selected].filter(element => element.isConnected));
     for (const [element, marker] of this.markers) {
@@ -67,7 +64,6 @@ export class SelectionOverlay {
       marker.hidden = !bounds;
       if (bounds) {
         this.place(marker, bounds);
-        // Don't cover tiny icons or narrow targets with a badge.
         (marker.firstElementChild as HTMLElement).hidden = bounds.width < 80 || bounds.height < 32;
       }
     }

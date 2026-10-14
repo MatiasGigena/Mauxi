@@ -42,8 +42,6 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
   const name = plan && separator > 0 ? plan.label.slice(0, separator) : appRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? appRoot;
   const diagnostics = [...discovery.diagnostics.filter(item => item.code !== "ambiguous-plan"), ...(plan?.diagnostics ?? [])];
 
-  // App keys this component by discoveryId: animate only on entering a new setup,
-  // not on plan changes, disclosures, busy state changes, or a cancelled picker.
   useLayoutEffect(() => {
     const screen = root.current!.closest(".launch-screen") ?? root.current!;
     motion.enter([...screen.querySelectorAll<HTMLElement>(".launch-brand, .guided-intro, .configure-trigger, .guided-integration, .confirmation-actions")]);

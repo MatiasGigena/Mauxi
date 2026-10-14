@@ -20,7 +20,6 @@ async function route(side: "desktop" | "mobile") {
   const owner = await page.getByTestId(`${side}-preview`).elementHandle();
   const frame = await owner!.contentFrame();
   await owner!.dispose();
-  // Navigation can destroy the page's execution context between polling calls.
   const url = new URL(frame!.url());
   return url.pathname + url.search + url.hash;
 }
@@ -33,7 +32,6 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
   await button("Focus Desktop").click();
   await expect(page.getByTestId("mobile-preview")).not.toBeVisible();
   await page.getByLabel("Message", { exact: true }).fill("Focus leaves chat reachable.");
-  // Proof mode has no project/model and must never simulate a completed agent request.
   await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Focus leaves chat reachable.");
   await expect(button("Send")).toBeDisabled();
   await button("Unfocus Desktop").click();
@@ -80,7 +78,7 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
     await page.keyboard.down("Control"); await page.mouse.wheel(0, Math.log(1 / zoom) / .005); await page.keyboard.up("Control");
     await expect.poll(async () => Number(await page.getByLabel("Camera zoom").inputValue())).toBeCloseTo(zoom, 2);
     await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
-    await resetCamera(page, zoom); // Keep the grip below the floating header islands.
+    await resetCamera(page, zoom);
     const before = await board.boundingBox(); const grip = await board.locator(".board-grip").boundingBox();
     await page.mouse.move(grip!.x + 10, grip!.y + 10); await page.mouse.down();
     await page.mouse.move(grip!.x + 47, grip!.y + 39); await page.mouse.up();
@@ -113,7 +111,6 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
   await expect(desktop().getByTestId("submit-count")).toHaveText("Submissions: 0");
   await page.keyboard.press("Escape");
   await expect(button("Select in Desktop")).toHaveAttribute("aria-pressed", "false");
-  // Pointer cancellation removes transient shielding, leaving the inactive peer shielded.
   await button("Interact with Desktop preview").click();
   const grip = await board.locator(".board-grip").boundingBox();
   await page.mouse.move(grip!.x + 10, grip!.y + 10); await page.mouse.down();
@@ -173,7 +170,6 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await button("Select in Desktop").click();
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
-  // Keep the fixed bottom portal above the floating chat dock.
   await page.getByLabel("Camera zoom").fill("0.5");
   for (const fixtureTarget of ["scrolled-target", "viewport", "portal-target"] as const) {
     await button("Select in Desktop").click();
@@ -236,8 +232,6 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   expect(JSON.stringify(editableCapture)).toContain("[redacted input]");
   await chip.getByRole("button", { name: /Remove selection/ }).click();
 
-  // Removing the final badge intentionally returns focus to the editor.
-  // Move focus back to the canvas before using picker keyboard shortcuts.
   await page.getByTestId("canvas").focus();
   await desktop().getByTestId("sensitive-parent-label").hover();
   await page.keyboard.press("ArrowUp");
@@ -301,8 +295,6 @@ for (const submission of [
       await desktop().getByRole("button", { name: submission.control, exact: true }).click();
       await expect.poll(() => source.url()).toBe(`http://127.0.0.1:45173${submission.destination}`);
       await expect(page.locator(".bridge-ready")).toHaveCount(2);
-      // Framework hydration often writes same-URL history state. It must not
-      // consume a pending marker or make a form destination copyable again.
       await desktop().locator("body").evaluate(() => history.replaceState({ hydrated: true }, "", location.href));
       await actions(); await expect(button("Copy route to mobile")).toBeDisabled(); await button("Close actions").click();
       expect(peer.url()).toBe(initialPeerUrl);
@@ -335,8 +327,6 @@ test("SPA route changes invalidate only that preview's selections and require a 
   await expect(sourceChip).toHaveAttribute("title", /Select again before sending/);
   await expect(peerChip).toHaveClass(/current/);
   expect(await desktop().locator("body").getAttribute("data-instance")).toBe(marker);
-  // Matching controls on the new route (or navigating back) must not make an
-  // attachment from the old rendered page current again.
   await desktop().locator("body").evaluate(() => history.back());
   await expect(sourceChip).toHaveClass(/stale/);
   await button("Select in Desktop").click();

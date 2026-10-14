@@ -1,7 +1,5 @@
 import type { SkillRecord } from "../../application/design-resource-contract";
 
-// Pinned in the host bundle, not read from a mutable on-disk manifest.
-// Update these digests only after reviewing changes to design-skills/ Markdown.
 export const BUNDLED_DESIGN_SKILLS: ReadonlyArray<Pick<SkillRecord, "name" | "digest" | "files">> = [
   {
     name: "apple-design",

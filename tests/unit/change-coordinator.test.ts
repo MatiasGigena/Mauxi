@@ -76,7 +76,7 @@ describe("managed change checkpoints", () => {
       if (!target.endsWith("/a.txt")) return;
       hooks.beforeOpen = undefined; entered(); await gate;
     };
-    const activation = changes.switchToPrepared(next); // deliberately not awaited
+    const activation = changes.switchToPrepared(next);
     await scanning;
     const mutation = operation === "write" ? changes.write("src/a.txt", "after")
       : operation === "edit" ? changes.edit("src/a.txt", "before", "after")
@@ -723,7 +723,6 @@ describe("managed change checkpoints", () => {
     for (const directory of await recoveries(state)) {
       if (JSON.parse(await readFile(path.join(directory, "intent.json"), "utf8")).changeSetId === first) oldest = directory;
     }
-    // Simulates the user's reviewed cleanup after all external writers stopped.
     expect(oldest).not.toBe(""); await rm(oldest, { recursive: true });
     await changes.prepare("Room after manual cleanup");
     expect(changes.views().some((view) => view.id === first)).toBe(false);

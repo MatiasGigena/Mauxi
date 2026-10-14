@@ -14,7 +14,6 @@
 .project-setup .guided-rows small { display: block; margin-top: 6px; font-size: 11px; color: #747178; overflow-wrap: anywhere; }
 .project-setup .guided-rows > button > span:nth-child(2), .project-setup .guided-integration > button > span:nth-child(2) { min-width: 0; }
 .project-setup .row-link { display: flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 16px; font-size: 11px; color: #747178; flex: none; transition: transform 120ms cubic-bezier(.23,1,.32,1); }
-/* Reserve label space and its accessible name; only its visual treatment changes. */
 .project-setup .row-link-label { color: #24242a; transition: opacity 120ms ease, transform 140ms cubic-bezier(.23,1,.32,1); }
 .project-setup .row-link > svg { color: #24242a; }
 .project-setup :is(.configure-trigger, .review-trigger):is(:focus-visible, [aria-expanded="true"]) .row-link-label { opacity: 1; transform: none; }
@@ -48,8 +47,6 @@
 .project-setup .guided-diff .context { color: #55515b; }
 .project-setup .empty-integration { margin: 0; font-size: 12px; color: #747178; }
 .project-setup .confirmation-actions { padding-top: 26px; gap: 22px; }
-/* The action group participates in the coordinated entrance; keep the CTA's
-   hover/press and border animation, without a second independent entrance. */
 .project-setup .confirmation-actions > .primary { animation: none; }
 .project-setup .confirmation-actions > .change-project { background: transparent; color: #747178; font-size: 11px; font-weight: 500; padding: 8px 0; flex: none; text-decoration: none; }
 .project-setup .change-project-copy { display: grid; text-align: right; }

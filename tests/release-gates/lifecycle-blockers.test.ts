@@ -1,5 +1,3 @@
-// Release gates intentionally assert the required behavior, not the known bug.
-// Run explicitly with `npm run test:release-gates`; failures block issue #9.
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,8 +19,6 @@ it.each(["moved-artifact", "moved-unpersisted-patch", "moved-patch-replaced-by-o
     const moved = path.join(root, "moved-owned-file");
     if (scenario === "moved-artifact") await rename(plan.bridgePath, moved);
     else {
-      // Crash after patch installation but before the applied flag is durable,
-      // then a branch/file move before next-launch recovery.
       journal.state = "applying"; journal.patches[0].applied = false;
       await store.write(journal); await rename(plan.configPath, moved);
       if (scenario === "moved-patch-replaced-by-original") await writeFile(plan.configPath, journal.patches[0].originalContent!);
@@ -46,8 +42,7 @@ it("stops an owned dev descendant after the launcher exits", async () => {
     const active = async () => { try { return !(await readFile(`/proc/${child}/stat`, "utf8")).split(") ")[1].startsWith("Z "); } catch { return false; } };
     await vi.waitFor(async () => expect(await active(), "A dev launcher exit must not lose ownership of its process group").toBe(false), { timeout: 1000 });
   } finally {
-    // Only the process group this test started; never kill by port/name.
-    if (leader) { try { process.kill(-leader, "SIGKILL"); } catch { /* already stopped */ } }
+    if (leader) { try { process.kill(-leader, "SIGKILL"); } catch {} }
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -58,8 +53,6 @@ it("bounds newline-free development logs and still captures subsequent lines", a
   const owner = new OwnedDevProcess(line => lines.push(line), () => undefined);
   try {
     owner.start({ appRoot: root, executable: process.execPath, args: ["-e", "process.stdout.write('x'.repeat(1000000)); setTimeout(()=>{process.stdout.write('\\nnext\\n');},500)"] } as LaunchPlan);
-    // Inspect retained pending data before any newline; checking the eventual
-    // truncated line alone would also pass with the original unbounded buffer.
     const pendingLength = () => (owner as unknown as { pending: string }).pending.length;
     await vi.waitFor(() => expect(pendingLength()).toBeGreaterThan(0));
     expect(pendingLength()).toBeLessThanOrEqual(4000);

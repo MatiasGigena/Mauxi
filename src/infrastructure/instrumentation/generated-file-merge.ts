@@ -1,6 +1,3 @@
-/** Remove known generator edits while retaining independent user edits.
- * Ambiguous/overlapping regions are conflicts, never a whole-file restore.
- */
 export function removeGeneratedChanges(current: string, generated: string, before: string): string {
   if (current.startsWith(generated)) return before + current.slice(generated.length);
   const lines = (value: string) => value.match(/[^\n]*\n|[^\n]+$/g) ?? [];

@@ -25,14 +25,12 @@ export async function expectRoutes(page: Page, linked: boolean, preview: "Deskto
 async function pan(page: Page, x: number, y: number) {
   const canvas = page.getByTestId("canvas");
   const bounds = (await canvas.boundingBox())!;
-  // The bottom-left corner is canvas, outside the floating header/chat islands.
   await page.mouse.move(bounds.x + 2, bounds.y + bounds.height - 2);
   await page.mouse.wheel(x, y);
   await expect(canvas).toHaveAttribute("data-navigation-gesture", "true");
   await expect.poll(() => canvas.getAttribute("data-navigation-gesture")).toBe("false");
 }
 
-/** Reframe through the remaining zoom and pan interactions, not a removed button. */
 export async function fitCanvas(page: Page) {
   const unfocus = page.getByRole("button", { name: /^Unfocus (Desktop|Mobile)$/ });
   if (await unfocus.isVisible()) await unfocus.click();
@@ -63,7 +61,6 @@ export async function resetCamera(page: Page, zoom = 1) {
 }
 
 export async function selectFixture(page: Page, fixture: "vite" | "next") {
-  // firstWindow() can precede the host's initial loadURL; wait before navigating.
   await expect(page.getByTestId("canvas")).toBeVisible();
   const url = new URL(page.url()); url.searchParams.set("fixture", fixture);
   await page.goto(url.href);

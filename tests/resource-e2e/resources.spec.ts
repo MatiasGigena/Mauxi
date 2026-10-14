@@ -18,11 +18,8 @@ test("references load in the background without design setup or controls", async
     page = await next;
     await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 45_000 });
 
-    // Real main-process wiring, fresh private profile, no native picker or approval.
     const agent = await page.evaluate(() => window.mauxi!.agentBootstrap());
     expect(agent.ready).toBe(true);
-    // Loading/content is covered by the real-SDK design-workflow tests. Private
-    // resource diagnostics and historical data are no longer broadcast to chat.
     for (const key of ["resources", "sessions", "changeSets", "tools"]) expect(agent).not.toHaveProperty(key);
     await expect(page.getByRole("dialog")).toHaveCount(0);
 

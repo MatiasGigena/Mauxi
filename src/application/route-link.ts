@@ -10,8 +10,6 @@ export function projectRoute(value: string, origin: string): string | null {
     return url.pathname + url.search + url.hash;
   } catch { return null; }
 }
-// Deliberately conservative. These are navigations, not replayable browser actions.
-// Applications with custom action-like GET routes must unlink navigation.
 export function supportedRoute(value: string, origin: string): string | null {
   const route = projectRoute(value, origin);
   if (!route) return null;
@@ -39,8 +37,6 @@ export class RouteLink {
     const route = supportedRoute(this.routes[previewId] ?? "", this.origin);
     const peer = previewId === "desktop" ? "mobile" : "desktop";
     if (!this.safe[previewId] || !this.routes[previewId] || route === null || this.routes[peer] === route) return null;
-    // Optimistically record the destination. Acknowledgements/redirects carry a token
-    // across the new document and never feed back, including after unlinking.
     this.routes[peer] = route;
     return { previewId: peer, route, navigationId: crypto.randomUUID() };
   }

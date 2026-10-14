@@ -19,7 +19,6 @@ function relativeModulePath(fromDirectory: string, target: string): string {
 function nextClientHook(importPath: string, leadingNewline = false): string {
   return `${leadingNewline ? "\n" : ""}// mauxi-owned:start preview-bridge
 if (process.env.NODE_ENV === "development" && (new URLSearchParams(window.location.search).has("mauxiSession") || (() => {
-  // Same-origin document navigation retains the frame bootstrap, not query parameters.
   try {
     const previous = JSON.parse(window.name.startsWith("mauxi:") ? window.name.slice(6) : "null");
     return window.parent !== window && previous?.origin === window.location.origin && typeof previous.session === "string" && previous.session.length > 0;
@@ -78,7 +77,6 @@ async function exists(filePath: string): Promise<boolean> {
 }
 
 async function firstExistingConfig(root: string): Promise<string | null> {
-  // Patch the file Vite itself loads: its default lookup order, first match wins.
   for (const name of ["vite.config.js", "vite.config.mjs", "vite.config.ts", "vite.config.cjs", "vite.config.mts", "vite.config.cts"]) {
     if (!(await exists(path.join(root, name)))) continue;
     if (name.endsWith(".cjs") || name.endsWith(".cts")) throw new Error(`Vite loads ${name}, which Mauxi does not support yet. Mauxi made no changes.`);
@@ -97,8 +95,6 @@ async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
   let anchor = VITE_ANCHOR;
   let patch = VITE_PATCH;
   if (!config.includes(anchor)) {
-    // Locate syntax, not text in a comment/string, without executing the config.
-    // Both inline and multiline arrays use the same insertion point after '['.
     const arrays: number[] = [];
     const pending: Node[] = [parse(config, { sourceType: "unambiguous", plugins: ["typescript"] })];
     while (pending.length) {
@@ -114,7 +110,6 @@ async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
       }
     }
     if (arrays.length !== 1) throw new Error("The Vite plugins array is missing or ambiguous. Mauxi made no changes.");
-    // The prefix uniquely locates the parsed array even if its text is repeated.
     anchor = config.slice(0, arrays[0] + 1);
     patch = `\n${VITE_PATCH}`;
   }
@@ -372,8 +367,6 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
     }
     const current = await readFile(patch.path, "utf8");
     const parts = patch.ownedParts ?? [patch.ownedText];
-    // Setup can fail (or be killed) after recording intent but before this
-    // patch is written. With no owned text present there is nothing to remove.
     if (!patch.applied && !current.includes("mauxi-owned:") && parts.every(part => !part || !current.includes(part))) {
       patch.cleaned = true;
       await store.write(journal);
@@ -391,7 +384,6 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
   for (const artifact of journal.artifacts) {
     if (!artifact.created) continue;
     if (!(await exists(artifact.path)) && artifact.written === false) {
-      // Intent was recorded but setup stopped before this file was written.
       artifact.created = false;
       await store.write(journal);
       continue;

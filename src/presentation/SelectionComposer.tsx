@@ -13,11 +13,6 @@ type Snapshot = { surface: DOMRect; items: Map<string, Appearance>; focusedIndex
 const id = (entry: Entry) => entry.item.capture.selectionId;
 const activeIds = (state: State) => state.entries.filter(entry => !entry.exiting).map(id).join("\n");
 
-/** FLIP only the background and positions, never scale the editor or its text.
- * React's pre-mutation snapshot samples in-flight motion before an interruption.
- * Badges and the settings panel share entrance/exit motion and inert visual ghosts.
- * Attachments are removed from parent state immediately.
- */
 export class SelectionComposer extends Component<Props, State, Snapshot | null> {
   state: State = { source: this.props.selections, entries: this.props.selections.map(item => ({ item, exiting: false })), panel: this.props.panel, panelExiting: false, login: this.props.login, loginExiting: false };
   private root = createRef<HTMLElement>();
@@ -66,7 +61,6 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
   private fitEditor = () => {
     const editor = this.root.current?.querySelector<HTMLTextAreaElement>(".composer textarea");
     if (!editor || editor.closest("[inert]")) return;
-    // Reset before measuring so deletions shrink as well as additions grow.
     editor.style.height = "0px";
     editor.style.height = `${editor.scrollHeight}px`;
   };
@@ -79,8 +73,6 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
     const items = new Map<string, Appearance>();
     this.root.current.querySelectorAll<HTMLElement>("[data-composer-motion]").forEach(node => {
       const opacity = Number(getComputedStyle(node).opacity);
-      // Retained layers preserve drafts and provider scroll position. A settled
-      // hidden layer is a fresh entrance; interrupted exits resume in place.
       if (node.hasAttribute("data-retained-motion") && node.dataset.exiting === "true" && opacity === 0) return;
       items.set(node.dataset.composerMotion!, { rect: node.getBoundingClientRect(), opacity });
     });
@@ -106,20 +98,16 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
     const previousIds = new Set(previous.entries.filter(entry => !entry.exiting).map(id));
     const added = active.filter(entry => !previousIds.has(id(entry)));
     const contentChanged = _props.contentSize !== this.props.contentSize;
-    // Text growth is explicitly animated, including typing. Keep existing
-    // keyboard-driven badge/panel interactions immediate.
     const instant = this.preference?.matches || (added.length ? added.some(entry => entry.item.interaction === "keyboard") : this.keyboard && !contentChanged);
     this.cancel();
     root.querySelectorAll<HTMLElement>("[data-retained-motion]").forEach(node => {
       if (node.dataset.exiting !== "true") {
-        // Clear the exit's absolute geometry before measuring restored layout.
         Object.assign(node.style, { position: "", left: "", top: "", width: "", height: "" });
       }
     });
 
     this.fitEditor();
 
-    // Removing a focused badge should not strand keyboard focus on the document.
     if (before.focusedIndex >= 0 && !root.contains(document.activeElement)) {
       const buttons = root.querySelectorAll<HTMLButtonElement>(".selection-list button");
       (buttons[Math.min(before.focusedIndex, buttons.length - 1)] ?? root.querySelector<HTMLTextAreaElement>("textarea"))?.focus({ preventScroll: true });
@@ -147,12 +135,8 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
           const parent = node.offsetParent as HTMLElement;
           const origin = parent.getBoundingClientRect();
           Object.assign(node.style, { left: `${from.rect.left - origin.left - parent.clientLeft + parent.scrollLeft}px`, top: `${from.rect.top - origin.top - parent.clientTop + parent.scrollTop}px`, width: `${from.rect.width}px`, height: `${from.rect.height}px` });
-          // WAAPI reveals inert layers only for their visual exit.
           this.animate(node, [{ visibility: "visible", opacity: from.opacity, transform: "none" }, { visibility: "visible", opacity: 0, transform: "translateY(-12%) scale(.97)" }], 110, easeOut,
             () => {
-              // Invisible retained layers must not enlarge the chat's scroll area
-              // after a resize/reflow. Fixed positioning preserves their internal
-              // scroll state without leaving their old bounds in the layout.
               node.style.position = "fixed";
               if (key === "login") this.setState(state => ({ login: state.loginExiting ? undefined : state.login, loginExiting: false }));
             });

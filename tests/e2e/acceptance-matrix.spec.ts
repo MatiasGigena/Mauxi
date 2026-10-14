@@ -5,8 +5,6 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { latestSelection, observeSelections, resolvedSelection } from "../helpers/selection-evidence";
 
-// Expected JSX anchors are declared independently of runtime source hints. A
-// related filename, owner location, or stale fingerprint cannot satisfy this.
 async function pick(page: Page, id: string, file: string, anchor: string, method: string) {
   const frame = page.frameLocator('[data-testid="desktop-preview"]');
   const target = id === "button-text" ? frame.getByTestId("known-target").locator("span") : frame.getByTestId(id);
@@ -19,7 +17,6 @@ async function pick(page: Page, id: string, file: string, anchor: string, method
     deltaY: bounds.y + bounds.height / 2 - (canvas.y + canvas.height / 2),
   });
   await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
-  // Moving targets intentionally do not meet Playwright's stability heuristic.
   if (id === "known-target") {
     const box = await target.boundingBox();
     await page.mouse.click(box!.x + box!.width * 0.05, box!.y + box!.height / 2);
@@ -48,7 +45,7 @@ for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
       if (fixture === "next") await selectFixture(page, "next");
       await expect(page.locator(".bridge-ready")).toHaveCount(2);
       await observeSelections(page);
-      await page.waitForTimeout(250); // one-time canvas fit
+      await page.waitForTimeout(250);
       const desktop = page.frameLocator('[data-testid="desktop-preview"]');
       expect(await desktop.locator("body").evaluate(() => devicePixelRatio)).toBe(scale);
       const base = `fixtures/${fixture}/${fixture === "vite" ? "src" : "app"}`;

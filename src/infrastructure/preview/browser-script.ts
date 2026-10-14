@@ -1,4 +1,3 @@
-/** Fixed code in a Chromium isolated world. Model input is passed as DATA, never source. */
 export const VISIBLE_BROWSER_SCRIPT = String.raw`function(request, approvedTarget) {
   const state = globalThis.__mauxiVisible || (globalThis.__mauxiVisible = { nodes: new Map(), counter: 0 });
   if (location.href !== request.url) throw new Error('Stale document URL');
@@ -16,7 +15,6 @@ export const VISIBLE_BROWSER_SCRIPT = String.raw`function(request, approvedTarge
   const visible = (node) => { const r = node.getBoundingClientRect(); const s = getComputedStyle(node); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && s.visibility !== 'hidden' && s.display !== 'none'; };
   if (request.operation === 'inspect') {
     const entries = [];
-    // Never return storage, cookies, arbitrary attributes, script contents or field values.
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
     let visited = 0, node = walker.currentNode;
     do {
@@ -51,7 +49,6 @@ export const VISIBLE_BROWSER_SCRIPT = String.raw`function(request, approvedTarge
     type: node instanceof HTMLInputElement || node instanceof HTMLButtonElement ? node.type : null,
     bounds: { x:r.x, y:r.y, width:r.width, height:r.height }
   };
-  // Host-only preparation, not a model-callable operation. No page event is sent.
   if (request.operation === 'describe-target') return description;
   const matchesApproval = approvedTarget && ['tag','text','label','role','testId','type'].every(key => description[key] === approvedTarget[key])
     && ['x','y','width','height'].every(key => description.bounds[key] === approvedTarget.bounds?.[key]);

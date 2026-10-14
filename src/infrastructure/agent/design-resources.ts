@@ -22,7 +22,6 @@ export interface Reference {
 }
 export interface PreparedSkill { record: SkillRecord; content: Record<string, string>; }
 
-/** Bounded descriptor reads, canonical containment, no final symlink. Not an OS sandbox. */
 async function boundedFile(file: string, maximum: number, root?: string): Promise<Buffer> {
   const canonical = await realpath(file);
   if (root) {
@@ -67,8 +66,6 @@ export class DesignResources {
   private get catalog(): ResourceState["catalog"] { return this.state.catalog ?? this.bundledCatalog; }
   private get skillRecords(): SkillRecord[] {
     if (!this.bundledSkillsPath || this.configError) return this.state.skills;
-    // A personal copy wins even when disabled, missing or modified. Never silently
-    // fall back to different instructions after a user's override fails validation.
     return [...this.state.skills, ...BUNDLED_DESIGN_SKILLS
       .filter((record) => !this.state.skills.some((personal) => personal.name === record.name))
       .map((record) => ({ ...record, source: path.join(this.bundledSkillsPath!, record.name, "SKILL.md"), enabled: this.state.bundledSkillEnabled?.[record.name] ?? true }))];
@@ -93,8 +90,6 @@ export class DesignResources {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.configError = `Resource configuration could not be loaded. Repair resources.json before importing: ${String(error)}`;
     }
-    // App-owned references need no setup. Never replace an approved catalog,
-    // override its disabled state, or bypass a corrupt private configuration.
     if (!this.configError && !this.state.catalog && this.bundledCatalogPath) {
       try { this.bundledCatalog = await this.prepareCatalog(this.bundledCatalogPath); }
       catch (error) { this.bundledCatalogError = `Bundled visual library could not be loaded: ${String(error)}`; }
@@ -122,7 +117,6 @@ export class DesignResources {
     if (!frontmatter) throw new Error("Skill frontmatter is missing.");
     let normalized = original.replace(frontmatter, frontmatter.replace(/^disable-model-invocation:.*\r?\n/gm, ""));
     if (skill.name === "prototype") normalized = normalized.replace("Only runs when explicitly invoked; it does not trigger on its own.", "Use for requests for multiple UI variants or alternatives.");
-    // Only local Markdown links are copied. No scripts, executables, packages or arbitrary folder trees.
     const content: Record<string, string> = { "SKILL.md": normalized };
     const visit = async (text: string, parent: string): Promise<void> => {
       for (const match of text.matchAll(/\]\(([^\s)#]+\.md)(?:#[^)]*)?\)/gi)) {
@@ -157,7 +151,6 @@ export class DesignResources {
     return { path: await realpath(file), digest: hash(bytes), enabled: true, count: references.length };
   }
   async importCatalog(catalog: { path: string; digest: string; enabled: boolean }): Promise<void> {
-    // Exact reviewed bytes, not a pathname whose meaning changed during approval.
     if (hash(await boundedFile(catalog.path, 2_000_000)) !== catalog.digest) throw new Error("Catalog changed during approval. Import again.");
     await this.save({ ...this.state, catalog: { path: catalog.path, digest: catalog.digest, enabled: catalog.enabled } });
   }
@@ -213,9 +206,6 @@ export class DesignResources {
     let bytes = Buffer.byteLength(prefix) + Buffer.byteLength(suffix);
     for (const name of names) {
       const record = this.skillRecords.find((item) => item.name === name)!;
-      // The import manifest is already deduplicated, including transitive/cyclic
-      // links. Attach only its reviewed files, with SKILL.md first, and recheck
-      // every file's digest rather than trusting its earlier load-time check.
       const files = ["SKILL.md", ...Object.keys(record.files).filter((file) => file !== "SKILL.md").sort()];
       for (const file of files) {
         const body = `Guidance: ${name}\nFile: ${file}\n${await this.readSkill(name, file)}`;

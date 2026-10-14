@@ -52,7 +52,6 @@ test("provider choice subtitles are hidden regardless of SDK wording", async ({ 
     ["Another provider", "Choose how you want to authenticate"],
   ]) {
     await provider.click();
-    // Credential instructions aren't redundant subtitles and must remain visible.
     await expect(page.getByText("Enter your API key", { exact: true })).toBeVisible();
     await page.evaluate(({ title, message }) => {
       (window as any).setupTest.emit({ type: "dialog", dialog: {
@@ -187,8 +186,6 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
   expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await dialog.getByRole("button", { name: "Open sign-in page" }).click();
   expect(await page.evaluate(() => (window as any).setupTest.openedUrl)).toBe("https://example.com/login");
-  // Reopen as soon as cancellation commits, rather than waiting an arbitrary
-  // frame count (the provider is legitimately disabled while auth is pending).
   const interrupted = await page.evaluate(async () => {
     const button = [...document.querySelectorAll<HTMLButtonElement>(".provider-list button")].find(node => node.textContent === "Provider 18 API key")!;
     await new Promise<void>(resolve => {

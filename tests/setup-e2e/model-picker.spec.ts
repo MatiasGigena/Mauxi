@@ -94,8 +94,6 @@ for (const width of [1500, 390]) {
     expect(await settings.evaluate(node => node.scrollHeight - node.clientHeight)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("model-select.png") });
 
-    // A partially visible row must not scroll itself fully into view on hover.
-    // Only keyboard navigation should auto-scroll the options list.
     await models.evaluate(node => { node.scrollTop = 45; });
     const firstOption = models.getByRole("option").first();
     const optionBounds = (await firstOption.boundingBox())!;
@@ -141,7 +139,6 @@ for (const width of [1500, 390]) {
     await expect(trigger).toContainText("GPT-6 Luna");
     await expect(details).not.toHaveAttribute("inert", "");
 
-    // Pointer re-entry uses setup's 160ms fade, with no delayed row cascade.
     await trigger.click();
     await expect(details).toHaveCSS("opacity", "0");
     await trigger.click();
@@ -154,7 +151,6 @@ for (const width of [1500, 390]) {
     await trigger.click();
     await expect(details).toHaveCSS("opacity", "1");
 
-    // Pointer selection uses the same full-panel close path, including animation.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await trigger.click();
     await models.getByRole("option", { name: /Claude Opus/ }).click();
@@ -163,7 +159,6 @@ for (const width of [1500, 390]) {
     await expect(settings).toHaveCount(0);
     await expect(picker).toBeFocused();
 
-    // Failed selections keep the panel available to retry and surface the error.
     await picker.click();
     await page.evaluate(() => { window.mauxi!.agentSelectModel = async () => { throw new Error("Model selection failed"); }; });
     await trigger.click();

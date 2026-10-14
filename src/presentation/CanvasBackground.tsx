@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { CANVAS_GRID_SIZE, CANVAS_TRAIL_SPEED, canvasTrailGeometry, nearestTrailDistance, trailPointAt, type CanvasTrailGeometry, type CanvasViewBounds } from "./canvas-background";
 import "./canvas-background.css";
 
-/** Independent background motion, anchored once near the initial preview layout. */
 export function CanvasBackground() {
   const layer = useRef<HTMLDivElement>(null);
 
@@ -27,12 +26,9 @@ export function CanvasBackground() {
     const build = () => {
       if (!initialViews) return;
       const { width, height } = node.getBoundingClientRect();
-      // Only a real viewport resize can change the route. Never read the live
-      // artboards again: pan, zoom, focus and dragging must not steer the trail.
       const views = initialViews.map(view => ({ x: view.x * width, y: view.y * height, width: view.width * width, height: view.height * height }));
       const next = preference.matches ? null : canvasTrailGeometry(width, height, views);
       const nextSignature = JSON.stringify(next?.edges ?? []);
-      // Duplicate resize notifications must not restart the animation.
       if (signature === nextSignature) return;
       const progress = animations[0]?.effect?.getComputedTiming().progress;
       const oldHead = geometry && progress != null ? trailPointAt(geometry, progress * geometry.total) : null;
@@ -66,8 +62,6 @@ export function CanvasBackground() {
     };
     const observer = new ResizeObserver(build);
     observer.observe(node);
-    // Let the workspace's initial fit settle, then take one normalized snapshot.
-    // There is deliberately no artboard observer or layout/camera dependency.
     startupFrame = requestAnimationFrame(() => {
       startupFrame = requestAnimationFrame(() => {
         const origin = node.getBoundingClientRect();

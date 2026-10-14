@@ -12,7 +12,6 @@ interface PreviewHeaderProps {
   selecting: boolean;
   focused: boolean;
   onDrag: PointerEventHandler<HTMLElement>;
-  /** Keyboard displacement in screen pixels; the canvas owns zoom conversion. */
   onMove: (delta: Point) => void;
   onSelect: () => void;
   onFocus: () => void;

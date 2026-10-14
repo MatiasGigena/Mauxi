@@ -4,7 +4,6 @@ import { BRIDGE_PROTOCOL, type SelectionCapture } from "../../src/application/pr
 type Capture = Omit<SelectionCapture, "workspaceId" | "previewId"> & { previewId: "desktop" | "mobile" };
 declare global { interface Window { selectionEvidence?: Capture[] } }
 
-/** Inspect the real bridge payload in tests, not debug controls in the product. */
 export async function observeSelections(page: Page) {
   await page.evaluate(protocol => {
     if (window.selectionEvidence) return;
@@ -35,7 +34,6 @@ export async function resolvedSelection(page: Page) {
   return { capture, source };
 }
 
-/** Exercise the bridge identity check independently of the now automatic send-time check. */
 export async function revalidateSelection(page: Page) {
   const capture = await latestSelection(page);
   return page.evaluate(({ capture, protocol }) => new Promise<"valid" | "stale">((resolve, reject) => {

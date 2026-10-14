@@ -46,8 +46,6 @@
   .workspace .artboard-header button { transition: none; }
   .workspace .artboard-actions button:active:not(:disabled):not(:focus-visible) { transform: none; }
 }
-/* Adapt to the rendered board width, not the window or iframe viewport.
-   Keep controls unscaled; collapsed actions remain in the actions dialog. */
 @container artboard (width < 17rem) {
   .board-grip > span, .board-grip .preview-interaction-label { display: none; }
 }
@@ -77,13 +75,10 @@
 .agent-dialog-backdrop.browser-approval { pointer-events: none; background: transparent; }
 .browser-approval .agent-dialog { pointer-events: auto; max-height: min(60vh, 36rem); }
 .chat-dock { --chat-max-height: 55vh; flex: 0 0 auto; position: relative; z-index: 20; width: min(70rem, calc(100% - 48px)); max-height: var(--chat-max-height); margin-inline: auto; border: 1px solid transparent; border-radius: 20px; }
-/* Chat overlays the preview; its height must never shrink the canvas or
-   trigger a camera refit when selections, settings, or login views change. */
 .canvas-surface > .chat-dock { position: absolute; inset: auto 0 32px; }
 .chat-surface { position: absolute; inset: -1px; border: 1px solid #e8e5e1; border-radius: inherit; background: #fff; box-shadow: var(--floating-shadow); transform-origin: bottom center; pointer-events: none; }
 .chat-content { position: relative; max-height: calc(var(--chat-max-height) - 2px); padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; border-radius: inherit; }
 .chat-content > .send-error { flex: none; margin: 0; font-size: 12px; }
-/* Keep the prompt, draft and toolbar available at the cap; scroll the output. */
 .chat-content:has(.chat-exchange:not([data-exiting=true])) { overflow: hidden; }
 .chat-exchange { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; margin-bottom: 8px; overflow: hidden; transform-origin: top left; }
 .chat-prompt, .chat-response { min-width: 0; padding: 2px; }
@@ -99,8 +94,6 @@
 .chat-exchange :focus-visible { outline-color: #218f90; outline-offset: -2px; }
 .composer { flex: none; position: relative; display: flex; flex-direction: column; gap: 8px; }
 .composer-message { min-width: 0; transform-origin: top left; }
-/* Remove the field's space immediately; its inert visual exit doesn't delay
-   the panel layout. Keep it mounted so toggling settings never loses a draft. */
 [data-retained-motion][data-exiting=true] { position: absolute; visibility: hidden; opacity: 0; pointer-events: none; }
 .composer[data-login=true] { display: contents; }
 .composer-login, .composer-toolbar { transform-origin: top left; }
@@ -117,7 +110,6 @@
 .workspace .model-picker:active:not(:disabled) { background: transparent; box-shadow: none; transform: scale(.97); }
 .model-picker:focus-visible { outline-color: #218f90; }
 .send-actions { display: flex; align-items: center; gap: 12px; flex: none; }
-/* Hidden labels are out of flow: each action has its own intrinsic width. */
 .composer .primary.send-action { display: inline-flex; gap: 0; }
 .composer .send-action-content { display: block; position: relative; }
 .composer .send-action-state { position: absolute; inset: 0; display: inline-flex; align-items: center; justify-content: center; gap: 9px; pointer-events: none; opacity: 0; transform: translateY(4px) scale(.97); transition: opacity 100ms cubic-bezier(.23,1,.32,1), transform 100ms cubic-bezier(.23,1,.32,1); }
@@ -149,8 +141,6 @@
 .workspace .selection-chip button:focus-visible { outline-color: #218f90; transition: none; }
 .workspace .selection-chip button:focus-visible:active { transform: none; }
 .selection-exits { position: absolute; inset: 0; pointer-events: none; }
-/* The animation temporarily reveals the ghost. Its resting state must remain
-   hidden when WAAPI finishes/cancels, before React commits its removal. */
 .selection-exits .selection-ghost, .composer-panel-ghost { position: absolute; opacity: 0; }
 .composer-panel { flex: none; min-width: 0; transform-origin: top left; }
 @media (hover: hover) and (pointer: fine) {
@@ -186,7 +176,6 @@
 .viewport-settings input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #d8d4da; border-radius: 8px; background: transparent; color: #24242a; font-size: 13px; }
 .viewport-settings input:focus-visible { outline: 2px solid #218f90; outline-offset: -1px; }
 .action-modal .confirmation-actions { padding-top: 0; }
-/* Reuse the same primary surface and animated border as Send. */
 .action-modal .confirmation-actions > .primary { animation: none; white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) {
   .action-modal :is(.preview-tool-action, .action-modal-close, .action-modal-secondary):hover:not(:disabled) { color: var(--tool-accent); }
@@ -229,8 +218,6 @@
 .chat-settings .script-control.model-select { max-width: none; }
 .chat-settings .model-select .script-select-trigger { min-width: 0; color: #24242a; }
 .model-select .script-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-/* The open menu owns the height. Keep details only as an inert exit layer,
-   clipped to the menu so a long provider list cannot extend the chat's scroll area. */
 .model-select-content { position: relative; display: grid; }
 .model-select-content > * { grid-area: 1 / 1; align-self: start; min-width: 0; }
 .model-details[data-selector-open="true"] { position: absolute; inset: 0 0 auto; max-height: 100%; overflow: clip; }
@@ -263,7 +250,6 @@
 .provider-list article > div:first-child { flex-direction: column; align-items: flex-start; }
 .provider-list article > div:first-child > span { color: #747178; font-size: 11px; }
 .workspace .settings-action { --settings-accent: #147a7a; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 2px; border-radius: 3px; background: transparent; color: #625e66; box-shadow: none; font-size: 11px; font-weight: 500; text-align: left; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
-/* Alternate paired actions with a text-safe shade of Mauxi coral. */
 .provider-list article > div > .settings-action:nth-child(even), .dialog-options > .settings-action:nth-child(even) { --settings-accent: #b94e38; }
 .workspace .settings-action:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
 .settings-action > span { position: relative; }
@@ -286,8 +272,6 @@
 @media (prefers-reduced-motion: reduce) {
   .workspace .settings-action:active:not(:disabled), .settings-action > svg { transform: none !important; }
 }
-/* Let the chat surface own scrolling; a second vh cap adds a scrollbar even
-   when a short sign-in form fits inside the available chat space. */
 .agent-dialog-inline .agent-dialog { width: 100%; max-height: none; overflow: visible; box-shadow: none; padding: 4px; border: 0; border-radius: 0; background: transparent; }
 .agent-dialog-inline .agent-dialog h2 { margin: 0; font-size: 13px; font-weight: 500; }
 .agent-dialog-inline .agent-dialog > p { margin: 20px 0 12px; font-size: 12px; color: #625e66; }
@@ -326,5 +310,3 @@
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 @media (prefers-contrast: more) { .workspace, .action-modal { color: #161218; }.topbar > .brand, .repository-trigger.brand, .topbar > .zoom, .chat-surface, .selection-chip, .artboard-header, .action-modal { border-color: #38313e; }.workspace button, .action-modal button { outline: 1px solid #63576f; } }
 @media (prefers-reduced-transparency: reduce) { .action-modal::backdrop, .agent-dialog-backdrop:not(.browser-approval) { background: #dfdbe3; } }
-/* Camera, focus and resizing are intentionally immediate: there is no animation
-   to wait for, cancel, or disable when reduced motion is requested. */

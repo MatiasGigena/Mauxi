@@ -24,7 +24,6 @@ button { border: 0; color: inherit; cursor: pointer; } button:active:not(:disabl
 :is(.launch-entry, .confirmation-actions, .composer) .primary::after { content: ""; position: absolute; inset: 2px; border-radius: 7px; background: #181b22; pointer-events: none; }
 :is(.launch-entry, .confirmation-actions, .composer) .primary > svg, :is(.launch-entry, .confirmation-actions, .composer) .primary > span { position: relative; z-index: 1; }
 .composer .primary { animation: none; white-space: nowrap; }
-/* This surface alone changes width visually; labels keep their natural size. */
 .composer .primary.send-action { overflow: visible; background: transparent; box-shadow: none; }
 .composer .primary.send-action::before, .composer .primary.send-action::after { display: none; }
 .composer .primary.send-action > .send-action-surface { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; background: #181b22; box-shadow: 0 6px 18px rgba(24,27,34,.18); transform-origin: right center; pointer-events: none; }

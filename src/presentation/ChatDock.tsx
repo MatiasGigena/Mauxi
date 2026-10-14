@@ -114,8 +114,6 @@ function ModelSelect({ agent, busy, onSelect, children }: {
   }, [open]);
   useLayoutEffect(() => {
     const option = document.getElementById(`${id}-option-${activeIndex}`);
-    // Hovered rows are already under the pointer; scrolling them fully into view
-    // would make the options jump away from the cursor.
     if (!open || activeFromPointer.current || !option || !list.current) return;
     const item = option.getBoundingClientRect(); const bounds = list.current.getBoundingClientRect();
     if (item.top < bounds.top) list.current.scrollTop -= bounds.top - item.top;
@@ -287,7 +285,6 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   useEffect(() => {
     if (!accepted) return;
     if (accepted.workspaceId !== workspaceId || accepted.sessionId !== agent.sessionId || agent.messages.some(message => message.role === "user" && message.text === accepted.text && !accepted.previousUserIds.includes(message.id))) {
-      // Once delivered, the transcript is authoritative (including compaction).
       setAccepted(undefined);
     }
   }, [accepted, workspaceId, agent.sessionId, agent.messages]);
@@ -296,8 +293,6 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   const keyboardAction = useRef(false);
   const stopping = stopPending || agent.runState === "stopping";
   const working = running || sendingDraft !== null;
-  // The submitted draft stays recoverable until acceptance, but is no longer
-  // a new follow-up. Only text edited during that wait changes Stop to Follow up.
   const hasNewDraft = !!draft.trim() && draft !== sendingDraft;
   const stopAction = stopping || (working && !hasNewDraft);
   const action = stopping ? "stopping" : stopAction ? "stop" : working ? "followUp" : "send";
@@ -305,13 +300,9 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
   const loginFocus = useRef<HTMLElement | null>(null);
-  // Capture the login context for the retained view, including its exit frame.
-  // Provider prompts use different wording; don't rely on matching one subtitle.
   const providerLogin = loginFocus.current !== null;
   useLayoutEffect(() => {
     if (inlineDialog || busy || !loginFocus.current?.isConnected) return;
-    // The retained panel's visual entrance temporarily has visibility:hidden.
-    // Restore focus after it becomes interactive, without changing its scroll.
     let frame = 0;
     let attempts = 0;
     const restore = () => {
@@ -350,7 +341,6 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   }
 
   function dismissDialog(id: string) {
-    // An OAuth/manual-code step may arrive before the previous response resolves.
     setDialog(current => current?.id === id ? null : current);
   }
 
@@ -373,8 +363,6 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
       const response = await window.mauxi.agentSend({ workspaceId, text, behavior, selections: attached });
       if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept."); return; }
       setAccepted({ text, previousUserIds, workspaceId, sessionId: agent.sessionId });
-      // Sending is asynchronous and the composer remains editable. Clear only
-      // the exact draft that was accepted; preserve text typed for the next turn.
       setDraft((current) => current === submittedDraft ? "" : current);
       onSelectionsSent(attached.map((item) => item.capture.selectionId));
     } catch (error) { setSendError(errorMessage(error)); }

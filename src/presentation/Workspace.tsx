@@ -33,7 +33,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const browser = useBrowserControl(active?.workspaceId);
   const browserLocked = useRef(false); browserLocked.current = browser.locked;
   const [fixture] = useState<Fixture>(() => new URLSearchParams(location.search).get("fixture") === "next" ? "next" : "vite");
-  // Changing projects/fixtures creates a fresh bridge capability, not on focus/zoom.
   const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
   const [layout, setLayout] = useState<CanvasState>(() => active?.canvas ?? defaultCanvas());
   const layoutRef = useRef(layout); layoutRef.current = layout;
@@ -82,8 +81,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const rect = element.getBoundingClientRect();
     setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
   }, []);
-  // Pointer events inside cross-origin previews do not bubble to the canvas.
-  // Detect iframe focus without installing an overlay or intercepting page input.
   useEffect(() => {
     let frame = 0;
     const previewFocus = () => {
@@ -353,12 +350,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
           workspaceId: active?.workspaceId, previewId: capture.previewId, selectionId: capture.selectionId,
           ...converted.shell,
         });
-        // A chip can be removed/evicted while capturePage is still in flight.
         if (!mounted.current || !selectionsRef.current.some(item => item.capture.selectionId === capture.selectionId)) {
           releaseDraftCaptures([result.path]); return;
         }
-        // Track the returned file before committing it. If a queued removal wins
-        // that state update, the next layout pass still releases the unused PNG.
         previousCapturePaths.current = [...new Set([...previousCapturePaths.current, result.path])];
         finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
       });
@@ -421,7 +415,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   async function capture(id: PreviewId) {
     setTools(null); setSelecting(null); setActivePreview(id);
     if (active && selecting) void browser.owner("human");
-    // Let the dialog/selection overlay leave the compositor before capture.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const frame = frames.current[id];
     if (!frame || !window.mauxi || !fullyVisible(id)) { setNotice("Fit the full viewport before capturing."); return; }
@@ -441,8 +434,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     navigation.exit(false); setSelecting(null); setTools(null);
     setLayout(current => ({ ...fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight), linked: false }));
     setNotice("Route linking paused during agent checks. Re-enable it in preview actions when needed.");
-    // owner() synchronously installs pointer/keyboard shields before the host
-    // validates the handoff. Never grant from an agent tool or a chat message.
     void browser.owner("agent");
   }
   const statusText = active?.status === "failed" ? active.statusDetail : notice;

@@ -3,8 +3,6 @@ import { open, readdir, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-/** Conservative fallback when runtime source metadata is unavailable. A static
- * JSX match is explicitly NOT a claim about React component ownership. */
 export async function inspectDomSource(root: string, tag: string, testId: string, signal: AbortSignal) {
   const unavailable = { status: "unverified", reason: "No unique bounded static JSX match. Pick the element for React Grab provenance or inspect project source; do not invent a mapping." };
   if (!/^[a-z][\w:-]{0,63}$/i.test(tag) || !testId || testId.length > 512) return unavailable;

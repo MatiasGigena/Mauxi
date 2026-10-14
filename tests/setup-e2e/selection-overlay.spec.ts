@@ -36,8 +36,6 @@ test.beforeEach(async ({ page }) => {
       <script>window.actions=0</script><script type="module" src="/bridge.js"></script></body></html>` });
   });
   await page.exposeFunction("inspectCaptureChrome", async (id: string) => {
-    // The real bridge must already have hidden both hover and persistent chrome
-    // when the shell calls the trusted capture host.
     const frame = preview(page, id);
     return {
       hover: await frame.locator("[data-mauxi-hover]").isVisible(),
@@ -97,7 +95,6 @@ test("picker cursor overrides button, link and nested SVG cursors and restores p
   await expect(frame.locator("#one")).toHaveCSS("cursor", "crosshair");
   await frame.locator("#cursor-nested path").hover();
   await expect(frame.locator("#cursor-nested path")).toHaveCSS("cursor", "crosshair");
-  // New portal/dynamic nodes inherit the active rule without per-node mutation.
   await frame.locator("body").evaluate(() => {
     const button = document.createElement("button"); button.id = "cursor-dynamic"; button.style.cursor = "pointer"; document.body.append(button);
   });
@@ -137,7 +134,6 @@ test("teal hover chrome is isolated from page CSS and labels stay inside the vie
   await expect(markers(frame)).toHaveCSS("border-top-color", "rgb(20, 122, 122)");
   await expect(markers(frame)).toContainText("Selected");
   await page.screenshot({ path: testInfo.outputPath("persistent-selection.png") });
-  // Narrow mobile viewport and a target touching its bottom/right edge.
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
   await page.getByRole("spinbutton", { name: "Width", exact: true }).fill("240");
   await page.getByRole("button", { name: "Apply viewport", exact: true }).click();

@@ -42,7 +42,6 @@ for (const width of [320, 768, 1440]) {
     expect(zoomBounds.x - brandBounds.x - brandBounds.width).toBeGreaterThanOrEqual(12);
     if (width >= 768) expect(brandBounds.width).toBeLessThan(200);
     await expect(header.locator(".connection, .browser-control, .fixture-switch")).toHaveCount(0);
-    // Long repository titles truncate; they never wrap or push zoom offscreen.
     await header.locator("strong").evaluate(node => { node.textContent = "a-very-long-repository-name-that-must-not-displace-the-zoom-control"; });
     expect(await header.evaluate(node => {
       const rect = node.getBoundingClientRect();
@@ -80,9 +79,7 @@ test("previews remain visible and clickable between the floating pills", async (
   await page.mouse.up();
   const moved = (await board.boundingBox())!;
   expect(moved.y).toBeLessThan(12);
-  // The middle of the old header row exposes the actual preview header.
   expect(await page.evaluate(x => !!document.elementFromPoint(x, 24)?.closest('.artboard-header'), x)).toBe(true);
-  // Its lower edge exposes the preview itself, not a full-width hit target.
   const y = moved.y + 50;
   expect(y).toBeLessThan(60);
   await page.mouse.click(x, y);
@@ -121,7 +118,6 @@ test("agent lock disables zoom without adding header actions; emergency return s
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
   await expect(page.locator(".topbar button")).toHaveCount(1);
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
-  // The mock host returns generation 0; model the subsequent authoritative event.
   await page.evaluate(() => (window as any).emitBrowserState({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
 });

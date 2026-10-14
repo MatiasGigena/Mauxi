@@ -54,8 +54,6 @@ export class OwnedDevProcess {
     this.child = child;
     this.groupId = child.pid ?? null;
     const collect = (chunk: Buffer | string) => {
-      // Bound even a stream that never emits a newline. Keep only the prefix
-      // of each logical line; incoming chunks cannot accumulate indefinitely.
       const pieces = String(chunk).split("\n");
       for (let index = 0; index < pieces.length; index++) {
         this.pending += pieces[index].slice(0, MAX_LINE_LENGTH - this.pending.length);
@@ -87,8 +85,6 @@ export class OwnedDevProcess {
       try { process.kill(-pid, signal); return true; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; return false; }
     };
-    // Leader exit says nothing about its ordinary descendants. The group stays
-    // owned until stop, including when the launcher exits before stop is called.
     if (signalGroup("SIGTERM")) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline && signalGroup(0)) await new Promise(resolve => setTimeout(resolve, 25));
@@ -128,8 +124,6 @@ export async function availablePort(): Promise<number> {
 }
 
 export function withSessionPort(plan: LaunchPlan, port: number): LaunchPlan {
-  // Appending flags is only defined for a direct framework invocation, never
-  // arbitrary shell pipelines, wrappers, or a different project directory.
   const direct = plan.framework === "vite" ? /^vite(?:\s+--?[\w=./:-]+(?:\s+[\w=./:-]+)?)*\s*$/ : /^next\s+dev(?:\s+--?[\w=./:-]+(?:\s+[\w=./:-]+)?)*\s*$/;
   if (!direct.test(plan.scriptCommand)) {
     if (port !== plan.port) throw new Error("This development script cannot accept a temporary port safely. Free its configured port or use a direct Vite/Next development script.");

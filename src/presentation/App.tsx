@@ -46,8 +46,6 @@ export function App() {
     setBusy(true); setError("");
     try {
       const active = await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode: "start", startPath: "/" });
-      // The IPC response may arrive before the workspace event. Switch screens
-      // directly instead of briefly re-enabling the setup button.
       setBootstrap((current) => ({ mode: current?.mode ?? "project", active, recoveryConflicts: current?.recoveryConflicts ?? [] }));
     } catch (reason) {
       setError(errorMessage(reason));

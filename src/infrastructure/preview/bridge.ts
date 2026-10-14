@@ -16,10 +16,8 @@ import { supportedRoute } from "../../application/route-link";
 import { SelectionOverlay } from "./selection-overlay";
 
 const params = new URLSearchParams(location.search);
-// Frame-local bootstrap survives ordinary same-origin document navigation. This
-// is untrusted transport metadata, never an authority for host IPC.
 let previous: Record<string, unknown> = {};
-try { if (window.name.startsWith("mauxi:")) previous = JSON.parse(window.name.slice(6)); } catch { /* fresh frame */ }
+try { if (window.name.startsWith("mauxi:")) previous = JSON.parse(window.name.slice(6)); } catch {}
 if (previous.origin !== location.origin) previous = {};
 const session = params.get("mauxiSession") ?? (typeof previous.session === "string" ? previous.session : null);
 const previewId = params.get("mauxiPreview") ?? previous.previewId;
@@ -52,8 +50,6 @@ const childFrameShields = new Map<HTMLIFrameElement, HTMLDivElement>();
 const frameShieldOwners = new WeakMap<Element, HTMLIFrameElement>();
 
 const selectionOverlay = new SelectionOverlay();
-// Cursor inheritance alone loses to button/link cursor rules. Apply the picker
-// cursor directly to descendants, without overwriting the page's own styles.
 const pickerCursorStyle = document.createElement("style");
 pickerCursorStyle.dataset.mauxiOverlay = "true";
 pickerCursorStyle.textContent = "html:root, html:root * { cursor: crosshair !important; }";
@@ -85,10 +81,7 @@ function safeHtml(element: Element): string {
   return clone.outerHTML.slice(0, 2_000);
 }
 
-// The shell rejects a whole bridge message when any field exceeds the
-// preview contract's bounds, so page-controlled attributes are clipped here.
 function testIdOf(element: Element): string | null {
-  // A clipped test ID would name no element, so an oversized one is dropped.
   const testId = element.getAttribute("data-testid");
   return testId && testId.length <= 512 ? testId : null;
 }
@@ -188,9 +181,6 @@ function isCrossOriginFrame(element: HTMLIFrameElement): boolean {
   catch { return true; }
 }
 function syncChildFrameShields(): void {
-  // Events inside any child browsing context do not bubble to this document.
-  // Shield every iframe while picking so same-origin controls cannot activate;
-  // cross-origin frames remain explicitly unsupported source targets.
   const wanted = selectionEnabled ? new Set([...document.querySelectorAll("iframe")]) : new Set<HTMLIFrameElement>();
   for (const [frame, shield] of childFrameShields) {
     if (!wanted.has(frame) || !frame.isConnected) { shield.remove(); childFrameShields.delete(frame); }
@@ -240,8 +230,6 @@ async function describe(element: Element, clientX: number, clientY: number, sele
   };
   const owners: ComponentOwner[] = (context?.stack ?? []).slice(0, 32).flatMap((frame) => {
     const componentName = frame.functionName?.replace(/^at\s+/, "").slice(0, 256);
-    // React stacks can include intrinsic host tags. Those describe DOM ancestry,
-    // not component ownership, and are intentionally represented elsewhere.
     if (!componentName || !/^[A-Z]/.test(componentName)) return [];
     const filePath = frame.fileName?.slice(0, 1_024) ?? null;
     return [{ componentName, filePath, lineNumber: frame.lineNumber ?? null, columnNumber: frame.columnNumber ?? null, ownership: ownershipFor(filePath) }];
@@ -287,8 +275,6 @@ async function commitSelection(target: Element | null, clientX: number, clientY:
   if (revision !== routeRevision || !target.isConnected || !selectionEnabled) return;
   selectedElements.set(selectionId, target);
   while (selectedElements.size > 64) selectedElements.delete(selectedElements.keys().next().value!);
-  // Hover and draft markers have separate lifetimes. The shell acknowledges
-  // accepted attachments and temporarily hides all chrome during screenshots.
   drawOutline(null);
   send({ kind: "selection", capture, interaction });
 }
@@ -314,9 +300,6 @@ function startPickerTracking() {
 }
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  // Chromium serializes messages FROM a file:// shell with the opaque origin
-  // "null", even though location.origin in that shell is "file://". Window
-  // identity and the session/document checks remain mandatory below.
   const parentOriginMatches = event.origin === expectedParent || (expectedParent === "file://" && event.origin === "null");
   if (event.source !== window.parent || !parentOriginMatches) return;
   try { if (JSON.stringify(event.data).length > 65_536) return; } catch { return; }

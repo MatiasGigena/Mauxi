@@ -21,7 +21,6 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       throw error;
     });
     const frame = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
-    // A deterministic DOM fixture inserted in the EXISTING visible page, not another browser.
     await frame.evaluate(() => {
       const lab = document.createElement("section"); lab.id = "verification-lab";
       lab.style.cssText = "position:fixed;top:0;left:0;z-index:99999;background:white;padding:12px;display:flex;gap:10px";
@@ -31,7 +30,6 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       lab.querySelector("input")!.addEventListener("input", () => { lab.dataset.typed = "yes"; }); document.body.prepend(lab);
     });
     const grant = async () => {
-      // The host result can settle before the preceding permission UI unmounts.
       await expect(page.getByRole("dialog", { name: "Approve browser action" })).toHaveCount(0);
       await page.getByRole("button", { name: "Give agent control", exact: true }).click();
       await expect(page.getByRole("button", { name: "Take back control", exact: true })).toBeVisible().catch(async error => {
@@ -44,7 +42,6 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     };
     const target = await grant();
     const run = (r: BrowserRequest) => page.evaluate(request => window.mauxi!.browserTest(request), r) as Promise<BrowserResult>;
-    // Framework hydration may replace history without changing the document.
     await frame.evaluate(() => history.replaceState(history.state, "", location.href));
     await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).generation)).toBe(target.generation);
     const action = async (r: BrowserRequest, approve = true) => {
@@ -73,7 +70,6 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await writeFile(testInfo.outputPath(`${fixture}-operations.png`), Buffer.from(capture.image!, "base64"));
     await page.getByRole("button", { name: "Take back control", exact: true }).click();
     await expect(frame.locator("#hover-probe")).toHaveCSS("background-color", "rgb(200, 200, 200)");
-    // Labels AND geometry shown in an approval must still match at dispatch.
     for (const change of ["label", "bounds"]) {
       const changedTarget = await grant();
       const entries = JSON.parse((await run({ ...changedTarget, operation: "inspect" })).text).entries;
@@ -92,10 +88,8 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       expect(await frame.locator("#verification-lab").getAttribute("data-clicked")).toBeNull();
       await frame.evaluate(() => { const node = document.getElementById("hover-probe")!; node.removeAttribute("aria-label"); node.style.transform = ""; });
     }
-    // Denial is not approval and returns human input without killing the dev server.
     const deniedTarget = await grant(); const denied = await action({ ...deniedTarget, operation: "scroll", y: 100 }, false);
     expect(denied.error).toBeTruthy(); await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
-    // Exact same-origin navigation invalidates both the old document and its queued generation.
     const navTarget = await grant();
     const navigation = await action({ ...navTarget, operation: "navigate", route: "/?verification=next" });
     expect(navigation.error).toBe("");

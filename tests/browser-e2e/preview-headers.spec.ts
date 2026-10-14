@@ -49,7 +49,6 @@ test("only the two approved previews may override embedding headers", async ({},
     await expect(desktop.getByTestId("loaded")).toBeVisible();
     await expect(mobile.getByTestId("loaded")).toBeVisible();
 
-    // Server responses and non-document requests retain the original restrictions.
     expect((await fetch(origin)).headers.get("content-security-policy")).toBe(csp);
     expect(await desktop.evaluate(async () => (await fetch('/')).headers.get('x-frame-options'))).toBe("DENY");
     expect(await desktop.evaluate(async () => (await fetch('/')).headers.get('content-security-policy'))).toBe(csp);
@@ -60,7 +59,6 @@ test("only the two approved previews may override embedding headers", async ({},
     expect(await desktop.evaluate(async url => { try { await fetch(url, { mode: 'no-cors' }); return true; } catch { return false; } }, foreignOrigin)).toBe(false);
     expect(await desktop.evaluate(() => typeof (window as any).mauxi)).toBe("undefined");
 
-    // Ordinary document navigation no longer has bootstrap query parameters.
     await desktop.evaluate(() => { location.href = '/redirect-local'; });
     await expect.poll(() => new URL(desktop.url()).pathname).toBe("/after-redirect");
     await expect(desktop.getByTestId("loaded")).toBeVisible();
@@ -74,7 +72,6 @@ test("only the two approved previews may override embedding headers", async ({},
     await denied;
     expect(page.frames().some(frame => frame.url() === origin + '/nested')).toBe(false);
 
-    // A third direct child is not a preview, even when it requests the same origin.
     const thirdDenied = page.waitForEvent("console", { predicate: message => message.text().includes('frame-ancestors') && message.text().includes('violates') });
     await page.evaluate(origin => { const frame = document.createElement('iframe'); frame.src = origin + '/nested?third'; document.body.append(frame); }, origin);
     await thirdDenied;

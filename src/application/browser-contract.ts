@@ -12,7 +12,6 @@ export interface BrowserRequest extends BrowserTarget {
   x?: number;
   y?: number;
 }
-/** Resolved from the original DOM handle by the host, never accepted as model input. */
 export interface BrowserActionTarget {
   tag: string; text: string; label: string; role: string | null; testId: string | null; type: string | null;
   bounds: { x: number; y: number; width: number; height: number };

@@ -11,7 +11,6 @@ async function identities(page: Page) {
 }
 async function run(page: Page, request: BrowserRequest) { return page.evaluate(r => window.mauxi!.browserTest(r), request) as Promise<BrowserResult>; }
 async function startAction(page: Page, request: BrowserRequest) {
-  // Leave the IPC pending while Playwright operates the REAL approval UI.
   await page.evaluate(r => { (window as any).actionResult = undefined; void window.mauxi!.browserTest(r).then(value => { (window as any).actionResult = { value }; }, error => { (window as any).actionResult = { error: String(error) }; }); }, request);
 }
 async function result(page: Page) { await expect.poll(() => page.evaluate(() => (window as any).actionResult)).toBeTruthy(); return page.evaluate(() => (window as any).actionResult); }
@@ -32,7 +31,6 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 45_000 });
     const desktop = page.frameLocator('[data-testid="desktop-preview"]');
     const mobile = page.frameLocator('[data-testid="mobile-preview"]');
-    // State exists before the tool ever connects. A duplicate browser would read zero.
     await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
     await desktop.getByTestId("known-target").click();
     await expect(desktop.getByTestId("click-count")).toHaveText("Underlying clicks: 1");
@@ -56,7 +54,6 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const mobileShot = await run(page, { ...info.targets.find(t => t.previewId === "mobile")!, generation: info.state.generation, operation: "screenshot" });
     await writeFile(testInfo.outputPath("visible-mobile.png"), Buffer.from(mobileShot.image!, "base64"));
     expect(await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(w => w.id))).toEqual(contentsBefore);
-    // Both keyboard focus and pointer input are excluded, not just a cosmetic overlay.
     expect(await page.getByTestId("desktop-preview").evaluate((f: HTMLIFrameElement) => f.inert && f.tabIndex === -1)).toBe(true);
     const box = await desktop.getByTestId("known-target").boundingBox();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -71,13 +68,11 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     expect((await result(page)).error).toBeUndefined();
     await expect(desktop.getByTestId("click-count")).toHaveText("Underlying clicks: 2");
     await expect(mobile.getByTestId("click-count")).toHaveText("Underlying clicks: 0");
-    // Page text is not authority; cross-frame requests and eval are not capabilities.
     const child = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
     expect(await child.evaluate(() => typeof (window as any).mauxi)).toBe("undefined");
     await child.evaluate(() => parent.postMessage({ protocol: "mauxi-preview-v1", kind: "grant", owner: "agent", session: new URLSearchParams(location.search).get("mauxiSession"), generation: "forged" }, "*"));
     await expect(run(page, { ...request("inspect"), workspaceId: "foreign" })).rejects.toThrow(/stale/i);
     await expect(page.evaluate(r => window.mauxi!.browserTest({ ...r, operation: "evaluate", expression: "process.env" }), request("inspect"))).rejects.toThrow(/Unsupported/);
-    // Replacing the node with an identical element must not retarget old handles.
     await startAction(page, request("click", { target: button.target }));
     await expect(approval).toContainText("Target: <button> Increment proof counter");
     await child.evaluate(() => { const old = document.querySelector('[data-testid="known-target"]')!; old.replaceWith(old.cloneNode(true)); });
@@ -99,7 +94,6 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const recorded = await page.evaluate(async () => (await window.mauxi!.browserState()).evidence);
     expect(recorded.some(check => check.previewId === "desktop" && !!check.image)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("returned-preview-control.png") });
-    // A side-effectful submit changes the source route but never replays its POST/GET in the peer.
     let submissions = 0;
     await page.route("**/side-effect", async route => { if (route.request().method() === "POST") submissions++; await route.fulfill({ status: 200, body: "safe local counter" }); });
     await desktop.getByRole("button", { name: "Submit once", exact: true }).scrollIntoViewIfNeeded();
@@ -115,7 +109,6 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     expect(new URL(child.url()).pathname).toBe("/submitted");
     expect(new URL(page.frames().find(f => f.url().includes("mauxiPreview=mobile"))!.url()).pathname).toBe("/");
     await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
-    // Ordinary human route linking remains available after an explicit opt-in.
     await toggleRoutes(page, false);
     await child.evaluate(() => history.pushState(null, "", "/ordinary-proof"));
     await expect.poll(() => page.frames().filter(f => { try { return new URL(f.url()).pathname === "/ordinary-proof"; } catch { return false; } }).length).toBe(2);

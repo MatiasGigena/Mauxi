@@ -269,7 +269,6 @@ it("waits for an in-flight setup before closing instead of cleaning up concurren
     release();
     expect((await closing).active).toBeNull();
     expect(await setupResult).toBe("failed");
-    // Cleanup starts only after setup stopped writing its journal and files.
     expect(writes.indexOf("cleaning")).toBeGreaterThan(writes.lastIndexOf("applied"));
     expect(writes.at(-1)).toBe("clean");
     expect((await store.list())[0].state).toBe("clean");

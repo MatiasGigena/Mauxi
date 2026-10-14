@@ -30,9 +30,6 @@ export async function selectScript(page: Page, command: string) {
 }
 
 export async function mockDesktop(page: Page) {
-  // These are shell UI tests, not live project tests. Avoid loading whatever
-  // happens to be running on Vite's default port (and its animations/network).
-  // Individual page.route fixtures still take priority over this fallback.
   await page.context().route("http://127.0.0.1:5173/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Test preview</title><body>Test preview</body>" }));
   await page.addInitScript((initial) => {
     const state = { next: initial as typeof initial | null, calls: 0, confirms: [] as unknown[], pending: false, release: null as null | (() => void), confirmPending: false, confirmRelease: null as null | (() => void), confirmError: false, agentListeners: [] as Array<(event: unknown) => void>, workspaceListeners: [] as Array<(event: unknown) => void> };

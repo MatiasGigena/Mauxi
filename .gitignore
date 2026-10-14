@@ -4,7 +4,6 @@ dist-electron/
 release/
 playwright-report/
 test-results/
-# Generated test artifacts belong in test-results/, not source control.
 evidence/
 fixtures/*/.next/
 fixtures/*/dist/

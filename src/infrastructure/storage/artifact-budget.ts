@@ -10,8 +10,6 @@ export const ARTIFACT_LIMITS = {
 
 export interface StorageArtifact { file: string; size: number; mtimeMs: number; dev: number; ino: number }
 
-// Scan completely before deleting anything, including when already over budget.
-// Unknown regular files count toward admission; symlinks/special entries fail closed.
 export function scanArtifacts(root: string): StorageArtifact[] {
   const artifacts: StorageArtifact[] = []; let visited = 0;
   const visit = (directory: string) => {
@@ -34,9 +32,6 @@ export function scanArtifacts(root: string): StorageArtifact[] {
   return artifacts;
 }
 
-// Synchronous admission + write is serialized by the Electron main thread.
-// These are application admission budgets, not physical disk quotas. External
-// writers can exceed them; no user history or recovery data is ever evicted.
 export function assertArtifactCapacity(root: string, limits: ArtifactBudget, addedBytes: number, addedFiles = 0): void {
   const artifacts = scanArtifacts(root);
   const bytes = artifacts.reduce((sum, item) => sum + item.size, 0); const files = artifacts.length;

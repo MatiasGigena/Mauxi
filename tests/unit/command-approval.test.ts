@@ -42,7 +42,6 @@ describe("host-side command approval", () => {
       expect(Date.now() - start).toBeLessThan(2_500);
       pid = Number(await readFile(path.join(directory, "ready.pid"), "utf8"));
       if (scenario !== "escaped-pipes") {
-        // A killed orphan may briefly remain a zombie until init reaps it.
         const deadline = Date.now() + 2_000;
         while (true) {
           const status = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
@@ -69,7 +68,6 @@ describe("host-side command approval", () => {
     const host = new PiAgentHost("workspace-1", project, path.join(root, "profile"), path.join(root, "captures"));
     const fingerprint = (host as unknown as { commandConfigurationFingerprint: (operation: { executable: string; args: string[]; cwd: string }) => Promise<string> }).commandConfigurationFingerprint.bind(host);
     const cwd = await realpath(project);
-    // A long commit message or inline script is not a path; neither is a symlink loop.
     await expect(fingerprint({ executable: "git", args: ["commit", "-m", "x".repeat(300)], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
     await expect(fingerprint({ executable: "cat", args: ["loop"], cwd })).resolves.toMatch(/^[0-9a-f]{64}$/);
   });

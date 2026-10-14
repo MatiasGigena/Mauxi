@@ -67,8 +67,6 @@ it("fails closed for missing frame identity, other windows/origins, nested frame
   main.url = "http://127.0.0.1:9999";
   expect(response()).toEqual({});
   main.url = options.rendererUrl;
-  // Replacing a window in the same persistent partition must not let the old
-  // window's close event remove the new owner's handler.
   const replacement = Object.assign(new EventEmitter(), { isDestroyed: () => false, webContents: { ...window.webContents, id: 2 } });
   const oldListener = listener as HeaderListener | null;
   installPreviewHeaders(replacement as unknown as BrowserWindow, options);

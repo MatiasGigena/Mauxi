@@ -21,8 +21,6 @@ import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
-// Retired shell frames may still have a debounced layout save in flight.
-// They may no longer write state; only that obsolete request is a no-op.
 const retiredCanvasSenders = new WeakMap<Electron.WebContents, Electron.WebFrameMain>();
 let packagedRenderer: Awaited<ReturnType<typeof startRendererServer>> | undefined;
 let currentWorkspaceRoot: string | null = null;
@@ -127,15 +125,12 @@ async function activeAgent(): Promise<PiAgentHost> {
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
       if (agentEvent.type === "dialog" && "links" in agentEvent.dialog) for (const link of agentEvent.dialog.links ?? []) {
-        // Store the same normalized form that mauxi:open-auth-url compares.
-        try { approvedAuthUrls.add(new URL(link.url).toString()); } catch { /* an invalid URL is never approved */ }
+        try { approvedAuthUrls.add(new URL(link.url).toString()); } catch {}
       }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:agent-event", agentEvent);
     });
     try { await created.initialize(); }
     catch (error) {
-      // The host caches its initialization result. Drop a failed host so the
-      // next request can retry instead of reusing a permanently broken one.
       if (agentHost === created) { unsubscribeAgent?.(); unsubscribeAgent = null; agentHost = null; }
       await created.dispose().catch(() => undefined);
       throw error;
@@ -148,7 +143,7 @@ async function activeAgent(): Promise<PiAgentHost> {
 
 async function disposeAgent(): Promise<void> {
   browserControl?.revoke("Workspace closed"); visibleBrowser?.dispose(); visibleBrowser = undefined; browserControl = undefined;
-  if (agentCreation) { try { await agentCreation; } catch { /* dispose the partially-created host below */ } }
+  if (agentCreation) { try { await agentCreation; } catch {} }
   unsubscribeAgent?.(); unsubscribeAgent = null;
   const current = agentHost; agentHost = null;
   approvedAuthUrls.clear();
@@ -225,8 +220,6 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   window.webContents.on("will-redirect", (event) => {
     if (!event.isMainFrame && !previewOriginAllowed(event.url)) { event.preventDefault(); browserControl?.revoke("Unexpected redirect blocked; control suspended"); }
   });
-  // Enforce the same boundary for redirects and out-of-process subframes, not
-  // only renderer navigation events. Subresources/XHR remain project-owned.
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     const cancel = details.resourceType === "subFrame" && !previewOriginAllowed(details.url);
     if (cancel) browserControl?.revoke("Unexpected frame origin blocked; control suspended");
@@ -267,7 +260,6 @@ function registerIpc(): void {
     else throw new Error("Invalid browser owner");
     return browser.state();
   });
-  // Fake agent requests use exactly the production host wrapper, with no permission bypass.
   ipcMain.handle("mauxi:browser-test", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (process.env.MAUXI_TEST_MODE !== "1") throw new Error("Test API disabled");
@@ -287,7 +279,6 @@ function registerIpc(): void {
     const result = await dialog.showOpenDialog(mainWindow!, { title: "Open a local project", defaultPath, properties: ["openDirectory"] });
     if (result.canceled || !result.filePaths[0]) return null;
     const discovery = await manager.inspect(result.filePaths[0]);
-    // Preference failures must not prevent opening a project.
     await projectPickerLocation.remember(discovery.canonicalRoot).catch(error => console.warn("Could not save project picker location", error));
     return discovery;
   });
@@ -350,7 +341,6 @@ function registerIpc(): void {
     return resolveWorkspaceSource(active.appRoot, value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
   });
 
-  // G0 proof compatibility is isolated from the project lifecycle APIs.
   ipcMain.handle("mauxi:resolve-fixture-source", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (process.env.MAUXI_PROOF !== "1" || !input || typeof input !== "object") throw new Error("Proof API disabled");
@@ -450,7 +440,6 @@ function registerIpc(): void {
   ipcMain.handle("mauxi:release-captures", (event, input: unknown) => {
     assertTrustedSender(event);
     if (!Array.isArray(input) || input.length > 8 || !input.every(file => typeof file === "string" && file.length > 0 && file.length <= 4_096)) throw new Error("Invalid capture release");
-    // Releasing only affects app-held draft pins, never arbitrary file paths.
     captures.releaseDrafts(input); cleanupCaptureCache();
   });
 
@@ -463,7 +452,6 @@ function registerIpc(): void {
     if (process.env.MAUXI_PROOF !== "1" && (!active || input.workspaceId !== active.workspaceId)) throw new Error("Stale capture workspace");
     const rect = { x: Math.floor(input.x), y: Math.floor(input.y), width: Math.ceil(input.width), height: Math.ceil(input.height) };
     const image = await mainWindow.webContents.capturePage(rect);
-    // capturePage is asynchronous: an obsolete shell must not leave new pins.
     assertTrustedSender(event);
     if (manager.snapshot().active?.workspaceId !== active?.workspaceId) throw new Error("Workspace changed during capture");
     const outputPath = captures.write(input.previewId, image.toPNG(), input.selectionId);

@@ -3,10 +3,6 @@ import type { AgentMessageView } from "../application/agent-contract";
 
 export type AcceptedPrompt = { text: string; previousUserIds: string[] };
 
-/** A view of the latest turn only; the SDK's conversation history is untouched.
- * Queued prompts aren't in the SDK transcript until delivery, so keep the
- * accepted prompt visible without attributing the previous run's output to it.
- */
 export function latestExchange(messages: AgentMessageView[], accepted?: AcceptedPrompt) {
   const index = messages.findLastIndex(message => message.role === "user");
   if (accepted && !messages.some(message => message.role === "user" && message.text === accepted.text && !accepted.previousUserIds.includes(message.id))) {
@@ -16,7 +12,6 @@ export function latestExchange(messages: AgentMessageView[], accepted?: Accepted
   return { prompt: messages[index], output: messages.slice(index + 1).filter(message => message.role === "assistant"), queued: false };
 }
 
-/** Suppress only an exact duplicate of an error already visible above. */
 export function exchangeContainsError(exchange: ReturnType<typeof latestExchange>, error: string) {
   const normalize = (text: string) => text.trim().replace(/\s+/g, " ");
   return !!error.trim() && !!exchange?.output.some(message => message.error && normalize(message.text) === normalize(error));

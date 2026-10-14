@@ -19,8 +19,6 @@ async function finishMotion(page: Page) {
 const active = (page: Page) => page.locator('.selection-list .selection-chip');
 
 test.beforeEach(async ({ page }) => {
-  // Exercise the real Workspace message boundary and composer, without a provider
-  // or running fixture server. The synthetic preview only supplies handshake data.
   await page.route('http://127.0.0.1:45173/**', route => route.fulfill({ contentType: 'text/html', body: `<body>Preview<script>
     const session = new URL(location.href).searchParams.get('mauxiSession');
     addEventListener('message', event => { if (event.data.kind === 'connect') parent.postMessage({ protocol: ${JSON.stringify(BRIDGE_PROTOCOL)}, session, generation: 'generation-1', kind: 'ready', url: location.href, viewport: { width: innerWidth, height: innerHeight }, reactGrab: true }, '*'); });
@@ -45,7 +43,7 @@ test('minimal badges enter/exit, resize the surface without scaling text, and ha
   await finishMotion(page);
   await attach(page, 'two');
   await active(page).filter({ hasText: 'Selected one' }).getByRole('button').click();
-  await attach(page, 'one'); // Re-add an ID even while its exit is in flight.
+  await attach(page, 'one');
   await finishMotion(page);
   await expect(active(page)).toHaveCount(2);
   await expect(page.locator('.selection-ghost')).toHaveCount(0);
@@ -62,8 +60,6 @@ for (const remaining of [0, 1]) test(`deleted badge stays invisible at exit comp
   if (remaining) await attach(page, 'keep');
   await attach(page, 'remove');
   await finishMotion(page);
-  // Observe the exact finish event before React removes the ghost. Checking only
-  // the eventual DOM misses a one-frame return to the default opacity of 1.
   await page.evaluate(() => {
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (frames, options) {

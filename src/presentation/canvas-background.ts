@@ -6,11 +6,8 @@ export interface GridEdge { x: number; y: number; length: number; angle: number;
 export interface CanvasViewBounds { x: number; y: number; width: number; height: number }
 type Point = [number, number];
 
-/** Trace the outside of grid cells occupied by visible previews, not the viewport. */
 export function canvasTrailGeometry(width: number, height: number, views: CanvasViewBounds[]) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  // Prefer visible grid lines. The enclosing cell can extend offscreen only
-  // when the whole viewport is smaller than one of the intentionally huge cells.
   const columns = Math.max(1, Math.floor((width - .5) / CANVAS_GRID_SIZE));
   const rows = Math.max(1, Math.floor((height - .5) / CANVAS_GRID_SIZE));
   const cells = new Set<string>();
@@ -30,7 +27,6 @@ export function canvasTrailGeometry(width: number, height: number, views: Canvas
   }
   if (!cells.size) return null;
 
-  // Clockwise exposed cell edges. Adjacent views share a single stepped outline.
   const segments: { from: Point; to: Point; direction: number }[] = [];
   for (const cell of cells) {
     const [x, y] = cell.split(",").map(Number);
@@ -56,7 +52,6 @@ export function canvasTrailGeometry(width: number, height: number, views: Canvas
       unused.delete(index);
       points.push(edge.from);
       const next = (outgoing.get(key(...edge.to)) ?? []).filter(i => unused.has(i));
-      // At diagonal-only contact, turn right rather than joining disjoint loops.
       next.sort((a, b) => {
         const rank = (i: number) => [1, 0, 3, 2][(segments[i].direction - edge.direction + 4) % 4];
         return rank(a) - rank(b);
@@ -68,12 +63,9 @@ export function canvasTrailGeometry(width: number, height: number, views: Canvas
       const next = points[(i + 1) % points.length];
       return sum + x * next[1] - next[0] * y;
     }, 0);
-    // Ignore holes. If previews are far apart, stay by the dominant visible
-    // preview rather than sending a trail through the empty gap between them.
     if (area > largestArea) { largestArea = area; outline = points; }
   }
   if (!outline.length) return null;
-  // Merge collinear cell edges into a handful of clipping layers.
   const corners = outline.filter(([x, y], i) => {
     const prev = outline[(i + outline.length - 1) % outline.length];
     const next = outline[(i + 1) % outline.length];
@@ -102,7 +94,6 @@ export function trailPointAt(geometry: CanvasTrailGeometry, distance: number): P
   return [edge.x + Math.cos(edge.angle * Math.PI / 180) * along, edge.y + Math.sin(edge.angle * Math.PI / 180) * along];
 }
 
-/** Keep the moving head near its old position when the snapped route changes. */
 export function nearestTrailDistance(geometry: CanvasTrailGeometry, point: Point) {
   let closest = Infinity;
   let distance = 0;

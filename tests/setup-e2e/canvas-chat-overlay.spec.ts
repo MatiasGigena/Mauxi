@@ -22,7 +22,6 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
     const dockBounds = (await dock.boundingBox())!;
     const bottomGap = viewport.width <= 600 || viewport.height <= 650 ? 16 : 32;
     expect(viewport.height - dockBounds.y - dockBounds.height).toBeCloseTo(bottomGap, 0);
-    // The preview really extends behind the composer, not just a blank backdrop.
     const preview = (await page.getByTestId("desktop-preview").boundingBox())!;
     expect(preview.y + preview.height).toBeGreaterThan(dockBounds.y + dockBounds.height);
     expect(await dock.evaluate(node => {

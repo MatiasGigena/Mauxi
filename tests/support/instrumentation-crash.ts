@@ -1,5 +1,3 @@
-// A disposable child process, never loaded by the application. Kill at durable
-// journal boundaries, including after a mutation but before its flag is saved.
 import { JournalStore, type InstrumentationJournal } from "../../src/infrastructure/instrumentation/journal";
 import { applyIntegration, cleanupIntegration, prepareIntegrationPlan, transactionIdFor } from "../../src/infrastructure/instrumentation/plan";
 
@@ -22,4 +20,3 @@ if (operation === "apply") {
   const journal = (await store.list())[0];
   await cleanupIntegration(journal?.transactionId ?? transactionIdFor(plan!), store);
 }
-// If this exits normally, the parent selected a nonexistent boundary and fails.

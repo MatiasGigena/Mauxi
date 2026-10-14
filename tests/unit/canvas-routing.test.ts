@@ -69,7 +69,7 @@ describe("canvas geometry", () => {
     expect(isCanvasState(defaultCanvas())).toBe(true);
     expect(isCanvasState({ ...defaultCanvas(), camera: { x: 0, y: 0, zoom: Infinity } })).toBe(false);
     expect(isCanvasState({ ...defaultCanvas(), boards: {} })).toBe(false);
-    expect(isCanvasState({ ...defaultCanvas(), chatHeight: 5000 })).toBe(true); // Ignored legacy field, no longer used for layout.
+    expect(isCanvasState({ ...defaultCanvas(), chatHeight: 5000 })).toBe(true);
   });
 });
 

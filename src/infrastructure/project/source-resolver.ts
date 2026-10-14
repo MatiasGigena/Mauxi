@@ -30,7 +30,7 @@ function jsxLocation(content: string, locator: SourceLocatorHint): { lineNumber:
         }
       }
     }
-  } catch { return null; } // Incomplete/unsupported syntax is never verified JSX.
+  } catch { return null; }
   const candidates = elements.filter(element => element.openingElement.name.type === "JSXIdentifier" && element.openingElement.name.name === locator.tag);
   let matches = candidates;
   if (locator.testIds.length) {
@@ -44,8 +44,6 @@ function jsxLocation(content: string, locator: SourceLocatorHint): { lineNumber:
       if (!anchors.length) continue;
       if (anchors.length !== 1) return null;
       const anchor = anchors[0];
-      // Only descendants of the actual JSX anchor qualify. Nearest-text matching
-      // could label a preceding badge span as the selected button's child span.
       matches = candidates.filter(element => element.start! >= anchor.start! && element.end! <= anchor.end!);
       break;
     }
@@ -89,8 +87,6 @@ export async function resolveWorkspaceSource(
   }
   const isBasenameOnly = normalizedHint === basename;
   const isBundlerUrl = /^[a-z][a-z\d+.-]*:\/\//i.test(normalizedHint);
-  // Bundler URLs are not filesystem authority. Resolve only their basename and
-  // accept it when the workspace contains exactly one matching source file.
   if (isBasenameOnly || isBundlerUrl) await walk(canonicalRoot);
   const unique = [...new Set(candidates)];
   const valid: string[] = [];
@@ -100,7 +96,7 @@ export async function resolveWorkspaceSource(
       if (!(canonical === canonicalRoot || canonical.startsWith(`${canonicalRoot}${path.sep}`))) continue;
       const file = await lstat(canonical);
       if (file.isFile() && !file.isSymbolicLink() && file.size <= 2_097_152) valid.push(canonical);
-    } catch { /* stale hint */ }
+    } catch {}
   }
   if (valid.length !== 1) return null;
   const content = await readFile(valid[0]);

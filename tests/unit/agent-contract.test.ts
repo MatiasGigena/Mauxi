@@ -9,8 +9,6 @@ import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 
 const temporary: string[] = [];
 const servers: Server[] = [];
-// The pi SDK authenticates providers from ambient environment credentials, so
-// a developer's own keys would otherwise turn these tests into real requests.
 const PROVIDER_CREDENTIAL = /^(AWS_|ANTHROPIC_|GOOGLE_APPLICATION_CREDENTIALS$|CLOUDFLARE_)|_(API_KEY|TOKEN)$/;
 beforeEach(() => {
   for (const name of Object.keys(process.env)) if (PROVIDER_CREDENTIAL.test(name)) vi.stubEnv(name, undefined);
@@ -215,8 +213,6 @@ describe("bundled pi host", () => {
           if (!response.destroyed) response.end("data: [DONE]\n\n");
         };
         if (holdFirstText) {
-          // A 25ms pause can coalesce both chunks under load. Hold the first
-          // response until a public partial snapshot actually arrives.
           holdFirstText = false;
           const timeout = setTimeout(finish, 5_000);
           releaseFirstResponse = () => { clearTimeout(timeout); finish(); };
@@ -263,7 +259,6 @@ describe("bundled pi host", () => {
     await host.selectModel({ workspaceId: "workspace-1", modelKey: "fake/fake" });
     expect(await host.send({ workspaceId: "workspace-1", text: "Run a structured question", behavior: "prompt", selections: [] })).toEqual({ accepted: true });
     await waitFor(() => latest.runState === "idle" && latest.messages.some((message) => message.text.includes("You chose blue")));
-    // Public snapshots expose response text as it streams, never reasoning.
     expect(sawWorking).toBe(true);
     expect(sawPartial).toBe(true);
     expect(sawQuestion).toBe(true);
@@ -305,8 +300,6 @@ describe("bundled pi host", () => {
     await host.send({ workspaceId: "workspace-1", text: "Recovered authentication", behavior: "prompt", selections: [] });
     await waitFor(() => latest.runState === "idle" && latest.messages.some(message => message.text.includes("Fake response")));
     expect(latest.error).toBeUndefined();
-    // Exercise the host's adapter to an SDK catalog failure without consulting
-    // a live catalog or relying on external service availability.
     const runtime = (host as unknown as { modelRuntime: { refresh: (...args: any[]) => Promise<any> } }).modelRuntime;
     const models = latest.models.map(model => model.key);
     const refresh = vi.spyOn(runtime, "refresh").mockResolvedValue({ errors: new Map([["fake", new Error("offline")]]), aborted: false });

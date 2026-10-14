@@ -38,14 +38,9 @@ export async function stopSessionProcess(journal: InstrumentationJournal): Promi
   if (!(await missing(statPath))) {
     const stat = await readFile(statPath, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    // Linux reallocates a PID only after no process uses it as a process-group
-    // ID, so a different process with this PID proves the session group exited
-    // (for example across a reboot). Never signal it, but do not block cleanup.
     if (fields[19] !== start) return;
     if (Number(fields[2]) !== pid) throw new Error("Session process identity changed; refusing to signal it.");
   } else {
-    // Once the leader is gone, an extant group cannot be identified reliably
-    // after an app restart. Preserve recovery data instead of killing by PID.
     if (await liveGroup(pid)) throw new Error("Session leader exited while descendants remain; stop that group before retrying cleanup.");
     return;
   }
@@ -72,7 +67,6 @@ export async function cleanSessionFiles(journal: InstrumentationJournal, store: 
       if (!info.isFile() || info.isSymbolicLink() || info.size > 524_288) throw new Error("Generated types path changed or exceeds its size bound; preserving it.");
       const current = await readFile(record.path, "utf8");
       if (record.cleanupAfter !== undefined && current === record.cleanupAfter) {
-        // The replacement reached disk before its completion receipt did.
       } else if (current !== record.before) {
         let cleaned = record.cleanupAfter;
         if (cleaned !== undefined) {

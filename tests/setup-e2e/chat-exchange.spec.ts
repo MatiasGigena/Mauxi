@@ -54,8 +54,6 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const dock = page.locator(".chat-dock");
     const canvasBefore = await page.getByTestId("canvas").boundingBox();
     const initial = (await dock.boundingBox())!;
-    // Observe animations inside the page so fast growth motion can't finish
-    // between a fill round-trip and an assertion.
     await page.evaluate(() => {
       (window as any).growthAnimations = [];
       const animate = Element.prototype.animate;
@@ -335,7 +333,6 @@ test("rapid minimize and reopen reverses retained motion without duplicate excha
     const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     (window as any).exchangeNode = document.querySelector(".chat-exchange");
     for (let i = 0; i < 4; i++) {
-      // A child control avoids the canvas drag's pointer-capture requirement.
       target.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
       await frame();
       editor.focus();

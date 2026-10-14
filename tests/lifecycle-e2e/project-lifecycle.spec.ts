@@ -34,7 +34,6 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await application?.close().catch(() => undefined);
-  // The tracked fixture is isolated test data; restore the captured baseline after any failed assertion.
   if (originalConfig) await writeFile(configPath, originalConfig);
 });
 

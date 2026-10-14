@@ -124,12 +124,11 @@ describe("reviewed local design resources", () => {
     expect(resources.search("pricing").map((item) => item.id)).toEqual([entry.id]);
     next.reviewStatus = "reviewed";
     await writeFile(file, JSON.stringify({ version: 1, references: [entry, next] }));
-    await resources.prepareCatalog(file); // Preparing is not an approval or activation.
+    await resources.prepareCatalog(file);
     expect(resources.search("pricing").map((item) => item.id)).toEqual([entry.id]);
     await resources.reload();
     expect(() => resources.search("pricing")).toThrow(/unavailable/);
     expect(resources.snapshot().catalog?.error).toContain("Catalog changed");
-    // importCatalog is called by the host only after explicit approval of this digest.
     await resources.importCatalog(await resources.prepareCatalog(file));
     expect(resources.search("pricing").map((item) => item.id)).toEqual([entry.id, next.id]);
   });
@@ -187,7 +186,7 @@ describe("reviewed local design resources", () => {
     const { resources } = await setup();
     await resources.importCatalog(await resources.prepareCatalog(path.resolve("design-references/library/catalog.json")));
     expect(resources.snapshot().catalog!.count).toBe(10);
-    expect(resources.search("light serif pricing", "mobile")).toEqual([]); // no reviewed pricing family; do not substitute an unrelated hero
+    expect(resources.search("light serif pricing", "mobile")).toEqual([]);
     const result = resources.search("light serif hero", "mobile");
     expect(result[0].family).toBe("hero");
     expect((await resources.image(result[0].id, "mobile", true)).data.length).toBeGreaterThan(100);

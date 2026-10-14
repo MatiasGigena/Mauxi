@@ -3,7 +3,6 @@ import { constants } from "node:fs";
 import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-/** Supported metadata only; timestamps are strings to retain nanosecond precision. */
 export interface LinuxFileMetadata {
   mode: number;
   uid: number;
@@ -16,8 +15,6 @@ export interface LinuxFileMetadata {
 
 export const METADATA_LIMITATION = "Managed files preserve ordinary Linux ownership and permissions; caller-visible xattrs/ACLs/security labels and unsupported filesystem flags are refused. Linux hides trusted.* xattrs from unprivileged users: their absence cannot be verified. This is not an OS sandbox.";
 
-// No PATH lookup, site initialization, project imports, environment hooks, or
-// project code. The only inherited descriptor is the already-open target inode.
 const SCRIPT = String.raw`
 import os, sys, stat, json, fcntl, array, struct
 fd = 3
@@ -29,13 +26,12 @@ def inspect():
     if os.listxattr(fd):
         raise RuntimeError("Unsupported metadata: caller-visible xattrs/ACLs/security labels")
     flags = array.array('L', [0])
-    fcntl.ioctl(fd, 0x80086601, flags, True) # FS_IOC_GETFLAGS (Linux 64-bit)
-    # EXTENTS and directory INDEX describe allocation, not transferable policy.
+    fcntl.ioctl(fd, 0x80086601, flags, True)
     allowed = 0x80000 | (0x1000 if stat.S_ISDIR(s.st_mode) else 0)
     if flags[0] & ~allowed:
         raise RuntimeError("Unsupported metadata: filesystem flags")
     fsx = bytearray(28)
-    fcntl.ioctl(fd, 0x801c581f, fsx, True) # FS_IOC_FSGETXATTR
+    fcntl.ioctl(fd, 0x801c581f, fsx, True)
     xflags, extsize, nextents, projid, cowextsize = struct.unpack_from('=IIIII', fsx)
     if xflags or extsize or projid or cowextsize:
         raise RuntimeError("Unsupported metadata: filesystem project/allocation policy")
@@ -43,11 +39,9 @@ def inspect():
     return dict(mode=s.st_mode, uid=s.st_uid, gid=s.st_gid, atimeNs=str(s.st_atime_ns), mtimeNs=str(s.st_mtime_ns), identity=identity, changeIdentity=identity+':'+str(s.st_ctime_ns))
 
 try:
-    inspect() # Never erase unexpected metadata on the staged inode/parent.
+    inspect()
     creating = len(sys.argv) > 1 and sys.argv[1] == 'create'
     if creating:
-        # An unnamed, empty inode gets real directory/mount/umask semantics,
-        # without exposing a temporary path to project watchers or scripts.
         fd = os.open('.', os.O_TMPFILE | os.O_RDWR | os.O_CLOEXEC, 0o666, dir_fd=fd)
         inspect()
     desired_arg = sys.argv[2] if creating and len(sys.argv) > 2 else sys.argv[1] if not creating and len(sys.argv) > 1 else None
@@ -56,7 +50,7 @@ try:
         s = os.fstat(fd)
         if (s.st_uid, s.st_gid) != (desired['uid'], desired['gid']):
             os.fchown(fd, desired['uid'], desired['gid'])
-        os.fchmod(fd, desired['mode'] & 0o7777) # after chown, and independent of umask
+        os.fchmod(fd, desired['mode'] & 0o7777)
         s = os.fstat(fd)
         os.utime(fd, ns=(int(desired.get('atimeNs', s.st_atime_ns)), int(desired.get('mtimeNs', s.st_mtime_ns))))
     result = inspect()
@@ -126,7 +120,6 @@ export async function inspectLinuxPath(target: string, creation = false): Promis
   try { return await inspectLinuxMetadata(file, undefined, creation); } finally { await file.close(); }
 }
 
-/** Exchange two existing names without a missing-file window or discarding either inode. */
 export async function exchangeLinuxFiles(target: string, displaced: string): Promise<void> {
   const executable = await trustedPython();
   const parent = await open(path.dirname(target), constants.O_RDONLY | constants.O_DIRECTORY);

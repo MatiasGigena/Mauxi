@@ -127,7 +127,6 @@ it("does not block recovery when the recorded session leader PID now belongs to 
   const base = await mkdtemp(path.join(os.tmpdir(), "mauxi-session-")); roots.push(base);
   const runtime = path.join(base, "app", ".mauxi", "runtime"); await mkdir(runtime, { recursive: true });
   await writeFile(path.join(runtime, "owner"), "token");
-  // A live, unrelated process with the recorded PID but a different start time (e.g. after a reboot).
   await writeFile(path.join(runtime, "process.json"), JSON.stringify({ pid: process.pid, start: "-1" }));
   const journal = { runtime: { path: runtime, token: "token", created: true } } as InstrumentationJournal;
   await expect(stopSessionProcess(journal)).resolves.toBeUndefined();

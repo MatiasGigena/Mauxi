@@ -52,7 +52,6 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
     expect(await fetch(`http://127.0.0.1:${address.port}`).then(r => r.text())).toBe("other project");
     expect(await fetch(`${active.origin}/login`).then(r => r.text())).toContain("before");
     await writeFile(sourceFile, (await readFile(sourceFile, "utf8")).replace("before", "after"));
-    // A new user edit in the same configuration must survive session removal.
     await writeFile(configFile, (await readFile(configFile, "utf8")) + "// keep this edit\n");
     await manager.close();
     expect(await readFile(configFile, "utf8")).toBe(config + "// keep this edit\n");

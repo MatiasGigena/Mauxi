@@ -10,7 +10,6 @@ export interface StoredSelection {
   requiresRepick?: boolean;
 }
 
-/** Mark only live draft attachments in their original preview document. */
 export function selectionMarkerIds(selections: readonly StoredSelection[], previewId: string, generation: string): string[] {
   return selections.filter(item => item.status === "current" && !item.requiresRepick
     && item.capture.previewId === previewId && item.capture.documentGeneration === generation)
@@ -25,8 +24,6 @@ export function fingerprintsMatch(original: ElementFingerprint, current: Element
   if (original.instanceKey !== current.instanceKey || original.tag !== current.tag) return false;
   if (original.sourceKey !== current.sourceKey) return false;
   if (original.testId || current.testId) return original.testId === current.testId && original.text === current.text;
-  // A selector is supporting evidence, not permanent identity. The instance key
-  // permits an unambiguously retained node to move when a list is reordered.
   return original.text === current.text;
 }
 

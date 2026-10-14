@@ -12,8 +12,6 @@ const MAX_CHANGE_SETS = 64;
 const MAX_SCAN_FILES = 2_000;
 const MAX_SCAN_BYTES = 20 * 1024 * 1024;
 export const RECOVERY_VAULT_LIMITS = { entries: 128, bytes: 128 * 1024 * 1024 } as const;
-// Electron enforces a single app instance. Also serialize vault admission across
-// coordinators in that process, not just operations within one workspace.
 const vaultTails = new Map<string, Promise<unknown>>();
 class MutationNotStartedError extends Error {}
 const EXCLUDED_DIRECTORIES = new Set([".git", ".mauxi", "node_modules", ".next", "dist", "dist-electron", "build", "release", "coverage", ".cache", "playwright-report", "test-results"]);
@@ -72,7 +70,6 @@ interface FileSnapshot {
 }
 
 function fileIdentity(info: Stats): string {
-  // rename changes ctime, but preserves inode, mode, size and mtime.
   return `${info.dev}:${info.ino}:${info.mode}:${info.uid}:${info.gid}:${info.size}:${info.mtimeMs}`;
 }
 
@@ -106,7 +103,6 @@ function boundedLabel(label: string): string {
 
 function lines(value: string | null): string[] { return value === null ? [] : value.split("\n"); }
 
-/** A bounded, readable line diff. It deliberately falls back to a summary for large files. */
 export function changeDiff(before: string | null, after: string | null): string {
   if (before === after) return "";
   const summary = (left: number, right: number) => `--- before (${left} lines)\n+++ after (${right} lines)\n@@ Diff is too large for inline review @@`;
@@ -198,7 +194,6 @@ export class ChangeCoordinator {
       const directory = await open(path.dirname(this.filePath), "r");
       try { await directory.sync(); } finally { await directory.close(); }
     } finally {
-      // This is unexposed app-owned metadata staging, never a displaced inode.
       await rm(temporary, { force: true }).catch(() => undefined);
     }
   }
@@ -269,8 +264,6 @@ export class ChangeCoordinator {
   }
 
   private async pruneCompletedForCapacity(changeSets: StoredChangeSet[]): Promise<StoredChangeSet[]> {
-    // Never orphan recovery by pruning its review record. Only an explicitly
-    // removed retained directory releases this pin; unfinished intent stays pinned.
     for (const set of changeSets) {
       const retainedRecoveries = [];
       for (const recovery of set.recoveries ?? []) {
@@ -326,7 +319,6 @@ export class ChangeCoordinator {
       set.state = "active"; set.updatedAt = new Date().toISOString(); this.store.activeId = id;
       try { await this.persist(); }
       catch (error) {
-        // Leave the set prepared so the caller can abandon it.
         set.state = "prepared";
         if (previousActiveId) this.store.activeId = previousActiveId; else delete this.store.activeId;
         throw error;
@@ -339,15 +331,12 @@ export class ChangeCoordinator {
       const next = this.store.changeSets.find((item) => item.id === id);
       if (!next || next.state !== "prepared") throw new Error("Queued request checkpoint is unavailable.");
       const current = this.store.changeSets.find((item) => item.id === this.store.activeId);
-      // Like settle(), never erase a conflict recorded during the prior request.
       if (current) { if (current.state !== "conflicted") current.state = "settled"; current.updatedAt = new Date().toISOString(); }
       try {
         await this.captureBaseline(next);
         next.state = "active"; next.updatedAt = new Date().toISOString(); this.store.activeId = id;
         await this.persist();
       } catch (error) {
-        // The host already dequeued this request. Retire its record here, and
-        // never let tools queued behind a failed activation use the old set.
         next.state = "failed"; next.updatedAt = new Date().toISOString();
         next.errors.push(`Queued checkpoint activation failed: ${error instanceof Error ? error.message : String(error)}`);
         delete this.store.activeId;
@@ -387,11 +376,6 @@ export class ChangeCoordinator {
     return { absolute, relative };
   }
 
-  /**
-   * Anchor mutations to an open Linux directory descriptor. A parent that is
-   * swapped for a symlink either resolves outside the workspace and is rejected,
-   * or leaves this descriptor pointing at the originally validated directory.
-   */
   private async withAnchoredParent<T>(input: string, operation: (target: string) => Promise<T>): Promise<T> {
     const resolved = this.lexicalPath(input);
     const parent = path.dirname(resolved.absolute);
@@ -442,7 +426,6 @@ export class ChangeCoordinator {
   private assertRequestBaseline(set: StoredChangeSet, before: FileSnapshot, existing?: FileRecord): void {
     if (existing) return;
     const baseline = set.baseline ?? {};
-    // An unhashed marker records that a file was seen, not its content.
     const covered = Object.prototype.hasOwnProperty.call(baseline, before.path) && !baseline[before.path]?.startsWith("unhashed:");
     if (set.baselineIncomplete && !covered) throw new Error(`File was outside this request's bounded baseline: ${before.path}. Start a new request after reducing project coverage.`);
     const expected = covered ? baseline[before.path] : null;
@@ -465,8 +448,6 @@ export class ChangeCoordinator {
         if (vaultInfo.dev !== (await stat(path.dirname(target))).dev) {
           throw new Error(`The recovery vault (${canonical}) and target are on different filesystems. Atomic no-clobber recovery is unavailable. Move the app-owned checkpoint storage to the project filesystem; this file was not mutated and no in-project fallback is allowed.`);
         }
-        // Count actual retained data, including orphaned/interrupted entries and
-        // bytes added by external writers. Checkpoint pruning never frees quota.
         const entries = await readdir(descriptor, { withFileTypes: true });
         let bytes = Math.max(vaultInfo.size, vaultInfo.blocks * 512);
         const full = () => new Error(`Recovery vault limit (${RECOVERY_VAULT_LIMITS.entries} entries / ${RECOVERY_VAULT_LIMITS.bytes / 1024 / 1024} MiB) reached at ${canonical}. Stop external writers, review intent.json, and manually clean resolved entries. This file was not mutated.`);
@@ -481,7 +462,6 @@ export class ChangeCoordinator {
           if (files.length > 3) throw new Error(`Unexpected recovery entry contents: ${entry.name}. Review them manually before further mutations.`);
           for (const file of files) {
             const info = await lstat(path.join(descriptor, entry.name, file.name));
-            // A raced target can be a symlink; retain/count it, never follow it.
             if (!info.isFile() && !info.isSymbolicLink()) throw new Error(`Unsupported retained recovery data in ${entry.name}. Review it manually before further mutations.`);
             bytes += Math.max(info.size, info.blocks * 512);
             if (bytes + reservedBytes > RECOVERY_VAULT_LIMITS.bytes) throw full();
@@ -501,12 +481,6 @@ export class ChangeCoordinator {
     finally { if (vaultTails.get(this.vaultPath) === tail) vaultTails.delete(this.vaultPath); }
   }
 
-  /**
-   * Linux replacement atomically exchanges an existing name with a staged inode.
-   * Both versions survive even if a concurrent writer wins before the exchange.
-   * Creation uses no-clobber link(2); deletion displaces. We retain displaced data:
-   * even a writer holding the old inode open can recover its late writes.
-   */
   private async mutate(set: StoredChangeSet, relative: string, expectedHash: string | null, content: string | null, metadata?: LinuxFileMetadata, expectedIdentity?: string, expectedMetadata = metadata, restoreTimestamps = false): Promise<LinuxFileMetadata | null> {
     return this.withAnchoredParent(relative, async (target) => {
       let parentMetadata: LinuxFileMetadata; let creationMetadata: LinuxFileMetadata | undefined;
@@ -525,8 +499,6 @@ export class ChangeCoordinator {
       } : { mode: creationMetadata?.mode ?? 0, uid: creationMetadata?.uid ?? 0, gid: creationMetadata?.gid ?? 0 };
       const name = `${sha256(this.root).slice(0, 24)}-${randomUUID()}`;
       const intent = JSON.stringify({ workspaceRoot: this.root, path: relative, expectedHash, expectedIdentity, afterHash: content === null ? null : sha256(content), changeSetId: set.id });
-      // Reserve the full bounded target allowance plus staged data and filesystem
-      // block overhead. External inode growth cannot be capped without data loss.
       const reservedBytes = (expectedHash === null ? 0 : MAX_FILE_BYTES) + Buffer.byteLength(content ?? "") + Buffer.byteLength(intent) + 3 * 4096;
       return this.withRecoveryVault(target, reservedBytes, async (vault, canonicalVault) => {
         const directory = path.join(vault, name);
@@ -544,8 +516,6 @@ export class ChangeCoordinator {
             try { preparedMetadata = await inspectLinuxMetadata(replacement, desired); await replacement.sync(); }
             finally { await replacement.close(); }
           } else if (preserved) {
-            // Before deleting, prove that undo can reproduce this ownership/mode
-            // on a fresh vault inode. The empty O_TMPFILE probe has no pathname.
             const probeParent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
             try { await inspectLinuxMetadata(probeParent, desired, true); }
             finally { await probeParent.close(); }
@@ -559,18 +529,13 @@ export class ChangeCoordinator {
           (set.recoveries ??= []).push(recovery);
           await this.persist();
         } catch (error) {
-          // No project inode has been displaced yet; only staging data is ours.
           if (created) await rm(directory, { recursive: true, force: true }).catch(() => undefined);
           await sync(vault).catch(() => undefined);
-          // Removing this reference cannot erase displaced data: project mutation
-          // has not begun. Any cleanup failure remains counted by the vault scan.
           set.recoveries = set.recoveries?.filter((item) => item !== recovery);
           throw new MutationNotStartedError(error instanceof Error ? error.message : String(error));
         }
         try {
           if (expectedHash !== null) {
-            // Both names/inodes are retained. Exchange avoids a transient
-            // ENOENT in file watchers; deletion still displaces into the vault.
             if (content !== null) {
               await link(staged, backup);
               await exchangeLinuxFiles(target, backup);
@@ -587,9 +552,8 @@ export class ChangeCoordinator {
           }
           await checkParent();
           if (content !== null) {
-            if (expectedHash === null) await link(staged, target); // Creation never overwrites.
+            if (expectedHash === null) await link(staged, target);
           } else {
-            // A new arrival after displacement is not ours to delete.
             try { await lstat(target); throw new Error("File arrived during deletion"); }
             catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
           }
@@ -613,8 +577,6 @@ export class ChangeCoordinator {
           await this.persist();
           return installed;
         } catch (error) {
-          // Restore only into an empty name. If another writer won the name, both
-          // versions survive and the durable manifest tells the user where to look.
           if (expectedHash !== null && content === null) await link(backup, target).catch(() => undefined);
           await sync(path.dirname(target));
           set.state = "conflicted";
@@ -708,8 +670,6 @@ export class ChangeCoordinator {
     const result = new Map<string, string>(); let files = 0; let bytes = 0;
     const walk = async (directory: string, relative: string): Promise<void> => {
       if (files >= MAX_SCAN_FILES || bytes >= MAX_SCAN_BYTES) return;
-      // Pin every parent too: O_NOFOLLOW on the leaf alone cannot stop a
-      // directory replaced with a symlink between readdir and open.
       const parent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       try {
         const descriptor = `/proc/self/fd/${parent.fd}`;
@@ -729,13 +689,9 @@ export class ChangeCoordinator {
             if (!info.isFile()) throw new Error(`Scan target is no longer a regular file: ${displayPath(name)}`);
             const remaining = MAX_SCAN_BYTES - bytes;
             if (info.size > MAX_FILE_BYTES || info.size > remaining) {
-              // Not hashed, but still observed: a command changing a large file
-              // (e.g. a lockfile) must be reported, not silently omitted.
               result.set(displayPath(name), `unhashed:${fileIdentity(info)}:${info.ctimeMs}`);
               bytes += info.size; continue;
             }
-            // Read until EOF (short reads are legal), never beyond either budget.
-            // The extra per-file byte detects growth even if fstat was stale.
             const buffer = Buffer.alloc(Math.min(info.size + 1, MAX_FILE_BYTES + 1, remaining));
             let length = 0;
             while (length < buffer.length) {
@@ -865,8 +821,6 @@ export class ChangeCoordinator {
         }
         try {
           const restoredMetadata = await this.mutate(set, file.path, file.afterHash, file.beforeContent, file.beforeMetadata, current.identity, current.metadata, true);
-          // Our own undo creates a new inode. Transfer only an exactly known
-          // predecessor's identity, never infer ownership from matching text.
           for (const predecessor of this.store.changeSets) {
             if (predecessor === set || !["settled", "failed"].includes(predecessor.state)) continue;
             for (const previous of predecessor.files) {

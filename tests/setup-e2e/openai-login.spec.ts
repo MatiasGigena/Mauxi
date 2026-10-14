@@ -16,8 +16,6 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
     env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_PROOF: "0", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(temp, "recovery"), XDG_CONFIG_HOME: path.join(temp, "config") },
   });
   try {
-    // Keep all host/SDK/UI code real. Replace only the OS browser launcher and
-    // remote token exchange, so the test never signs into a live account.
     await app.evaluate(({ shell }) => {
       const state = { urls: [] as string[], failBrowser: false, tokenRequests: 0 };
       (globalThis as any).loginTest = state;
@@ -54,7 +52,6 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
     await expect.poll(() => app.evaluate(() => (globalThis as any).loginTest.urls.length)).toBe(1);
     await page.screenshot({ path: testInfo.outputPath("openai-browser-login.png") });
 
-    // Complete the same localhost callback a real browser would use.
     await app.evaluate(async () => {
       const auth = new URL((globalThis as any).loginTest.urls[0]);
       const callback = new URL("http://127.0.0.1:1455/auth/callback");
@@ -70,7 +67,6 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
     await expect(page.getByRole("alert")).toHaveCount(0);
     expect(await app.evaluate(() => (globalThis as any).loginTest.tokenRequests)).toBe(1);
 
-    // OS launch failures must be caught, retain the link/input, and allow cancel.
     await app.evaluate(() => { (globalThis as any).loginTest.failBrowser = true; });
     await provider.getByRole("button", { name: "Re-authenticate", exact: true }).click();
     await page.getByRole("button", { name: "Browser login (default)", exact: true }).click();

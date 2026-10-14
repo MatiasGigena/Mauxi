@@ -10,7 +10,6 @@ it.each([false, true])("runs the automatic library and approved native guidance 
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-design-workflow-"));
   const project = path.join(root, "project"); const profile = path.join(root, "profile");
   await mkdir(path.join(project, ".pi", "extensions"), { recursive: true }); await mkdir(profile);
-  // Any ambient execution would fail this run, and packages must not be resolved.
   await writeFile(path.join(project, ".pi", "extensions", "unsafe.ts"), 'throw new Error("AMBIENT_EXTENSION_EXECUTED")');
   await writeFile(path.join(project, ".pi", "settings.json"), JSON.stringify({ packages: ["npm:mauxi-must-never-install-missing-package"], extensions: ["./extensions/unsafe.ts"] }));
   const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
@@ -18,8 +17,6 @@ it.each([false, true])("runs the automatic library and approved native guidance 
     let body = ""; request.on("data", (chunk) => { body += chunk; });
     request.on("end", () => {
       const parsed = JSON.parse(body); requests.push(parsed);
-      // Image tool results may be represented as extra user messages by the
-      // provider adapter. Continue from the actual request, not those images.
       const lastUser = parsed.messages.findLastIndex((message: { role: string; content: unknown }) => message.role === "user" && JSON.stringify(message.content).includes("[Mauxi request]"));
       const results = parsed.messages.slice(lastUser).filter((message: { role: string }) => message.role === "tool");
       const content = JSON.stringify(parsed.messages[lastUser]?.content);
@@ -64,7 +61,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
   try {
     await host.initialize();
     expect(host.diagnostics().resources?.catalog).toMatchObject({ count: 10, enabled: true });
-    expect(sawApproval).toBe(false); // Built-in resources require no import or UI interaction.
+    expect(sawApproval).toBe(false);
     if (bundled) {
       expect(host.diagnostics().resources?.skills.filter((skill) => skill.loaded)).toHaveLength(4);
       await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });

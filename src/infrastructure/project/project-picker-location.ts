@@ -3,7 +3,6 @@ import { constants } from "node:fs";
 import { access, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-/** A picker preference, independent of confirmed workspaces and project files. */
 export class ProjectPickerLocation {
   private writes: Promise<void> = Promise.resolve();
   constructor(private readonly file: string) {}

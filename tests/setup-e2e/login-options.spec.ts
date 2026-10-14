@@ -83,7 +83,6 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect(page.locator(".agent-dialog-inline")).toHaveCount(0);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
     if (mode === "short") {
-      // Long forms must still scroll, but only in the outer chat surface.
       await page.evaluate(() => {
         const state = (window as any).setupTest;
         state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {

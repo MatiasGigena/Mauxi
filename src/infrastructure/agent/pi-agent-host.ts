@@ -101,9 +101,6 @@ export async function executeCommand(executable: string, args: string[], directo
   signal?.throwIfAborted();
   if (process.platform !== "linux") throw new Error("Managed command process groups require Linux.");
   if (![limits.timeoutMs, limits.killGraceMs].every((value) => Number.isFinite(value) && value > 0)) throw new Error("Invalid command deadline.");
-  // detached creates a new Linux session/process group, not a background job.
-  // Ordinary package-script descendants inherit it; deliberate setsid escapes
-  // are outside this app-level contract (this is not an OS sandbox).
   const cwd = `/proc/${process.pid}/fd/${directory.fd}`;
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd, detached: true, shell: false, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -124,10 +121,7 @@ export async function executeCommand(executable: string, args: string[], directo
       if (finished) return; finished = true;
       clearTimeout(timer); clearTimeout(hardDeadline); clearTimeout(cleanupTimer);
       signal?.removeEventListener("abort", onAbort);
-      // Never wait for close: even an escaped descendant can hold these pipes.
       child.stdout.destroy(); child.stderr.destroy();
-      // Decode only after collecting bytes, so split UTF-8 chunks stay intact.
-      // A truncated tail may start mid-codepoint; skip continuation bytes.
       let start = 0; while (start < output.length && (output[start] & 0xc0) === 0x80) start++;
       const text = output.subarray(start).toString("utf8");
       if (error || cleanupError) reject(error ?? cleanupError);
@@ -150,14 +144,12 @@ export async function executeCommand(executable: string, args: string[], directo
     child.once("exit", (code, signal) => {
       if (finished) return;
       exitCode = code; exitSignal = signal;
-      // Also stop background writers when the package-script leader exits early.
-      // If pipes are held by an escaped group, the same grace bounds draining.
       if (signalGroup(0)) cleanup();
       else if (!cleanupTimer) cleanupTimer = setTimeout(() => finish(), limits.killGraceMs);
     });
     child.once("close", () => {
       if (finished) return;
-      if (!signalGroup(0)) finish(); // normal exit: drain all buffered output
+      if (!signalGroup(0)) finish();
       else cleanup();
     });
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -165,7 +157,6 @@ export async function executeCommand(executable: string, args: string[], directo
   });
 }
 
-/** Owns the single pi SDK writer for one open Mauxi workspace. */
 export class PiAgentHost {
   private runtime?: AgentSessionRuntime;
   private modelRuntime?: ModelRuntime;
@@ -226,9 +217,6 @@ export class PiAgentHost {
 
   async initialize(): Promise<void> {
     if (this.initPromise) return this.initPromise;
-    // A failure before the SDK runtime exists (e.g. unreadable checkpoint or
-    // profile state) owns no resources; allow a later call to retry it instead
-    // of replaying the cached rejection for the lifetime of the workspace.
     const attempt = this.initializeOnce().catch((error: unknown) => {
       if (!this.runtime && this.initPromise === attempt) this.initPromise = undefined;
       throw error;
@@ -398,7 +386,6 @@ export class PiAgentHost {
             }
             result = await executeCommand(input.executable, [...input.args], directory, undefined, signal);
           } catch (error) { failure = error; }
-          // Even cancellation must observe partial changes before the SDK settles.
           await this.changes!.finishCommand(checkpoint, failure instanceof Error ? failure.message : failure ? String(failure) : result?.exitCode ? `Command exited with code ${result.exitCode}.` : undefined);
           if (failure) throw failure;
           if (result!.exitCode !== 0) throw new Error(`Command exited with code ${result!.exitCode}.\n${result!.output}`);
@@ -473,8 +460,6 @@ export class PiAgentHost {
         cwd,
         agentDir: this.profileDir,
         modelRuntime: this.modelRuntime!,
-        // In-memory settings prevent ambient project/global package resolution,
-        // including installs that happen before noExtensions is applied.
         settingsManager: SettingsManager.inMemory({ ...await loadModelPreference(this.profileDir), enableSkillCommands: false, retry: { enabled: true, maxRetries: 1 } }),
         resourceLoaderOptions: {
           noExtensions: true,
@@ -557,8 +542,6 @@ export class PiAgentHost {
       let canonical: string;
       try { canonical = await realpath(target); }
       catch (error) {
-        // Arguments are usually text (messages, inline scripts), not paths. A name
-        // the kernel cannot resolve for us cannot be opened by the same-user child.
         if (["ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) continue;
         throw error;
       }
@@ -585,8 +568,6 @@ export class PiAgentHost {
       "Commands may change caches, databases, remote APIs, generated files, or activity outside checkpoint coverage. Those effects are not fully undoable.",
       "Approval applies only to this exact executable, arguments, working directory identity, workspace, and configuration fingerprint.",
       "Covered file results cannot be distinguished from concurrent external edits. They are reviewable observations, not automatically undoable changes.",
-      // Executables and wrappers can delegate to arbitrary package managers;
-      // warn conservatively rather than treating classification as a boundary.
       "Any command, including wrappers, may install or alter dependencies and execute package lifecycle scripts.",
     ];
     let response: string;
@@ -645,9 +626,6 @@ export class PiAgentHost {
             const index = this.queuedChangeSets.findIndex((item) => item.prompt === text);
             const queued = index >= 0 ? this.queuedChangeSets.splice(index, 1)[0] : undefined;
             if (queued) {
-              // switchToPrepared synchronously enqueues on the coordinator tail.
-              // Later managed mutations/checkpoints queue behind it, even though
-              // this synchronous SDK event callback cannot await activation.
               void this.changes?.switchToPrepared(queued.checkpointId)
                 .catch((error) => { this.checkpointFailure = error instanceof Error ? error.message : String(error); })
                 .finally(() => this.schedulePublish());
@@ -738,8 +716,6 @@ export class PiAgentHost {
       if (value.role !== "user" && value.role !== "assistant") return [];
       const text = messageText(message);
       if (!text && !value.errorMessage && message !== streaming) return [];
-      // messageText excludes reasoning and tool payloads. Expose streaming text
-      // so the latest response can grow as it arrives, but omit completed tool turns.
       if (value.role === "assistant" && !value.errorMessage && value.stopReason === "toolUse") return [];
       const visibleText = value.role === "user" ? visibleUserText(text) : text;
       return [{
@@ -853,8 +829,6 @@ export class PiAgentHost {
             ...(prompt.type === "select" ? { options: [...prompt.options] } : { placeholder: prompt.placeholder }),
           } as AgentDialogInput;
           currentDialog = { ...dialog, id } as AgentDialog;
-          // A callback may abort just the manual prompt; cancellation by the
-          // user must instead stop the entire login and its callback server.
           const signal = prompt.signal ? AbortSignal.any([controller.signal, prompt.signal]) : controller.signal;
           try { return await this.requestDialog(dialog, signal, id); }
           catch (error) { if (!prompt.signal?.aborted) controller.abort(); throw error; }
@@ -873,7 +847,6 @@ export class PiAgentHost {
           const message = event.type === "auth_url" ? "Complete sign-in in your browser, then return here. If it does not open, use Open sign-in."
             : event.type === "device_code" ? deviceMessage!
               : [deviceMessage, event.message].filter(Boolean).join("\n");
-          // Progress must not replace an outstanding input or erase its link.
           if (promptId && currentDialog) show(currentDialog);
           else show({ id: noticeId, kind: event.type === "progress" ? "progress" : "info", title: provider.name, message, cancellable: true });
           if (event.type === "auth_url" && this.openAuthUrl) {
@@ -891,7 +864,6 @@ export class PiAgentHost {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       const cancelled = controller.signal.aborted || /cancel|abort/i.test(reason);
-      // Do not echo SDK response bodies: token errors can include credentials.
       const message = /state mismatch/i.test(reason) ? "Sign-in expired or belongs to another attempt. Start again and use the newest browser tab."
         : /fetch|network|ENOTFOUND|ECONN|timeout/i.test(reason) ? "Could not reach the provider. Check your connection and try again."
           : /token exchange failed \((\d{3})\)/i.test(reason) ? `The provider rejected sign-in (HTTP ${reason.match(/token exchange failed \((\d{3})\)/i)![1]}). Start a new login attempt.`
@@ -979,7 +951,6 @@ export class PiAgentHost {
     assertArtifactCapacity(path.join(this.profileDir, "sessions"), ARTIFACT_LIMITS.sessions, 1024 * 1024);
     const images = await this.imageInputs(request);
     const guidance = await this.resources.guidance(text, request.selections.some((item) => item.capture.previewId === "mobile"));
-    // Prefix the original request so SDK slash expansion cannot replace it.
     const prompt = `${REQUEST_PREFIX}${text}${selectionContext(request.selections)}${guidance}`;
     this.lastError = undefined; this.checkpointFailure = undefined;
     if (request.behavior === "steer") { await this.runtime!.session.steer(prompt, images); return { accepted: true }; }
@@ -996,9 +967,6 @@ export class PiAgentHost {
         await this.publish();
         return { accepted: true };
       }
-      // The prior request may settle while its follow-up checkpoint is being
-      // persisted. Start it as a normal request rather than leaving it queued
-      // with no active agent run.
       await this.activatePrepared(checkpointId);
       let settleAcceptance!: (accepted: boolean) => void;
       const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
@@ -1025,13 +993,9 @@ export class PiAgentHost {
     return { accepted: result };
   }
 
-  // A failed activation (e.g. a scan race or another active request) must not
-  // leave a "prepared" record behind: it would count toward the unfinished cap.
   private async activatePrepared(checkpointId: string): Promise<void> {
     try {
       await this.changes!.activate(checkpointId);
-      // Preflight acceptance can precede the SDK's agent_start event. Lean
-      // snapshots must not advertise idle while this checkpoint is active.
       this.runState = "working"; this.status = this.workingMessage();
     }
     catch (error) {
@@ -1045,7 +1009,6 @@ export class PiAgentHost {
     if (this.resourceBusy || this.runtime?.session.isStreaming || !["idle", "error"].includes(this.runState)) throw new Error("Resource settings are available only while idle.");
   }
 
-  // Kept for trusted host integrations; no renderer import/settings surface.
   async importResource(request: ResourceImportRequest): Promise<void> {
     this.assertWorkspace(request.workspaceId); await this.initialize(); this.assertResourceIdle();
     this.resourceBusy = true;
@@ -1112,8 +1075,6 @@ export class PiAgentHost {
 
   async undo(request: AgentUndoRequest): Promise<void> {
     this.assertWorkspace(request.workspaceId);
-    // A prompt rejected before its run starts leaves runState "error" with no
-    // run to settle it; that is idle for undo, as for resource settings.
     if (!this.runtime || !["idle", "error"].includes(this.runState) || this.runtime.session.isStreaming || this.runtime.session.isCompacting) throw new Error("Undo is available only while the agent is idle.");
     await this.changes!.undo(request.changeSetId);
     this.status = "Latest compatible change set was undone."; this.lastError = undefined; this.checkpointFailure = undefined;
@@ -1127,7 +1088,7 @@ export class PiAgentHost {
     for (const pending of this.pendingDialogs.values()) pending.reject(new Error("Workspace closed"));
     this.pendingDialogs.clear();
     if (this.runtime?.session.isStreaming || this.runtime?.session.isCompacting) {
-      try { await this.runtime.session.abort(); } catch { /* disposal still invalidates the runtime */ }
+      try { await this.runtime.session.abort(); } catch {}
     }
     await this.runtime?.dispose();
     this.runtime = undefined;

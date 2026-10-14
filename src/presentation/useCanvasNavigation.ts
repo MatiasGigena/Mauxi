@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { PreviewId } from "../application/preview-contract";
 
-// Wheel events have no portable gesture-end signal. Renew the lease for every
-// event (including momentum), rather than releasing it when the cursor moves.
 const WHEEL_IDLE_MS = 220;
 
 export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
@@ -33,9 +31,6 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
     if (current.current.locked || spaceDown.current || wheelTimer.current) return;
     setInteractive(id);
   }, []);
-  // Focus in the same commit that removes inert, not a later animation frame
-  // that could steal focus from the user's next click into chat. Never replay
-  // the activation click into the page (it may cover a destructive action).
   useLayoutEffect(() => {
     if (interactive && !current.current.locked && !spaceDown.current && !wheelTimer.current) frames.current[interactive]?.contentWindow?.focus();
   }, [interactive, frames]);

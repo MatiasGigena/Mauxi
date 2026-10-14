@@ -42,8 +42,6 @@ module.exports = original => async (phase, context) => {
 };
 `;
 
-// The detached launcher records its identity before it can start a dev server.
-// A fresh Mauxi process can stop this exact group before touching its cache.
 export const sessionLauncher = `const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
@@ -59,7 +57,6 @@ export async function addSessionIntegration(plan: IntegrationPlan): Promise<Inte
   plan.runtimeDirectory = path.join(plan.workspaceRoot, ".mauxi/runtime");
   plan.createdFiles.push({ path: path.join(plan.workspaceRoot, ".mauxi/launcher.cjs"), content: sessionLauncher });
   if (plan.framework === "vite") {
-    // A replacer function keeps "$" sequences in the project path literal.
     const cacheDirectory = JSON.stringify(path.join(plan.runtimeDirectory, "vite"));
     plan.patch = plan.patch!.replace('      apply: "serve",', () => `      apply: "serve",\n      config() { return { cacheDir: ${cacheDirectory} }; },`);
     return plan;
@@ -97,8 +94,6 @@ export async function addSessionIntegration(plan: IntegrationPlan): Promise<Inte
   const declaration = '\n// mauxi-owned:start session-config\n// @ts-ignore -- temporary development adapter\n' + (esm
     ? 'import __mauxiSession from "./.mauxi/next-session.cjs";'
     : 'function __mauxiSession(value) { return require("./.mauxi/next-session.cjs")(value); }') + '\n// mauxi-owned:end session-config\n';
-  // Insert independently removable delimiters, keeping the original expression
-  // live so user edits inside it survive cleanup too.
   const after = content.slice(0, expression.start!) + prefix + content.slice(expression.start!, expression.end!) + suffix + content.slice(expression.end!) + declaration;
   plan.sessionPatches = [{ path: configPath, before: content, after }];
   plan.sessionRemovals = [prefix, suffix, declaration];

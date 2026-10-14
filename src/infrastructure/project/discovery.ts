@@ -109,7 +109,6 @@ async function canonicalWorkspaceCandidate(root: string, candidate: string): Pro
 }
 
 async function expandWorkspacePattern(root: string, pattern: string): Promise<string[]> {
-  // Alpha discovery intentionally supports only static one-level workspace globs.
   const normalized = pattern.replaceAll("\\", "/").replace(/\/$/, "");
   if (normalized.endsWith("/*") && !normalized.slice(0, -2).includes("*")) {
     const lexicalParent = path.resolve(root, normalized.slice(0, -2));
@@ -144,7 +143,7 @@ async function supportsNextClientInstrumentation(manifest: PackageManifest, appR
     try {
       const installed = await readManifest(installedManifest);
       if (typeof installed.version === "string" && isNextClientVersion(installed.version)) return true;
-    } catch { /* report the unsupported version below */ }
+    } catch {}
   }
   return false;
 }
@@ -153,7 +152,6 @@ function scriptCandidates(manifest: PackageManifest, framework: SupportedFramewo
   const scripts = stringRecord(manifest.scripts);
   const preferred = ["dev", "start"];
   const candidates = Object.entries(scripts).filter(([, command]) => {
-    // `vite build`, `vite preview` and `vite optimize` are not development servers.
     if (framework === "vite") return /(^|\s|\/|\\)vite(?=\s|$)(?!\s+(?:build|preview|optimize)(?:\s|$))/.test(command);
     return /(^|\s|\/|\\)next\s+dev(?:\s|$)/.test(command);
   });
@@ -180,12 +178,12 @@ async function resolvePackageManagerExecutable(manager: SupportedPackageManager)
           ? path.join(versionRoot, entry.name, "installation", "bin")
           : path.join(versionRoot, entry.name, "bin"));
       }
-    } catch { /* manager is not installed there */ }
+    } catch {}
   }
   for (const directory of directories) {
     const candidate = path.join(directory, manager);
     try { await access(candidate, constants.X_OK); return candidate; }
-    catch { /* keep searching static Linux tool locations */ }
+    catch {}
   }
   return null;
 }
@@ -245,7 +243,7 @@ async function dependenciesPresent(appRoot: string, projectRoot: string, framewo
     try {
       await access(path.join(root, "node_modules", ".bin", executable));
       return true;
-    } catch { /* try the workspace root */ }
+    } catch {}
   }
   return false;
 }

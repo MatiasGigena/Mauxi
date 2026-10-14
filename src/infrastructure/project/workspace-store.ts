@@ -32,7 +32,6 @@ export class WorkspaceStore {
     return isCanvasState(canvas) ? this.currentCanvas(canvas) : null;
   }
   private currentCanvas(canvas: CanvasState): CanvasState {
-    // Accept legacy v1 layouts but stop re-saving removed fields (chatHeight).
     const { version, camera, boards, linked, focus } = structuredClone(canvas);
     return { version, camera, boards, linked, focus };
   }

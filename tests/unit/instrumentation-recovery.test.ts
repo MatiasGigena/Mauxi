@@ -22,7 +22,6 @@ async function setup(framework: "vite" | "next") {
 for (const framework of ["vite", "next"] as const) {
   for (const operation of ["apply", "cleanup"] as const) {
     for (const when of ["before", "after"] as const) {
-      // Next creates a client hook as well as the bridge (one extra apply write).
       const boundaries = framework === "next" && operation === "apply" ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
       it.each(boundaries)(`${framework} SIGKILL ${when} ${operation} journal write %i preserves recoverability`, async boundary => {
         const { root, bridge, store, plan } = await setup(framework);
@@ -41,8 +40,6 @@ for (const framework of ["vite", "next"] as const) {
             if (framework === "next") await expect(readFile(plan.configPath)).rejects.toThrow();
           }
         }
-        // No branch/file moves here: either exact restoration or an explicit
-        // conservative conflict is valid, never loss of the user's config.
         expect(await readFile(path.join(root, framework === "vite" ? "vite.config.ts" : "next.config.mjs"), "utf8")).toBe(original);
       });
     }
