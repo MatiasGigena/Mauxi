@@ -1,24 +1,35 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { AgentModelView, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
 
 for (const width of [1500, 390]) {
   test(`onboarding-style model select searches, navigates and hides providers at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 950 });
     await mockDesktop(page);
     await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
-    await page.evaluate(() => {
-      const state = (window as any).setupTest;
-      const model = (provider: string, id: string, name: string, supportsImages = true, available = true) => ({ key: `${provider}/${id}`, provider, id, name, available, supportsImages, thinkingLevels: ["off", "low"] });
-      state.modelsSnapshot = {
+    await (await setupTest(page)).evaluate(state => {
+      const model = (provider: string, id: string, name: string, supportsImages = true, available = true): AgentModelView => ({ key: `${provider}/${id}`, provider, id, name, available, supportsImages, thinkingLevels: ["off", "low"] });
+
+      const snapshot: AgentSnapshot = {
         ready: true, workspaceId: "test-workspace",
         providers: [{ id: "openai-codex", name: "OpenAI Codex", authenticated: true, authMethods: [] }, { id: "anthropic", name: "Anthropic", authenticated: true, authMethods: [] }, ...Array.from({ length: 14 }, (_, index) => ({ id: `other-${index}`, name: `Other provider ${index}`, authenticated: false, authMethods: [] }))],
         models: [model("openai-codex", "gpt-6-sol", "GPT-6 Sol"), model("openai-codex", "gpt-6-luna", "GPT-6 Luna"), model("openai-codex", "gpt-6-astra", "GPT-6 Astra"), model("openai-codex", "gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", false), model("anthropic", "claude-opus-5-5", "Claude Opus 5.5"), model("unconfigured", "hidden", "Unavailable model", false, false)],
         selectedModel: "openai-codex/gpt-6-sol", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       };
-      const emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: state.modelsSnapshot }));
-      window.mauxi!.agentSelectModel = async ({ modelKey }) => { state.modelsSnapshot.selectedModel = modelKey; emit(); };
 
-      window.mauxi!.agentSetThinking = async ({ level }) => { state.modelsSnapshot.thinkingLevel = level; emit(); };
+      const emit = () => state.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
+      window.mauxi!.agentSelectModel = async ({ modelKey }) => { snapshot.selectedModel = modelKey; emit(); };
+
+      window.mauxi!.agentSetThinking = async ({ level }) => { snapshot.thinkingLevel = level; emit(); };
 
       emit();
     });

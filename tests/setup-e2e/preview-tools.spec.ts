@@ -124,7 +124,7 @@ test("viewport edits validate empty, fractional and out-of-range values before a
   for (const value of ["", "239", "3841", "390.5"]) {
     await width.fill(value); await apply.click();
     await expect(dialog).toBeVisible();
-    expect(await width.evaluate(node => (node as HTMLInputElement).validity.valid)).toBe(false);
+    expect(await width.evaluate((node: HTMLInputElement) => node.validity.valid)).toBe(false);
     await expect(page.getByTestId("mobile-preview")).toHaveAttribute("width", "390");
   }
 
@@ -133,7 +133,7 @@ test("viewport edits validate empty, fractional and out-of-range values before a
   for (const value of ["", "239", "2161", "844.5"]) {
     await height.fill(value); await apply.click();
     await expect(dialog).toBeVisible();
-    expect(await height.evaluate(node => (node as HTMLInputElement).validity.valid)).toBe(false);
+    expect(await height.evaluate((node: HTMLInputElement) => node.validity.valid)).toBe(false);
   }
 
   await height.fill("900"); await height.press("Enter");

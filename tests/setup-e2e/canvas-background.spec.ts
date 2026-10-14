@@ -3,6 +3,14 @@ import { expect, test, type Page } from "@playwright/test";
 import { canvasTrailGeometry } from "../../src/presentation/canvas-background";
 import { mockDesktop } from "./fixtures";
 
+declare global {
+  interface Window {
+    canvasOriginalTrail?: Animation;
+    canvasInitialTrail?: { edges: string[]; animations: Animation[]; time: number };
+    canvasTrailAnimations?: Animation[];
+  }
+}
+
 async function openWorkspace(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
@@ -14,15 +22,16 @@ async function assertInitialRouteNearViews(page: Page) {
     const origin = surface.getBoundingClientRect();
 
     return { width: origin.width, height: origin.height, views: [...surface.querySelectorAll<HTMLElement>(".artboard")]
-      .filter(board => getComputedStyle(board).visibility !== "hidden")
-      .map(board => { const rect = board.getBoundingClientRect();
+      .flatMap(board => {
+        if (getComputedStyle(board).visibility === "hidden") return [];
+        const rect = board.getBoundingClientRect();
 
- return { x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }; }) };
+        return [{ x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }];
+      }) };
   });
 
   const expected = canvasTrailGeometry(measured.width, measured.height, measured.views)?.edges.map(({ x, y, length }) => ({ x, y, length })) ?? [];
-  await expect.poll(() => page.locator(".canvas-trail-edge").evaluateAll(edges => edges.map(el => {
-    const edge = el as HTMLElement;
+  await expect.poll(() => page.locator(".canvas-trail-edge").evaluateAll(edges => edges.map(edge => {
     const transform = new DOMMatrix(edge.style.transform);
 
     return { x: transform.m41, y: transform.m42, length: parseFloat(edge.style.width) };
@@ -60,11 +69,11 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 800 
 
     const canvas = page.getByTestId("canvas");
     const original = await canvas.boundingBox();
-    await page.evaluate(() => { (window as any).originalTrail = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0]; });
+    await page.evaluate(() => { window.canvasOriginalTrail = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0]; });
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep this draft");
-    expect(await page.evaluate(() => (window as any).originalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
+    expect(await page.evaluate(() => window.canvasOriginalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
     await resetCamera(page);
-    expect(await page.evaluate(() => (window as any).originalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
+    expect(await page.evaluate(() => window.canvasOriginalTrail === document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0])).toBe(true);
     await fitCanvas(page);
     expect(await canvas.boundingBox()).toEqual(original);
     await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep this draft");
@@ -82,7 +91,7 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await assertInitialRouteNearViews(page);
   await page.evaluate(() => {
     const trail = document.querySelector(".canvas-trail")!;
-    (window as any).initialTrail = {
+    window.canvasInitialTrail = {
       edges: [...trail.querySelectorAll<HTMLElement>(".canvas-trail-edge")].map(el => el.style.cssText),
       animations: trail.getAnimations({ subtree: true }),
       time: Number(trail.getAnimations({ subtree: true })[0].currentTime),
@@ -93,7 +102,7 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await page.evaluate(() => {
       const trail = document.querySelector(".canvas-trail")!;
-      const initial = (window as any).initialTrail;
+      const initial = window.canvasInitialTrail!;
       const current = trail.getAnimations({ subtree: true });
 
       return {
@@ -131,7 +140,7 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await expect(page.locator(".canvas-trail-strip")).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);
-  expect(await page.evaluate(() => JSON.stringify([...document.querySelectorAll<HTMLElement>(".canvas-trail-edge")].map(el => el.style.cssText)) === JSON.stringify((window as any).initialTrail.edges))).toBe(true);
+  expect(await page.evaluate(() => JSON.stringify([...document.querySelectorAll<HTMLElement>(".canvas-trail-edge")].map(el => el.style.cssText)) === JSON.stringify(window.canvasInitialTrail!.edges))).toBe(true);
   await fitCanvas(page);
   await expect(page.getByRole("button", { name: /Pause.*animation/i })).toHaveCount(0);
 });
@@ -144,7 +153,7 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
 
   const motion = await page.locator(".canvas-trail").evaluate(el => el.getAnimations({ subtree: true }).map(a => ({
     state: a.playState,
-    properties: Object.keys((a.effect as KeyframeEffect).getKeyframes()[0]).filter(key => !["offset", "computedOffset", "easing", "composite"].includes(key)),
+    properties: Object.keys(a.effect instanceof KeyframeEffect ? a.effect.getKeyframes()[0] : {}).filter(key => !["offset", "computedOffset", "easing", "composite"].includes(key)),
   })));
 
   expect(motion.every(a => a.state === "running" && a.properties.join() === "transform")).toBe(true);
@@ -168,17 +177,17 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);
   await page.evaluate(() => {
-    (window as any).trailAnimations = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true });
+    window.canvasTrailAnimations = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true });
     window.mauxi!.closeProject = async () => {
       const event = { active: null, recoveryConflicts: [] };
-      (window as any).setupTest.workspaceListeners.forEach((listener: (event: unknown) => void) => listener(event));
+      window.setupTest!.workspaceListeners.forEach(listener => listener(event));
 
       return event;
     };
   });
   await closeProject(page);
   await expect(page.locator(".canvas-background")).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).trailAnimations.every((a: Animation) => a.playState === "idle"))).toBe(true);
+  expect(await page.evaluate(() => window.canvasTrailAnimations!.every(a => a.playState === "idle"))).toBe(true);
 });
 
 test("reduced-motion startup keeps the white static grid without creating animations", async ({ page }) => {

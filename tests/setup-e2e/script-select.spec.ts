@@ -1,6 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { discovery, mockDesktop } from "./fixtures";
 
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
+
 async function openConfiguration(page: Page) {
   await mockDesktop(page);
   await page.locator(".configure-trigger").click();
@@ -8,7 +17,7 @@ async function openConfiguration(page: Page) {
 }
 
 async function replacePlans(page: Page, data: ReturnType<typeof discovery>) {
-  await page.evaluate(next => { (window as any).setupTest.next = next; }, data);
+  await (await setupTest(page)).evaluate((state, next) => { state.next = next; }, data);
   await page.locator(".change-project").click();
   await page.locator(".configure-trigger").click();
 }
@@ -20,7 +29,7 @@ test("command-only menu fades details out and back without layout shift", async 
   const trigger = page.getByRole("combobox", { name: /Application and script/ });
   const details = page.locator(".technical-details");
   await expect(trigger).toHaveText("npm run dev");
-  const height = await page.locator(".project-setup").evaluate(node => (node as HTMLElement).offsetHeight);
+  const height = await page.locator(".project-setup").evaluate((node: HTMLElement) => node.offsetHeight);
   await trigger.click();
   await expect(page.getByRole("option")).toHaveText(["npm run dev", "pnpm run start"]);
   await expect(details).toHaveAttribute("aria-hidden", "true");
@@ -28,7 +37,7 @@ test("command-only menu fades details out and back without layout shift", async 
   await expect(details).toHaveCSS("opacity", "0");
   await expect(details).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -6)");
   await expect(details).toHaveCSS("transition-duration", "0.09s");
-  expect(await page.locator(".project-setup").evaluate(node => (node as HTMLElement).offsetHeight)).toBe(height);
+  expect(await page.locator(".project-setup").evaluate((node: HTMLElement) => node.offsetHeight)).toBe(height);
   await expect(trigger).toHaveCSS("border-left-width", "0px");
   await expect(trigger).toHaveCSS("border-right-width", "0px");
   await expect(trigger).toHaveCSS("background-image", "none");
@@ -123,10 +132,10 @@ test("one available command is disabled, and busy state disables selection", asy
   const multiple = discovery(); multiple.discoveryId = "multiple-again";
   await replacePlans(page, multiple);
   await expect(trigger).toBeEnabled();
-  await page.evaluate(() => { (window as any).setupTest.pending = true; (window as any).setupTest.next = null; });
+  await (await setupTest(page)).evaluate(state => { state.pending = true; state.next = null; });
   await page.locator(".change-project").click();
   await expect(trigger).toBeDisabled();
-  await page.evaluate(() => { (window as any).setupTest.release(); });
+  await (await setupTest(page)).evaluate(state => { state.release!(); });
   await expect(trigger).toBeEnabled();
 });
 

@@ -4,16 +4,20 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+
+const ListeningAddressSchema = Type.Object({ port: Type.Number() });
 
 test("only the two approved previews may override embedding headers", async ({}, testInfo) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-frame-headers-"));
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-frame-profile-"));
   const foreign = createServer((_request, response) => response.end("FOREIGN DOCUMENT"));
   await new Promise<void>(resolve => foreign.listen(0, "127.0.0.1", resolve));
-  const foreignOrigin = `http://127.0.0.1:${(foreign.address() as { port: number }).port}`;
+  const foreignOrigin = `http://127.0.0.1:${Value.Parse(ListeningAddressSchema, foreign.address()).port}`;
   const reserve = createServer();
   await new Promise<void>(resolve => reserve.listen(0, "127.0.0.1", resolve));
-  const port = (reserve.address() as { port: number }).port;
+  const { port } = Value.Parse(ListeningAddressSchema, reserve.address());
   await new Promise<void>(resolve => reserve.close(() => resolve()));
   const origin = `http://127.0.0.1:${port}`;
   const csp = "object-src 'none'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'";
@@ -60,12 +64,12 @@ test("only the two approved previews may override embedding headers", async ({},
     expect(await desktop.evaluate(() => {
       const script = document.createElement('script'); script.textContent = 'window.inlineCodeRan = true'; document.body.append(script);
 
-      return (window as any).inlineCodeRan === true;
+      return "inlineCodeRan" in window && window.inlineCodeRan === true;
     })).toBe(false);
     expect(await desktop.evaluate(async url => { try { await fetch(url, { mode: 'no-cors' });
 
- return true; } catch { return false; } }, foreignOrigin)).toBe(false);
-    expect(await desktop.evaluate(() => typeof (window as any).mauxi)).toBe("undefined");
+    return true; } catch { return false; } }, foreignOrigin)).toBe(false);
+    expect(await desktop.evaluate(() => typeof window.mauxi === "undefined")).toBe(true);
 
     await desktop.evaluate(() => { location.href = '/redirect-local'; });
     await expect.poll(() => new URL(desktop.url()).pathname).toBe("/after-redirect");
@@ -86,7 +90,7 @@ test("only the two approved previews may override embedding headers", async ({},
     expect(page.frames().some(frame => frame.url().includes('/nested?third'))).toBe(false);
 
     expect(app.process().spawnargs).not.toContain('--no-sandbox');
-    expect(await desktop.evaluate(() => [typeof (window as any).require, typeof (window as any).process])).toEqual(['undefined', 'undefined']);
+    expect(await desktop.evaluate(() => [typeof require === "undefined", typeof process === "undefined"])).toEqual([true, true]);
     expect(await desktop.evaluate(() => { try { return !!parent.document; } catch { return false; } })).toBe(false);
     const redirect = page.waitForEvent('requestfailed', { predicate: request => request.url().includes('/redirect-foreign') || request.url() === foreignOrigin + '/', timeout: 10_000 });
     await mobile.evaluate(() => { location.href = '/redirect-foreign'; });

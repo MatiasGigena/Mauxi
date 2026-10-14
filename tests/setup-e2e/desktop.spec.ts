@@ -2,7 +2,13 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { BaseWindow, OpenDialogOptions } from "electron";
 import { selectScript } from "./fixtures";
+
+declare global {
+  var setupDialogCalls: OpenDialogOptions[] | undefined;
+  var restartedDialogOptions: OpenDialogOptions | undefined;
+}
 
 test("desktop opens the native directory dialog via IPC, inspects real folders and preserves selection on cancel", async ({}, testInfo) => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-setup-desktop-"));
@@ -26,9 +32,10 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
   try {
     await application.evaluate(({ dialog }, folders) => {
       const selections: Array<string | null> = [folders.first, null, folders.second];
-      (globalThis as any).setupDialogCalls = [];
-      Object.assign(dialog, { showOpenDialog: async (_window: unknown, options: unknown) => {
-        (globalThis as any).setupDialogCalls.push(options);
+      const calls: OpenDialogOptions[] = [];
+      globalThis.setupDialogCalls = calls;
+      Object.assign(dialog, { showOpenDialog: async (_window: BaseWindow, options: OpenDialogOptions) => {
+        calls.push(options);
         const selected = selections.shift();
 
         return { canceled: !selected, filePaths: selected ? [selected] : [] };
@@ -58,18 +65,18 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     await expect(page.locator(".guided-file-panel[aria-hidden=false]")).toContainText("mauxi");
     await page.waitForFunction(() => !document.querySelector('.project-setup')!.getAnimations({ subtree: true }).some(animation => animation.effect!.getTiming().iterations !== Infinity && animation.playState === 'running'));
     await page.screenshot({ path: testInfo.outputPath("desktop-integration.png") });
-    const calls = await application.evaluate(() => (globalThis as any).setupDialogCalls);
+    const calls = await application.evaluate(() => globalThis.setupDialogCalls!);
     expect(calls).toHaveLength(3);
-    expect(calls.every((call: { properties: string[] }) => JSON.stringify(call.properties) === '["openDirectory"]')).toBe(true);
+    expect(calls.every(call => JSON.stringify(call.properties) === '["openDirectory"]')).toBe(true);
     const home = await application.evaluate(({ app }) => app.getPath("home"));
-    expect(calls.map((call: { defaultPath: string }) => call.defaultPath)).toEqual([home, first, first]);
+    expect(calls.map(call => call.defaultPath)).toEqual([home, first, first]);
     expect(errors).toEqual([]);
 
     await application.close();
     application = await electron.launch(launchOptions);
     await application.evaluate(({ dialog }) => {
-      Object.assign(dialog, { showOpenDialog: async (_window: unknown, options: unknown) => {
-        (globalThis as any).restartedDialogOptions = options;
+      Object.assign(dialog, { showOpenDialog: async (_window: BaseWindow, options: OpenDialogOptions) => {
+        globalThis.restartedDialogOptions = options;
 
         return { canceled: true, filePaths: [] };
       } });
@@ -77,7 +84,7 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     const restartedPage = await application.firstWindow();
     await restartedPage.getByRole("button", { name: "Open Project", exact: true }).click();
     await expect(restartedPage.getByRole("button", { name: "Open Project", exact: true })).toBeEnabled();
-    expect(await application.evaluate(() => (globalThis as any).restartedDialogOptions.defaultPath)).toBe(second);
+    expect(await application.evaluate(() => globalThis.restartedDialogOptions!.defaultPath)).toBe(second);
   } finally {
     await application.close();
     await rm(temp, { recursive: true, force: true });

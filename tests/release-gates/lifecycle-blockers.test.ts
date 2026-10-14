@@ -7,6 +7,14 @@ import { applyIntegration, cleanupIntegration, prepareIntegrationPlan } from "..
 import { OwnedDevProcess } from "../../src/infrastructure/project/dev-process";
 import type { LaunchPlan } from "../../src/application/project-contract";
 
+function nodeLaunchPlan(appRoot: string, args: string[]): LaunchPlan {
+  return {
+    id: "node", label: "node", projectRoot: appRoot, appRoot, framework: "vite", packageManager: "npm", scriptName: "dev", scriptCommand: "node",
+    configurationFingerprint: "node", commandDisplay: "node", executable: process.execPath, args, origin: "http://127.0.0.1:0", port: 0,
+    dependenciesPresent: true, integration: { supported: true, summary: "", files: [] }, diagnostics: [],
+  };
+}
+
 it.each(["moved-artifact", "moved-unpersisted-patch", "moved-patch-replaced-by-original"])("does not declare clean with %s still present", async scenario => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "mauxi-release-move-"));
 
@@ -40,7 +48,7 @@ it("stops an owned dev descendant after the launcher exits", async () => {
 
   try {
     const script = `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync('child.pid',String(child.pid));child.unref();`;
-    owner.start({ appRoot: root, executable: process.execPath, args: ["-e", script] } as LaunchPlan);
+    owner.start(nodeLaunchPlan(root, ["-e", script]));
     leader = owner.pid;
     await vi.waitFor(async () => { child = Number(await readFile(path.join(root, "child.pid"), "utf8")); expect(child).toBeGreaterThan(0); expect(exited).toBe(true); });
     await owner.stop(100);
@@ -60,8 +68,8 @@ it("bounds newline-free development logs and still captures subsequent lines", a
   const owner = new OwnedDevProcess(line => lines.push(line), () => undefined);
 
   try {
-    owner.start({ appRoot: root, executable: process.execPath, args: ["-e", "process.stdout.write('x'.repeat(1000000)); setTimeout(()=>{process.stdout.write('\\nnext\\n');},500)"] } as LaunchPlan);
-    const pendingLength = () => (owner as unknown as { pending: string }).pending.length;
+    owner.start(nodeLaunchPlan(root, ["-e", "process.stdout.write('x'.repeat(1000000)); setTimeout(()=>{process.stdout.write('\\nnext\\n');},500)"]));
+    const pendingLength = () => owner["pending"].length;
     await vi.waitFor(() => expect(pendingLength()).toBeGreaterThan(0));
     expect(pendingLength()).toBeLessThanOrEqual(4000);
     await vi.waitFor(() => expect(lines).toContain("next"));

@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
+import type { AgentDialogResponse } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+interface LoginOptionsTest {
+  responses: AgentDialogResponse[];
+  finishResponse?: () => void;
+}
+
+declare global {
+  interface Window { loginOptionsTest?: LoginOptionsTest }
+}
 
 for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
   test(`sign-in choices use text actions with a persistent selection: ${mode}`, async ({ page }, testInfo) => {
@@ -8,14 +18,14 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await mockDesktop(page);
     await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
-      state.responses = [];
+      const state: LoginOptionsTest = { responses: [] };
+      window.loginOptionsTest = state;
       window.mauxi!.agentDialogResponse = async response => {
         state.responses.push(response);
         await new Promise<void>(resolve => { state.finishResponse = resolve; });
       };
 
-      state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {
+      window.setupTest!.agentListeners.forEach(listener => listener({ type: "dialog", dialog: {
         id: "radius-choice", kind: "select", title: "Radius", message: "Sign in to Radius:", options: [
           { id: "browser", label: "Sign in with browser (recommended)" },
           { id: "device", label: "Sign in with device code (when signing in from another device)", description: "Complete sign-in on a different device." },
@@ -50,7 +60,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect(first.locator(".lucide-arrow-right")).toHaveCount(0);
     await expect.poll(() => first.locator("span").evaluate(node => getComputedStyle(node, "::after").transform)).toBe("matrix(1, 0, 0, 1, 0, 0)");
     await expect(proceed).toBeEnabled();
-    expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([]);
+    expect(await page.evaluate(() => window.loginOptionsTest!.responses)).toEqual([]);
 
     if (mode === "keyboard") { await first.press("Tab"); await expect(second).toBeFocused(); await second.press("Enter"); }
     else { await second.hover(); await expect(second).toHaveCSS("background-color", "rgba(0, 0, 0, 0)"); await second.click(); }
@@ -86,17 +96,16 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect(first).toBeDisabled();
     await expect(second).toBeDisabled();
     await expect(dialog.getByRole("button", { name: "Continuing…", exact: true })).toBeDisabled();
-    expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([
+    expect(await page.evaluate(() => window.loginOptionsTest!.responses)).toEqual([
       { workspaceId: "test-workspace", dialogId: "radius-choice", value: "device", cancelled: false },
     ]);
-    await page.evaluate(() => (window as any).setupTest.finishResponse());
+    await page.evaluate(() => window.loginOptionsTest!.finishResponse!());
     await expect(page.locator(".agent-dialog-inline")).toHaveCount(0);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
 
     if (mode === "short") {
       await page.evaluate(() => {
-        const state = (window as any).setupTest;
-        state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {
+        window.setupTest!.agentListeners.forEach(listener => listener({ type: "dialog", dialog: {
           id: "long-choice", kind: "select", title: "Choose an account", message: "Select an account to continue.",
           options: Array.from({ length: 20 }, (_, index) => ({ id: String(index), label: `Account ${index}` })),
         } }));
@@ -106,8 +115,8 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
       expect(await page.locator(".chat-content").evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
       await longDialog.getByRole("button", { name: "Account 19", exact: true }).click();
       await longDialog.getByRole("button", { name: "Continue", exact: true }).click();
-      expect(await page.evaluate(() => (window as any).setupTest.responses.at(-1).value)).toBe("19");
-      await page.evaluate(() => (window as any).setupTest.finishResponse());
+      expect(await page.evaluate(() => window.loginOptionsTest!.responses.at(-1)?.value)).toBe("19");
+      await page.evaluate(() => window.loginOptionsTest!.finishResponse!());
       await expect(page.locator(".agent-dialog-inline")).toHaveCount(0);
     }
   });

@@ -1,20 +1,43 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+interface ChatExchangeTest {
+  agentSnapshot: AgentSnapshot;
+  emit: () => void;
+  sendMode: "accept" | "reject" | "throw" | "delayed" | "queued";
+  releaseSend?: () => void;
+  growthAnimations: Array<Parameters<Element["animate"]>>;
+  minimizeAnimations: Array<{ className: string; duration: EffectTiming["duration"] }>;
+  exchangeNode: Element | null;
+}
+
+declare global {
+  interface Window { chatExchangeTest?: ChatExchangeTest }
+}
 
 async function start(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".chat-dock")).toBeVisible();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
-    state.agentSnapshot = {
-      ready: true, workspaceId: "test-workspace", sessionId: "session",
-      providers: [], models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
-      selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+    const setup = window.setupTest!;
+
+    const state: ChatExchangeTest = {
+      agentSnapshot: {
+        ready: true, workspaceId: "test-workspace", sessionId: "session",
+        providers: [], models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
+        selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      },
+      emit: () => setup.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } })),
+      sendMode: "accept",
+      growthAnimations: [],
+      minimizeAnimations: [],
+      exchangeNode: null,
     };
-    state.emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } }));
+
+    window.chatExchangeTest = state;
     state.emit();
-    state.sendMode = "accept";
     window.mauxi!.agentSend = async request => {
       if (state.sendMode === "reject") return { accepted: false };
 
@@ -36,10 +59,10 @@ async function start(page: Page) {
 
 async function output(page: Page, text: string, pending = true) {
   await page.evaluate(({ text, pending }) => {
-    const state = (window as any).setupTest;
+    const state = window.chatExchangeTest!;
     const snapshot = state.agentSnapshot;
-    const messages = snapshot.messages.filter((message: any) => !message.id.startsWith("output-" + (snapshot.messages.filter((item: any) => item.role === "user").length)));
-    snapshot.messages = [...messages, { id: `output-${messages.filter((item: any) => item.role === "user").length}`, role: "assistant", text, pending }];
+    const messages = snapshot.messages.filter(message => !message.id.startsWith("output-" + (snapshot.messages.filter(item => item.role === "user").length)));
+    snapshot.messages = [...messages, { id: `output-${messages.filter(item => item.role === "user").length}`, role: "assistant", text, pending }];
     snapshot.runState = pending ? "working" : "idle";
     state.emit();
   }, { text, pending });
@@ -60,10 +83,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const canvasBefore = await page.getByTestId("canvas").boundingBox();
     const initial = (await dock.boundingBox())!;
     await page.evaluate(() => {
-      (window as any).growthAnimations = [];
+      const state = window.chatExchangeTest!;
+      state.growthAnimations = [];
       const animate = Element.prototype.animate;
       Element.prototype.animate = function (...args) {
-        if (this.classList.contains("chat-surface")) (window as any).growthAnimations.push(args);
+        if (this.classList.contains("chat-surface")) state.growthAnimations.push(args);
 
         return animate.apply(this, args);
       };
@@ -76,7 +100,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const expanded = (await dock.boundingBox())!;
     expect(expanded.height).toBeGreaterThan(initial.height + 40);
     expect(expanded.y + expanded.height).toBeCloseTo(initial.y + initial.height, 0);
-    const animations = await page.evaluate(() => (window as any).growthAnimations);
+    const animations = await page.evaluate(() => window.chatExchangeTest!.growthAnimations);
 
     if (reducedMotion === "reduce") expect(animations).toHaveLength(0);
     else expect(animations[0][1]).toEqual({ duration: 200, easing: "cubic-bezier(0.77, 0, 0.175, 1)" });
@@ -135,7 +159,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await expect(page.getByRole("region", { name: "User prompt" })).toContainText("Now change the footer");
     await expect(page.getByText("Make the hero simpler", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Completed first output", { exact: true })).toHaveCount(0);
-    expect(await page.evaluate(() => (window as any).setupTest.agentSnapshot.messages.some((message: any) => message.text === "Make the hero simpler"))).toBe(true);
+    expect(await page.evaluate(() => window.chatExchangeTest!.agentSnapshot.messages.some(message => message.text === "Make the hero simpler"))).toBe(true);
     await output(page, "Footer updated", false);
     await expect(page.getByRole("log", { name: "Agent response" })).toContainText("Footer updated");
     await settled(page);
@@ -149,13 +173,13 @@ test("queued and rejected sends don't show a previous turn as the new response",
   await editor.fill("First");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await output(page, "First output", false);
-  await page.evaluate(() => { (window as any).setupTest.sendMode = "reject"; });
+  await page.evaluate(() => { window.chatExchangeTest!.sendMode = "reject"; });
   await editor.fill("Rejected prompt");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("not accepted");
   await expect(editor).toHaveValue("Rejected prompt");
   await expect(page.getByRole("log")).toContainText("First output");
-  await page.evaluate(() => { (window as any).setupTest.sendMode = "queued"; });
+  await page.evaluate(() => { window.chatExchangeTest!.sendMode = "queued"; });
   await editor.fill("Queued prompt");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("region", { name: "User prompt" })).toContainText("Queued prompt");
@@ -163,7 +187,7 @@ test("queued and rejected sends don't show a previous turn as the new response",
   await output(page, "Old run keeps streaming");
   await expect(page.getByText("Old run keeps streaming", { exact: true })).toHaveCount(0);
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.chatExchangeTest!;
     state.agentSnapshot.messages.push({ id: "queued-user", role: "user", text: "Queued prompt" });
     state.emit();
   });
@@ -173,13 +197,13 @@ test("queued and rejected sends don't show a previous turn as the new response",
 
 test("sending preserves text typed while acceptance is pending", async ({ page }) => {
   await start(page);
-  await page.evaluate(() => { (window as any).setupTest.sendMode = "delayed"; });
+  await page.evaluate(() => { window.chatExchangeTest!.sendMode = "delayed"; });
   const editor = page.getByRole("textbox", { name: "Message", exact: true });
   await editor.fill("Submitted draft");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => !!(window as any).setupTest.releaseSend)).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!window.chatExchangeTest!.releaseSend)).toBe(true);
   await editor.fill("Next draft\nKeep this line");
-  await page.evaluate(() => (window as any).setupTest.releaseSend());
+  await page.evaluate(() => window.chatExchangeTest!.releaseSend!());
   await expect(page.getByRole("region", { name: "User prompt" })).toContainText("Submitted draft");
   await expect(editor).toHaveValue("Next draft\nKeep this line");
 });
@@ -215,14 +239,14 @@ test("settings retain the latest exchange and compaction doesn't revive an accep
   await page.getByRole("button", { name: "Close models and providers", exact: true }).click();
   await expect(page.getByRole("log")).toContainText("Current output");
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.chatExchangeTest!;
     state.agentSnapshot.messages = [{ id: "compacted-user", role: "user", text: "Compacted latest prompt" }, { id: "compacted-output", role: "assistant", text: "Compacted output" }];
     state.emit();
   });
   await expect(page.getByRole("region", { name: "User prompt" })).toContainText("Compacted latest prompt");
   await expect(page.getByRole("log")).toContainText("Compacted output");
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.chatExchangeTest!;
     state.agentSnapshot = { ...state.agentSnapshot, sessionId: "new-session", messages: [] };
     state.emit();
   });
@@ -248,13 +272,16 @@ for (const { viewport, reducedMotion } of [
     await output(page, "Hi! What would you like help with?", false);
     await settled(page);
     await page.evaluate(() => {
-      (window as any).minimizeAnimations = [];
-      (window as any).exchangeNode = document.querySelector(".chat-exchange");
+      const state = window.chatExchangeTest!;
+      state.minimizeAnimations = [];
+      state.exchangeNode = document.querySelector(".chat-exchange");
       const animate = Element.prototype.animate;
       Element.prototype.animate = function (...args) {
-        if (this.matches(".chat-surface, .chat-exchange")) (window as any).minimizeAnimations.push({ className: this.className, options: args[1] });
+        const animation = animate.apply(this, args);
 
-        return animate.apply(this, args);
+        if (this.matches(".chat-surface, .chat-exchange")) state.minimizeAnimations.push({ className: this.className, duration: animation.effect?.getTiming().duration });
+
+        return animation;
       };
     });
     await canvas.click({ position: { x: 5, y: 5 } });
@@ -269,14 +296,14 @@ for (const { viewport, reducedMotion } of [
     await editor.click();
     await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Hi! What would you like help with?");
     await settled(page);
-    expect(await page.locator(".chat-exchange").evaluate(node => node === (window as any).exchangeNode)).toBe(true);
+    expect(await page.locator(".chat-exchange").evaluate(node => node === window.chatExchangeTest!.exchangeNode)).toBe(true);
     expect(await canvas.boundingBox()).toEqual(canvasBounds);
-    const animations = await page.evaluate(() => (window as any).minimizeAnimations);
+    const animations = await page.evaluate(() => window.chatExchangeTest!.minimizeAnimations);
 
     if (reducedMotion === "reduce") expect(animations).toEqual([]);
     else {
-      expect(animations.filter((item: any) => item.className === "chat-surface").map((item: any) => item.options.duration)).toEqual([160, 200]);
-      expect(animations.filter((item: any) => item.className === "chat-exchange").map((item: any) => item.options.duration)).toEqual([110, 160]);
+      expect(animations.flatMap(item => item.className === "chat-surface" ? [item.duration] : [])).toEqual([160, 200]);
+      expect(animations.flatMap(item => item.className === "chat-exchange" ? [item.duration] : [])).toEqual([110, 160]);
     }
   });
 }
@@ -302,7 +329,7 @@ test("minimized streaming preserves the draft, history and manual response scrol
   await expect(page.getByRole("log", { name: "Agent response" })).toContainText("Still working while minimized");
   await settled(page);
   expect(await page.getByRole("log", { name: "Agent response" }).evaluate(node => node.scrollTop)).toBe(0);
-  expect(await page.evaluate(() => (window as any).setupTest.agentSnapshot.messages.filter((message: any) => message.role === "user").length)).toBe(1);
+  expect(await page.evaluate(() => window.chatExchangeTest!.agentSnapshot.messages.filter(message => message.role === "user").length)).toBe(1);
   await editor.fill("");
   await page.getByTestId("canvas").click({ position: { x: 5, y: 5 } });
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
@@ -341,7 +368,7 @@ test("rapid minimize and reopen reverses retained motion without duplicate excha
     const target = document.querySelector('[aria-label="Focus Desktop"]')!;
     const editor = document.querySelector<HTMLTextAreaElement>("#chat-message")!;
     const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    (window as any).exchangeNode = document.querySelector(".chat-exchange");
+    window.chatExchangeTest!.exchangeNode = document.querySelector(".chat-exchange");
 
     for (let i = 0; i < 4; i++) {
       target.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
@@ -352,7 +379,7 @@ test("rapid minimize and reopen reverses retained motion without duplicate excha
   });
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Retained response");
   await settled(page);
-  expect(await page.locator(".chat-exchange").evaluate(node => node === (window as any).exchangeNode)).toBe(true);
+  expect(await page.locator(".chat-exchange").evaluate(node => node === window.chatExchangeTest!.exchangeNode)).toBe(true);
   await page.getByTestId("canvas").click({ position: { x: 5, y: 5 } });
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
   await settled(page);

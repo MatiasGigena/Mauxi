@@ -1,21 +1,45 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AgentSendRequest, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+interface ComposerActionTest {
+  agentSnapshot: AgentSnapshot;
+  emit: () => void;
+  sent: AgentSendRequest[];
+  stops: number;
+  sendMode: string;
+  releaseSend?: () => void;
+  releaseStop?: () => void;
+  stopError?: boolean;
+  originalAction?: Element;
+  surfaceAnimations: Array<{ transform: string; duration: EffectTiming["duration"] }>;
+}
+
+declare global {
+  interface Window { composerActionTest?: ComposerActionTest }
+}
 
 async function start(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".chat-dock")).toBeVisible();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
-    state.agentSnapshot = {
-      ready: true, workspaceId: "test-workspace", sessionId: "session", providers: [],
-      models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
-      selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+    const setup = window.setupTest!;
+
+    const state: ComposerActionTest = {
+      agentSnapshot: {
+        ready: true, workspaceId: "test-workspace", sessionId: "session", providers: [],
+        models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
+        selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      },
+      emit: () => setup.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } })),
+      sent: [],
+      stops: 0,
+      sendMode: "accept",
+      surfaceAnimations: [],
     };
-    state.emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: { ...state.agentSnapshot } }));
-    state.sent = [];
-    state.stops = 0;
-    state.sendMode = "accept";
+
+    window.composerActionTest = state;
     window.mauxi!.agentSend = async request => {
       state.sent.push(request);
 
@@ -58,19 +82,19 @@ test("Enter sends prompts and follow-ups; Shift+Enter inserts line breaks", asyn
   await editor.press("Shift+Enter");
   await editor.pressSequentially("Second line");
   await expect(editor).toHaveValue("First line\nSecond line");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(0);
   await editor.press("Enter");
   await expect(editor).toHaveValue("");
   await expect(action).toHaveAccessibleName("Stop");
   await editor.press("Enter");
-  expect(await page.evaluate(() => (window as any).setupTest.stops)).toBe(0);
+  expect(await page.evaluate(() => window.composerActionTest!.stops)).toBe(0);
   await editor.fill("Follow-up line");
   await editor.press("Shift+Enter");
   await editor.pressSequentially("More details");
   await expect(action).toHaveAccessibleName("Follow up");
   await editor.press("Enter");
   await expect(editor).toHaveValue("");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.map((request: any) => ({ text: request.text, behavior: request.behavior })))).toEqual([
+  expect(await page.evaluate(() => window.composerActionTest!.sent.map(request => ({ text: request.text, behavior: request.behavior })))).toEqual([
     { text: "First line\nSecond line", behavior: "prompt" },
     { text: "Follow-up line\nMore details", behavior: "followUp" },
   ]);
@@ -85,50 +109,50 @@ test("Enter does not send while composing with an IME or without a selected mode
     await editor.evaluate((node, composing) => node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...composing })), composing);
   }
 
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(0);
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.composerActionTest!;
     state.agentSnapshot.selectedModel = undefined;
     state.emit();
   });
   await expect(page.locator(".send-action")).toBeDisabled();
   await editor.press("Enter");
   await expect(editor).toHaveValue("Composed text");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(0);
 });
 
 test("sending switches directly to Stop and only new typing switches to Follow up", async ({ page }) => {
   await start(page);
   const editor = page.getByRole("textbox", { name: "Message", exact: true });
   const action = page.locator(".send-action");
-  await page.evaluate(() => { (window as any).setupTest.sendMode = "delayed"; });
+  await page.evaluate(() => { window.composerActionTest!.sendMode = "delayed"; });
   await editor.fill("Submitted draft");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(action).toHaveAccessibleName("Stop");
   await expect(action).toBeDisabled();
   await expect(action).not.toContainText("Checking");
-  await expect.poll(() => page.evaluate(() => !!(window as any).setupTest.releaseSend)).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!window.composerActionTest!.releaseSend)).toBe(true);
   await editor.press("Enter");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(1);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(1);
   await editor.fill("Next draft\nKeep this line");
   await expect(action).toHaveAccessibleName("Follow up");
   await expect(action).toBeDisabled();
   await editor.press("Enter");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(1);
-  await page.evaluate(() => (window as any).setupTest.releaseSend());
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(1);
+  await page.evaluate(() => window.composerActionTest!.releaseSend!());
   await expect(action).toBeEnabled();
   await expect(action).toHaveAccessibleName("Follow up");
   await expect(editor).toHaveValue("Next draft\nKeep this line");
-  await page.evaluate(() => { (window as any).setupTest.sendMode = "accept"; });
+  await page.evaluate(() => { window.composerActionTest!.sendMode = "accept"; });
   await editor.press("Enter");
   await expect(action).toHaveAccessibleName("Stop");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.map((request: any) => request.behavior))).toEqual(["prompt", "followUp"]);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.map(request => request.behavior))).toEqual(["prompt", "followUp"]);
 });
 
 for (const sendMode of ["reject", "throw"]) {
   test(`failed ${sendMode} sends restore Send and retain the draft`, async ({ page }) => {
     await start(page);
-    await page.evaluate(sendMode => { (window as any).setupTest.sendMode = sendMode; }, sendMode);
+    await page.evaluate(sendMode => { window.composerActionTest!.sendMode = sendMode; }, sendMode);
     const editor = page.getByRole("textbox", { name: "Message", exact: true });
     await editor.fill("Keep this draft");
     await editor.press("Enter");
@@ -146,7 +170,7 @@ test("one stable action sends, queues follow-ups, and stops without losing a new
   await expect(action).toHaveCount(1);
   await expect(action).toHaveAccessibleName("Send");
   await expect(action).toBeDisabled();
-  await action.evaluate(node => { (window as any).originalAction = node; });
+  await action.evaluate(node => { window.composerActionTest!.originalAction = node; });
   const width = (await action.boundingBox())!.width;
   expect(width).toBeLessThan(120);
   const right = (await action.boundingBox())!.x + width;
@@ -165,7 +189,7 @@ test("one stable action sends, queues follow-ups, and stops without losing a new
   expect(followUp.x + followUp.width).toBeCloseTo(right, 0);
   await page.getByRole("button", { name: "Follow up", exact: true }).click();
   await expect(action).toHaveAccessibleName("Stop");
-  expect(await page.evaluate(() => (window as any).setupTest.sent.map((request: any) => request.behavior))).toEqual(["prompt", "followUp"]);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.map(request => request.behavior))).toEqual(["prompt", "followUp"]);
   await editor.fill("   ");
   await expect(action).toHaveAccessibleName("Stop");
   await page.getByRole("button", { name: "Stop", exact: true }).click();
@@ -174,14 +198,14 @@ test("one stable action sends, queues follow-ups, and stops without losing a new
   await editor.fill("Draft typed while stopping\nKeep this line");
   await expect(action).toHaveAccessibleName("Stopping…");
   await action.evaluate(node => node.closest("form")!.requestSubmit());
-  expect(await page.evaluate(() => (window as any).setupTest.stops)).toBe(1);
-  expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(2);
-  await page.evaluate(() => (window as any).setupTest.releaseStop());
+  expect(await page.evaluate(() => window.composerActionTest!.stops)).toBe(1);
+  expect(await page.evaluate(() => window.composerActionTest!.sent.length)).toBe(2);
+  await page.evaluate(() => window.composerActionTest!.releaseStop!());
   await expect(action).toHaveAccessibleName("Send");
   await expect(action).toBeEnabled();
   await expect(editor).toHaveValue("Draft typed while stopping\nKeep this line");
   expect((await action.boundingBox())!.width).toBe(width);
-  expect(await action.evaluate(node => node === (window as any).originalAction)).toBe(true);
+  expect(await action.evaluate(node => node === window.composerActionTest!.originalAction)).toBe(true);
 });
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
@@ -190,25 +214,27 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await start(page);
     const action = page.locator(".send-action");
     await page.evaluate(() => {
-      (window as any).buttonSurfaceAnimations = [];
+      const state = window.composerActionTest!;
       const animate = Element.prototype.animate;
-      Element.prototype.animate = function (...args) {
-        if (this.classList.contains("send-action-surface")) (window as any).buttonSurfaceAnimations.push(args);
+      Element.prototype.animate = function (keyframes, options) {
+        const animation = animate.call(this, keyframes, options);
 
-        return animate.apply(this, args);
+        if (this.classList.contains("send-action-surface")) state.surfaceAnimations.push({ transform: String(Array.isArray(keyframes) ? keyframes[0].transform : undefined), duration: animation.effect?.getTiming().duration });
+
+        return animation;
       };
     });
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Start");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(action).toHaveAccessibleName("Stop");
     await settled(page);
-    const surfaceAnimations = await page.evaluate(() => (window as any).buttonSurfaceAnimations);
+    const surfaceAnimations = await page.evaluate(() => window.composerActionTest!.surfaceAnimations);
 
     if (reducedMotion === "reduce") expect(surfaceAnimations).toHaveLength(0);
     else {
       expect(surfaceAnimations.length).toBeGreaterThan(0);
-      expect(surfaceAnimations.every((args: any) => args[0][0].transform.startsWith("scaleX("))).toBe(true);
-      expect(surfaceAnimations.every((args: any) => args[1].duration <= 180)).toBe(true);
+      expect(surfaceAnimations.every(animation => animation.transform.startsWith("scaleX("))).toBe(true);
+      expect(surfaceAnimations.every(animation => Number(animation.duration) <= 180)).toBe(true);
     }
 
     const stopLayer = action.locator(".send-action-state").filter({ hasText: /^Stop$/ });
@@ -216,12 +242,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(stopLayer).toHaveCSS("transform", "none");
     expect(await stopLayer.evaluate(node => getComputedStyle(node).transitionDuration)).toBe(reducedMotion === "reduce" ? "0s" : "0.16s");
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
+      const state = window.composerActionTest!;
       state.agentSnapshot.runState = "idle"; state.emit();
     });
     await expect(action).toHaveAccessibleName("Send");
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
+      const state = window.composerActionTest!;
       state.agentSnapshot.runState = "working"; state.emit();
     });
     await expect(action).toHaveAccessibleName("Stop");
@@ -245,7 +271,7 @@ test("keeps only the upper response error while preserving distinct alerts", asy
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Reproduce error");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.composerActionTest!;
     state.agentSnapshot.runState = "error";
     state.agentSnapshot.messages.push({ id: "error", role: "assistant", error: true, text: "Codex error: The usage limit has been reached" });
     state.agentSnapshot.error = { kind: "runtime", message: "Codex error: The usage limit has been reached" };
@@ -255,7 +281,7 @@ test("keeps only the upper response error while preserving distinct alerts", asy
   await expect(page.getByRole("log")).toContainText("Codex error: The usage limit has been reached");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.composerActionTest!;
     state.agentSnapshot.error = { kind: "runtime", message: "Checkpoint error: could not persist changes" };
     state.emit();
   });
@@ -268,9 +294,9 @@ test("stop errors restore the action and preserve the current exchange", async (
   const editor = page.getByRole("textbox", { name: "Message", exact: true });
   await editor.fill("Keep my output");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await page.evaluate(() => { (window as any).setupTest.stopError = true; });
+  await page.evaluate(() => { window.composerActionTest!.stopError = true; });
   await page.getByRole("button", { name: "Stop", exact: true }).click();
-  await page.evaluate(() => (window as any).setupTest.releaseStop());
+  await page.evaluate(() => window.composerActionTest!.releaseStop!());
   await expect(page.getByRole("alert")).toContainText("Could not stop");
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
   await expect(page.getByRole("region", { name: "User prompt" })).toContainText("Keep my output");

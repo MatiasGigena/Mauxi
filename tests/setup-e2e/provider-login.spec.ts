@@ -1,20 +1,48 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AgentDialogResponse, AgentEvent, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+
+type ComposerMotion = { key: string; frames: Keyframe[] | PropertyIndexedKeyframes | null; options?: number | KeyframeAnimationOptions };
+
+type ProviderLoginTest = {
+  responses: AgentDialogResponse[];
+  emit: (event: AgentEvent) => void;
+  rejectResponse: boolean;
+  nextStep: boolean;
+  motion: ComposerMotion[];
+  finishLogin?: () => void;
+  settingsNode?: Element;
+  openedUrl?: string;
+};
+
+declare global {
+  interface Window { providerLoginTest?: ProviderLoginTest }
+}
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
 
 async function openProviders(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep my draft");
-  await page.evaluate(() => {
-    const state = (window as any).setupTest;
-    state.responses = [];
-    state.emit = (event: unknown) => state.agentListeners.forEach((listener: (event: unknown) => void) => listener(event));
-    state.snapshot = {
+  await (await setupTest(page)).evaluate(setup => {
+    const state: ProviderLoginTest = { responses: [], emit: event => setup.agentListeners.forEach(listener => listener(event)), rejectResponse: false, nextStep: false, motion: [] };
+    window.providerLoginTest = state;
+
+    const snapshot: AgentSnapshot = {
       ready: true, workspaceId: "test-workspace",
       providers: Array.from({ length: 20 }, (_, i) => ({ id: `provider-${i}`, name: `Provider ${i}`, authenticated: false, authMethods: [{ type: "api_key", label: `Provider ${i} API key` }] })),
       models: [], messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
-    state.emit({ type: "snapshot", snapshot: state.snapshot });
+
+    state.emit({ type: "snapshot", snapshot });
     window.mauxi!.agentLogin = async ({ providerId }) => {
       state.emit({ type: "dialog", dialog: { id: "login-key", kind: "secret", title: providerId, message: "Enter your API key" } });
       await new Promise<void>(resolve => { state.finishLogin = resolve; });
@@ -35,17 +63,17 @@ async function openProviders(page: Page) {
       state.emit({ type: "dialog-dismissed", id: response.dialogId });
 
       if (!response.cancelled) {
-        state.snapshot.models = [{ key: "connected/model", provider: "Connected", id: "model", name: "Connected model", available: true, supportsImages: true, thinkingLevels: ["off"] }];
-        state.emit({ type: "snapshot", snapshot: state.snapshot });
+        snapshot.models = [{ key: "connected/model", provider: "Connected", id: "model", name: "Connected model", available: true, supportsImages: true, thinkingLevels: ["off"] }];
+        state.emit({ type: "snapshot", snapshot });
       }
 
-      state.finishLogin();
+      state.finishLogin!();
     };
   });
   await page.getByRole("button", { name: "Models & providers", exact: true }).click();
   const settings = page.locator(".chat-settings");
   await expect(settings).toBeVisible();
-  await settings.evaluate(node => { (window as any).setupTest.settingsNode = node; });
+  await settings.evaluate(node => { window.providerLoginTest!.settingsNode = node; });
   const provider = page.getByRole("button", { name: "Provider 18 API key", exact: true });
   await provider.scrollIntoViewIfNeeded();
 
@@ -63,7 +91,7 @@ test("provider choice subtitles are hidden regardless of SDK wording", async ({ 
     await provider.click();
     await expect(page.getByText("Enter your API key", { exact: true })).toBeVisible();
     await page.evaluate(({ title, message }) => {
-      (window as any).setupTest.emit({ type: "dialog", dialog: {
+      window.providerLoginTest!.emit({ type: "dialog", dialog: {
         id: "auth-method", kind: "select", title, message, options: [
           { id: "token", label: "Bearer token" }, { id: "profile", label: "AWS profile" }, { id: "chain", label: "Existing AWS credential chain" },
         ],
@@ -86,7 +114,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     const scroll = await settings.evaluate(node => node.scrollTop);
     const dockHeight = (await page.locator(".chat-dock").boundingBox())!.height;
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
+      const state = window.providerLoginTest!;
       state.motion = [];
       const animate = HTMLElement.prototype.animate;
       HTMLElement.prototype.animate = function (frames, options) {
@@ -114,7 +142,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await expect(dialog.locator(".lucide-arrow-right")).toHaveCount(0);
     const proceed = dialog.getByRole("button", { name: "Continue", exact: true });
     await expect(proceed).toBeDisabled();
-    const motion = await page.evaluate(() => (window as any).setupTest.motion);
+    const motion = await page.evaluate(() => window.providerLoginTest!.motion);
 
     if (mode === "pointer") {
       expect(motion).toEqual(expect.arrayContaining([
@@ -137,18 +165,18 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await expect(settings).toBeVisible();
     await expect(provider).toBeFocused();
     expect(await settings.evaluate(node => node.scrollTop)).toBe(scroll);
-    expect(await settings.evaluate(node => node === (window as any).setupTest.settingsNode)).toBe(true);
+    expect(await settings.evaluate(node => node === window.providerLoginTest!.settingsNode)).toBe(true);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
 
     if (mode === "pointer") {
-      expect(await page.evaluate(() => (window as any).setupTest.motion)).toEqual(expect.arrayContaining([
+      expect(await page.evaluate(() => window.providerLoginTest!.motion)).toEqual(expect.arrayContaining([
         expect.objectContaining({ key: "login", options: expect.objectContaining({ duration: 110 }) }),
         expect.objectContaining({ key: "panel", options: expect.objectContaining({ duration: 160 }) }),
         expect.objectContaining({ key: "toolbar", options: expect.objectContaining({ duration: 160 }) }),
       ]));
     }
 
-    expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([
+    expect(await page.evaluate(() => window.providerLoginTest!.responses)).toEqual([
       { workspaceId: "test-workspace", dialogId: "login-key", cancelled: true, value: undefined },
     ]);
     await page.getByRole("button", { name: "Close models and providers" }).click();
@@ -161,12 +189,12 @@ test("login handles response errors, step handoff, and successful return without
   await provider.click();
   const input = page.getByLabel("Enter your API key");
   await input.fill("not-a-real-key");
-  await page.evaluate(() => { (window as any).setupTest.rejectResponse = true; });
+  await page.evaluate(() => { window.providerLoginTest!.rejectResponse = true; });
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("Could not save credentials");
   await expect(input).toHaveValue("not-a-real-key");
   await expect(settings).toBeHidden();
-  await page.evaluate(() => { const state = (window as any).setupTest; state.rejectResponse = false; state.nextStep = true; });
+  await page.evaluate(() => { const state = window.providerLoginTest!; state.rejectResponse = false; state.nextStep = true; });
   await input.press("Enter");
   const code = page.getByLabel("Enter the verification code");
   await expect(code).toBeFocused();
@@ -186,7 +214,7 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
   const { settings, provider } = await openProviders(page);
   await provider.click();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.providerLoginTest!;
     window.mauxi!.openAuthUrl = async url => { state.openedUrl = url; };
 
     state.emit({ type: "dialog", dialog: {
@@ -201,7 +229,7 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
   await expect(page.locator(".composer-toolbar")).toBeHidden();
   expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await dialog.getByRole("button", { name: "Open sign-in page" }).click();
-  expect(await page.evaluate(() => (window as any).setupTest.openedUrl)).toBe("https://example.com/login");
+  expect(await page.evaluate(() => window.providerLoginTest!.openedUrl)).toBe("https://example.com/login");
 
   const interrupted = await page.evaluate(async () => {
     const button = [...document.querySelectorAll<HTMLButtonElement>(".provider-list button")].find(node => node.textContent === "Provider 18 API key")!;

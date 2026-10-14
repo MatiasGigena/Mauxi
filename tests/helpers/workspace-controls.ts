@@ -1,4 +1,24 @@
 import { expect, type Page } from "@playwright/test";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import type { BrowserRequest } from "../../src/application/browser-contract";
+
+export const BrowserTargetSchema = Type.Object({ workspaceId: Type.String(), previewId: Type.Union([Type.Literal("desktop"), Type.Literal("mobile")]), documentId: Type.String(), url: Type.String() });
+
+const BrowserIdentitiesSchema = Type.Object({
+  state: Type.Object({ owner: Type.Union([Type.Literal("human"), Type.Literal("picker"), Type.Literal("agent")]), generation: Type.Number() }),
+  targets: Type.Array(BrowserTargetSchema),
+});
+
+const BrowserResultSchema = Type.Object({ text: Type.String(), image: Type.Optional(Type.String()) });
+
+export async function browserIdentities(page: Page) {
+  return Value.Parse(BrowserIdentitiesSchema, await page.evaluate(() => window.mauxi!.browserTest("targets")));
+}
+
+export async function runBrowser(page: Page, request: BrowserRequest) {
+  return Value.Parse(BrowserResultSchema, await page.evaluate(r => window.mauxi!.browserTest(r), request));
+}
 
 export async function closeProject(page: Page) {
   await page.getByRole("button", { name: "Project menu", exact: true }).click();
@@ -41,7 +61,7 @@ export async function fitCanvas(page: Page) {
 
   const fit = await page.evaluate(() => {
     const canvas = document.querySelector('[data-testid="canvas"]')!.getBoundingClientRect();
-    const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].filter(node => getComputedStyle(node).visibility !== "hidden").map(node => node.getBoundingClientRect());
+    const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].flatMap(node => getComputedStyle(node).visibility === "hidden" ? [] : [node.getBoundingClientRect()]);
     const current = Number(document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value);
     const width = Math.max(...boards.map(r => r.right)) - Math.min(...boards.map(r => r.left));
     const height = Math.max(...boards.map(r => r.bottom)) - Math.min(...boards.map(r => r.top));
@@ -53,7 +73,7 @@ export async function fitCanvas(page: Page) {
 
   const delta = await page.evaluate(() => {
     const canvas = document.querySelector('[data-testid="canvas"]')!.getBoundingClientRect();
-    const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].filter(node => getComputedStyle(node).visibility !== "hidden").map(node => node.getBoundingClientRect());
+    const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].flatMap(node => getComputedStyle(node).visibility === "hidden" ? [] : [node.getBoundingClientRect()]);
 
     return { x: (Math.min(...boards.map(r => r.left)) + Math.max(...boards.map(r => r.right)) - canvas.left - canvas.right) / 2, y: (Math.min(...boards.map(r => r.top)) + Math.max(...boards.map(r => r.bottom)) - canvas.top - canvas.bottom) / 2 };
   });

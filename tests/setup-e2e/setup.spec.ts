@@ -1,7 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { discovery, mockDesktop, selectScript } from "./fixtures";
 
-const settle = async (page: import("@playwright/test").Page) => {
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
+
+const settle = async (page: Page) => {
   await page.waitForFunction(() => !document.querySelector(".project-setup")!.getAnimations({ subtree: true }).some(animation => animation.effect!.getTiming().iterations !== Infinity && animation.playState === "running"));
 };
 
@@ -47,41 +56,41 @@ test("approved setup uses actual plans, commands, integration files and native I
   await page.locator(".configure-trigger").click();
   await selectScript(page, "pnpm run start");
   await page.keyboard.press("Escape");
-  await page.evaluate(() => { (window as any).setupTest.next = null; (window as any).setupTest.pending = true; });
+  await (await setupTest(page)).evaluate(state => { state.next = null; state.pending = true; });
   await page.locator(".change-project").click();
   await expect(page.locator(".change-project")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Preparing…", exact: true })).toBeDisabled();
-  await page.evaluate(() => { (window as any).setupTest.release(); });
+  await (await setupTest(page)).evaluate(state => { state.release!(); });
   await expect(page.locator(".change-project")).toBeEnabled();
   await expect(page.locator(".configure-trigger")).toContainText("pnpm run start");
   await expect(page.locator(".project-path")).toHaveText("/projects/rondo/storefront");
   const replacement = discovery();
   replacement.discoveryId = "replacement";
   replacement.plans[0].label = "other-project — dev";
-  await page.evaluate(next => { (window as any).setupTest.next = next; (window as any).setupTest.pending = false; }, replacement);
+  await (await setupTest(page)).evaluate((state, next) => { state.next = next; state.pending = false; }, replacement);
   await page.locator(".change-project").click();
   await expect(page.locator(".guided-intro")).toContainText("other-project.");
   await expect(page.locator(".project-setup")).toHaveAttribute("data-view", "overview");
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
-  expect(await page.evaluate(() => (window as any).setupTest.confirms)).toEqual([{ discoveryId: "replacement", planId: "vite-dev", mode: "start", startPath: "/" }]);
+  expect(await (await setupTest(page)).evaluate(state => state.confirms)).toEqual([{ discoveryId: "replacement", planId: "vite-dev", mode: "start", startPath: "/" }]);
   await expect(page.locator(".project-setup")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
 test("confirmation stays preparing until the workspace opens", async ({ page }) => {
   await mockDesktop(page);
-  await page.evaluate(() => { (window as any).setupTest.confirmPending = true; });
+  await (await setupTest(page)).evaluate(state => { state.confirmPending = true; });
   const confirm = page.getByRole("button", { name: "Confirm & start", exact: true });
   await confirm.click();
   await expect(page.getByRole("button", { name: "Preparing…", exact: true })).toBeDisabled();
-  await page.evaluate(() => { (window as any).setupTest.confirmRelease(); });
+  await (await setupTest(page)).evaluate(state => { state.confirmRelease!(); });
   await expect(page.locator(".project-setup")).toHaveCount(0);
   await expect(page.locator(".workspace")).toBeVisible();
 });
 
 test("failed confirmation restores the button for retry", async ({ page }) => {
   await mockDesktop(page);
-  await page.evaluate(() => { (window as any).setupTest.confirmError = true; });
+  await (await setupTest(page)).evaluate(state => { state.confirmError = true; });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("Setup failed");
   await expect(page.getByRole("button", { name: "Confirm & start", exact: true })).toBeEnabled();
@@ -92,14 +101,14 @@ test("keeps diagnostics visible and blocks invalid plans", async ({ page }) => {
   const broken = discovery();
   broken.discoveryId = "broken";
   broken.plans = [{ ...broken.plans[0], diagnostics: [{ level: "error", code: "missing-dependencies", message: "Install dependencies before continuing." }] }];
-  await page.evaluate(next => { (window as any).setupTest.next = next; }, broken);
+  await (await setupTest(page)).evaluate((state, next) => { state.next = next; }, broken);
   await page.locator(".change-project").click();
   await expect(page.getByRole("alert")).toContainText("Install dependencies");
   await expect(page.getByRole("button", { name: "Confirm & start", exact: true })).toBeDisabled();
   broken.discoveryId = "empty";
   broken.plans = [];
   broken.diagnostics = [{ level: "error", code: "unsupported-project", message: "No supported app found." }];
-  await page.evaluate(next => { (window as any).setupTest.next = next; }, broken);
+  await (await setupTest(page)).evaluate((state, next) => { state.next = next; }, broken);
   await page.locator(".change-project").click();
   await expect(page.locator(".guided-rows")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveText("No supported app found.");

@@ -1,9 +1,9 @@
-import { closeProject } from "../helpers/workspace-controls";
+import { browserIdentities, closeProject, runBrowser } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type { BrowserRequest, BrowserState, BrowserTarget, BrowserResult } from "../../src/application/browser-contract";
+import type { BrowserRequest } from "../../src/application/browser-contract";
 
 for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scroll/logs, exact navigation and disconnect`, async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-operations-"));
@@ -37,17 +37,17 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       await expect(page.getByRole("button", { name: "Take back control", exact: true })).toBeVisible().catch(async error => {
         await writeFile(testInfo.outputPath(`${fixture}-target-debug.json`), JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger;
 
- return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
+        return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
       });
       await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).owner)).toBe("agent");
-      const info = await page.evaluate(() => window.mauxi!.browserTest("targets")) as { state: BrowserState; targets: BrowserTarget[] };
+      const info = await browserIdentities(page);
       expect(info.state.owner).toBe("agent");
 
       return { ...info.targets.find(t => t.previewId === "desktop")!, generation: info.state.generation };
     };
 
     const target = await grant();
-    const run = (r: BrowserRequest) => page.evaluate(request => window.mauxi!.browserTest(request), r) as Promise<BrowserResult>;
+    const run = (r: BrowserRequest) => runBrowser(page, r);
     await frame.evaluate(() => history.replaceState(history.state, "", location.href));
     await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).generation)).toBe(target.generation);
 

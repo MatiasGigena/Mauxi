@@ -1,5 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AgentDialogResponse } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+
+type PermissionDialogTest = { responses: AgentDialogResponse[]; fail: boolean; pending: boolean; releaseResponse?: () => void };
+
+declare global {
+  interface Window { permissionDialogTest?: PermissionDialogTest }
+}
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
 
 const operation = JSON.stringify({ executable: "mkdir", args: ["-p", "src/app/header-variants"], cwd: "/projects/rondo", purpose: "Create an isolated route for the header variants." }, null, 2);
 const warnings = ["Commands may change caches, databases, remote APIs, or activity outside checkpoint coverage.", "Approval applies only to this exact executable, arguments, and working directory.", "Commands and dependency installs can execute project code."];
@@ -8,8 +24,8 @@ async function openWorkspace(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
-    state.responses = [];
+    const state: PermissionDialogTest = { responses: [], fail: false, pending: false };
+    window.permissionDialogTest = state;
     window.mauxi!.agentDialogResponse = async response => {
       state.responses.push(response);
 
@@ -21,8 +37,8 @@ async function openWorkspace(page: Page) {
 }
 
 async function requestApproval(page: Page, title = "Approve command", exactOperation = operation) {
-  await page.evaluate(({ title, operation, warnings }) => {
-    (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: { id: "permission-fixture", kind: "approval", title, message: "Create the directory for three header variants.", operation, warnings } }));
+  await (await setupTest(page)).evaluate((state, { title, operation, warnings }) => {
+    state.agentListeners.forEach(listener => listener({ type: "dialog", dialog: { id: "permission-fixture", kind: "approval", title, message: "Create the directory for three header variants.", operation, cwd: "/projects/rondo", warnings } }));
   }, { title, operation: exactOperation, warnings });
 
   return page.getByRole("dialog", { name: title, exact: true });
@@ -85,14 +101,14 @@ for (const action of ["Deny", "Deny and close", "Escape"]) {
     else await dialog.getByRole("button", { name: action, exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(opener).toBeFocused();
-    expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([{ workspaceId: "test-workspace", dialogId: "permission-fixture", cancelled: true }]);
+    expect(await page.evaluate(() => window.permissionDialogTest!.responses)).toEqual([{ workspaceId: "test-workspace", dialogId: "permission-fixture", cancelled: true }]);
   });
 }
 
 test("approval remains explicit, pending responses cannot be duplicated, and reduced motion is respected", async ({ page }) => {
   await openWorkspace(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.evaluate(() => { (window as any).setupTest.pending = true; });
+  await page.evaluate(() => { window.permissionDialogTest!.pending = true; });
   const dialog = await requestApproval(page);
   const approve = dialog.getByRole("button", { name: "Approve once" });
   await approve.hover();
@@ -103,22 +119,22 @@ test("approval remains explicit, pending responses cannot be duplicated, and red
   await expect(dialog.getByRole("button", { name: "Deny", exact: true })).toBeDisabled();
   await expect(approve).toBeDisabled();
   await dialog.press("Escape");
-  expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([{ workspaceId: "test-workspace", dialogId: "permission-fixture", value: "approve", cancelled: false }]);
-  await page.evaluate(() => (window as any).setupTest.releaseResponse());
+  expect(await page.evaluate(() => window.permissionDialogTest!.responses)).toEqual([{ workspaceId: "test-workspace", dialogId: "permission-fixture", value: "approve", cancelled: false }]);
+  await page.evaluate(() => window.permissionDialogTest!.releaseResponse!());
   await expect(dialog).toHaveCount(0);
 });
 
 test("delivery errors keep the permission request open and allow denial", async ({ page }) => {
   await openWorkspace(page);
-  await page.evaluate(() => { (window as any).setupTest.fail = true; });
+  await page.evaluate(() => { window.permissionDialogTest!.fail = true; });
   const dialog = await requestApproval(page);
   await dialog.getByRole("button", { name: "Approve once" }).click();
   await expect(dialog.getByRole("alert")).toHaveText("Permission response could not be delivered.");
   await expect(dialog.getByRole("button", { name: "Deny and close" })).toBeEnabled();
-  await page.evaluate(() => { (window as any).setupTest.fail = false; });
+  await page.evaluate(() => { window.permissionDialogTest!.fail = false; });
   await dialog.getByRole("button", { name: "Deny", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).setupTest.responses.at(-1).cancelled)).toBe(true);
+  expect(await page.evaluate(() => window.permissionDialogTest!.responses.at(-1)!.cancelled)).toBe(true);
 });
 
 test("browser approvals keep their nonblocking preview access while sharing the surface", async ({ page }) => {

@@ -1,25 +1,25 @@
-import { toggleRoutes, closeProject } from "../helpers/workspace-controls";
+import { browserIdentities, closeProject, runBrowser, toggleRoutes } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { BrowserRequest, BrowserState, BrowserTarget, BrowserResult } from "../../src/application/browser-contract";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import type { BrowserRequest } from "../../src/application/browser-contract";
+
+const InspectionSchema = Type.Object({ entries: Type.Array(Type.Object({ target: Type.String(), testId: Type.String() })) });
 
 async function identities(page: Page) {
   await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).owner)).toBe("agent");
 
-  return page.evaluate(() => window.mauxi!.browserTest("targets")) as Promise<{ state: BrowserState; targets: BrowserTarget[] }>;
+  return browserIdentities(page);
 }
 
-async function run(page: Page, request: BrowserRequest) { return page.evaluate(r => window.mauxi!.browserTest(r), request) as Promise<BrowserResult>; }
+async function run(page: Page, request: BrowserRequest) { return runBrowser(page, request); }
 
-async function startAction(page: Page, request: BrowserRequest) {
-  await page.evaluate(r => { (window as any).actionResult = undefined; void window.mauxi!.browserTest(r).then(value => { (window as any).actionResult = { value }; }, error => { (window as any).actionResult = { error: String(error) }; }); }, request);
+function startAction(page: Page, request: BrowserRequest) {
+  return page.evaluate(r => window.mauxi!.browserTest(r).then(() => ({ error: undefined }), error => ({ error: String(error) })), request);
 }
-
-async function result(page: Page) { await expect.poll(() => page.evaluate(() => (window as any).actionResult)).toBeTruthy();
-
- return page.evaluate(() => (window as any).actionResult); }
 
 test("fake agent checks the visible state, approvals, stale targets, revocation, routing and forged messages", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-browser-electron-"));
@@ -51,7 +51,7 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const request = (operation: BrowserRequest["operation"], extra = {}): BrowserRequest => ({ ...target, generation: info.state.generation, operation, ...extra });
     const inspection = await run(page, request("inspect"));
     expect(inspection.text).toContain("Underlying clicks: 1");
-    const nodes = JSON.parse(inspection.text).entries as Array<{ target: string; testId: string }>;
+    const nodes = Value.Parse(InspectionSchema, JSON.parse(inspection.text)).entries;
     const button = nodes.find(n => n.testId === "known-target")!; expect(button).toBeTruthy();
     const source = await run(page, request("source", { target: button.target }));
     expect(JSON.parse(source.text)).toMatchObject({ status: "static-match", filePath: "src/components/ProofCard.tsx" });
@@ -65,35 +65,35 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const box = await desktop.getByTestId("known-target").boundingBox();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await expect(desktop.getByTestId("click-count")).toHaveText("Underlying clicks: 1");
-    await startAction(page, request("click", { target: button.target }));
+    const approved = startAction(page, request("click", { target: button.target }));
     const approval = page.getByRole("dialog", { name: "Approve browser action" });
     await expect(approval).toBeVisible();
     await expect(approval).toContainText("Target: <button> Increment proof counter");
     await expect(approval).toContainText('"testId": "known-target"');
     await expect(approval).toContainText('"bounds":');
     await page.getByRole("button", { name: "Approve once", exact: true }).click();
-    expect((await result(page)).error).toBeUndefined();
+    expect((await approved).error).toBeUndefined();
     await expect(desktop.getByTestId("click-count")).toHaveText("Underlying clicks: 2");
     await expect(mobile.getByTestId("click-count")).toHaveText("Underlying clicks: 0");
     const child = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
-    expect(await child.evaluate(() => typeof (window as any).mauxi)).toBe("undefined");
+    expect(await child.evaluate(() => typeof window.mauxi === "undefined")).toBe(true);
     await child.evaluate(() => parent.postMessage({ protocol: "mauxi-preview-v1", kind: "grant", owner: "agent", session: new URLSearchParams(location.search).get("mauxiSession"), generation: "forged" }, "*"));
     await expect(run(page, { ...request("inspect"), workspaceId: "foreign" })).rejects.toThrow(/stale/i);
     await expect(page.evaluate(r => window.mauxi!.browserTest({ ...r, operation: "evaluate", expression: "process.env" }), request("inspect"))).rejects.toThrow(/Unsupported/);
-    await startAction(page, request("click", { target: button.target }));
+    const stale = startAction(page, request("click", { target: button.target }));
     await expect(approval).toContainText("Target: <button> Increment proof counter");
     await child.evaluate(() => { const old = document.querySelector('[data-testid="known-target"]')!; old.replaceWith(old.cloneNode(true)); });
     await page.getByRole("button", { name: "Approve once", exact: true }).click();
-    expect((await result(page)).error).toContain("Stale DOM target");
+    expect((await stale).error).toContain("Stale DOM target");
     await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
     await expect(run(page, request("inspect"))).rejects.toThrow();
     await page.getByRole("button", { name: "Give agent control", exact: true }).click();
     const nextInfo = await identities(page); const nextTarget = nextInfo.targets.find(t => t.previewId === "desktop")!;
     const nextRequest = { ...nextTarget, generation: nextInfo.state.generation, operation: "scroll" as const, y: 200 };
-    await startAction(page, nextRequest);
+    const revoked = startAction(page, nextRequest);
     await expect(page.getByRole("dialog", { name: "Approve browser action" })).toBeVisible();
     await page.getByRole("button", { name: "Take back control", exact: true }).click();
-    expect((await result(page)).error).toBeTruthy();
+    expect((await revoked).error).toBeTruthy();
     await expect(page.getByRole("dialog", { name: "Approve browser action" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Interact with Desktop preview", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
@@ -109,9 +109,9 @@ test("fake agent checks the visible state, approvals, stale targets, revocation,
     const submitRequest = { ...submitTarget, generation: submitInfo.state.generation, operation: "inspect" as const };
     const submitNodes = JSON.parse((await run(page, submitRequest)).text).entries;
     const submit = submitNodes.find((n: any) => n.tag === "button" && n.text === "Submit once"); expect(submit).toBeTruthy();
-    await startAction(page, { ...submitRequest, operation: "click", target: submit.target });
+    const submitted = startAction(page, { ...submitRequest, operation: "click", target: submit.target });
     await page.getByRole("button", { name: "Approve once", exact: true }).click();
-    await result(page); await expect.poll(() => submissions).toBe(1);
+    await submitted; await expect.poll(() => submissions).toBe(1);
     await expect(mobile.getByTestId("submit-count")).toHaveText("Submissions: 0");
     expect(new URL(child.url()).pathname).toBe("/submitted");
     expect(new URL(page.frames().find(f => f.url().includes("mauxiPreview=mobile"))!.url()).pathname).toBe("/");

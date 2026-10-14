@@ -1,7 +1,41 @@
 import { toggleRoutes } from "../helpers/workspace-controls";
 import { expect, test, type Page, type FrameLocator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import type { AgentSendRequest, AgentSnapshot } from "../../src/application/agent-contract";
+import type { BrowserState } from "../../src/application/browser-contract";
+import type { BridgeToShellMessage } from "../../src/application/preview-contract";
 import { mockDesktop } from "./fixtures";
+
+
+type CaptureChrome = { hover: boolean; markers: boolean };
+
+type OverlayTest = {
+  hold: boolean;
+  fail: boolean;
+  accept: boolean;
+  captures: Array<{ request: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }; chrome: CaptureChrome }>;
+  resolvers: Array<() => void>;
+  released: string[];
+  sent: AgentSendRequest[];
+  lastSelection?: Extract<BridgeToShellMessage, { kind: "selection" }>;
+  browserState?: (state: BrowserState) => void;
+};
+
+declare global {
+  interface Window {
+    overlayTest?: OverlayTest;
+    inspectCaptureChrome?: (id: string) => Promise<CaptureChrome>;
+    selectionOverlayActions?: number;
+  }
+}
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
 
 const preview = (page: Page, id = "desktop") => page.frameLocator(`[data-testid="${id}-preview"]`);
 const markers = (frame: FrameLocator) => frame.locator("[data-mauxi-selected]");
@@ -13,7 +47,7 @@ async function picker(page: Page, label = "Desktop") {
 }
 
 async function finishCapture(page: Page, index: number) {
-  await page.evaluate(index => (window as any).overlayTest.resolvers[index](), index);
+  await page.evaluate(index => window.overlayTest!.resolvers[index](), index);
 }
 
 async function aligned(frame: FrameLocator, target = "one", index = 0) {
@@ -37,29 +71,30 @@ test.beforeEach(async ({ page }) => {
       button { display:block; width:260px; height:100px; margin:0 0 24px; border:1px solid #e8e5e1; border-radius:16px; background:white; color:#24242a; }
       div { background:red !important; color:red !important; border:12px solid red !important; }
     </style></head><body><h1>Selection preview</h1>
-      ${["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"].map(id => `<button id="${id}" onclick="window.actions++">Target ${id}</button>`).join("")}
-      <script>window.actions=0</script><script type="module" src="/bridge.js"></script></body></html>` });
+      ${["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"].map(id => `<button id="${id}" onclick="window.selectionOverlayActions++">Target ${id}</button>`).join("")}
+      <script>window.selectionOverlayActions=0</script><script type="module" src="/bridge.js"></script></body></html>` });
   });
   await page.exposeFunction("inspectCaptureChrome", async (id: string) => {
     const frame = preview(page, id);
 
     return {
       hover: await frame.locator("[data-mauxi-hover]").isVisible(),
-      markers: await markers(frame).evaluateAll(nodes => nodes.some(node => getComputedStyle(node).visibility !== "hidden" && !(node as HTMLElement).hidden)),
+      markers: await markers(frame).evaluateAll(nodes => nodes.some(node => getComputedStyle(node).visibility !== "hidden" && !(node instanceof HTMLElement && node.hidden))),
     };
   });
   await mockDesktop(page);
   await page.evaluate(() => {
-    const state = (window as any).overlayTest = { hold: false, fail: false, captures: [] as unknown[], resolvers: [] as Array<() => void>, released: [] as string[], accept: true, sent: [] as unknown[] };
-    window.addEventListener("message", event => { if (event.data?.kind === "selection") (state as any).lastSelection = event.data; });
-    window.mauxi!.onBrowserState = listener => { (state as any).browserState = listener;
+    const state: OverlayTest = { hold: false, fail: false, captures: [], resolvers: [], released: [], accept: true, sent: [] };
+    window.overlayTest = state;
+    window.addEventListener("message", event => { if (event.data?.kind === "selection") state.lastSelection = event.data; });
+    window.mauxi!.onBrowserState = listener => { state.browserState = listener;
 
- return () => {}; };
+    return () => {}; };
 
     window.mauxi!.bridgeReady = async () => {};
 
     window.mauxi!.capturePreview = async request => {
-      const chrome = await (window as any).inspectCaptureChrome(request.previewId);
+      const chrome = await window.inspectCaptureChrome!(request.previewId);
       const index = state.captures.length;
       state.captures.push({ request, chrome });
 
@@ -74,18 +109,18 @@ test.beforeEach(async ({ page }) => {
 
     window.mauxi!.agentSend = async request => { state.sent.push(request);
 
- return { accepted: state.accept }; };
+    return { accepted: state.accept }; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
-  await page.evaluate(() => {
-    const snapshot = {
+  await (await setupTest(page)).evaluate(state => {
+    const snapshot: AgentSnapshot = {
       ready: true, workspaceId: "test-workspace", sessionId: "session", providers: [],
       models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
       selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
 
-    (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
+    state.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
   });
 });
 
@@ -165,7 +200,7 @@ test("teal hover chrome is isolated from page CSS and labels stay inside the vie
   await page.getByRole("slider", { name: "Camera zoom" }).fill("0.5");
   await picker(page, "Mobile");
   const mobile = preview(page, "mobile");
-  await mobile.locator("#one").evaluate(node => { (node as HTMLElement).style.cssText = "position:fixed;right:0;bottom:0;width:100px;height:40px;margin:0"; });
+  await mobile.locator("#one").evaluate(node => { node.style.cssText = "position:fixed;right:0;bottom:0;width:100px;height:40px;margin:0"; });
   await mobile.locator("#one").hover();
   expect(await mobile.locator("[data-mauxi-picker-label]").evaluate(node => {
     const rect = node.getBoundingClientRect();
@@ -182,11 +217,11 @@ test("draft marks follow scrolling, layout and zoom; removal never clicks throug
   await expect(markers(frame)).toHaveCount(2);
   await expect(markers(frame).first()).toBeVisible();
   await page.keyboard.press("Escape");
-  expect(await frame.locator("body").evaluate(() => (window as any).actions)).toBe(0);
+  expect(await frame.locator("body").evaluate(() => window.selectionOverlayActions)).toBe(0);
   await aligned(frame);
   await frame.locator("body").evaluate(() => scrollTo(0, 80));
   await aligned(frame);
-  await frame.locator("#one").evaluate(node => { (node as HTMLElement).style.transform = "translate(40px, 20px)"; });
+  await frame.locator("#one").evaluate(node => { node.style.transform = "translate(40px, 20px)"; });
   await aligned(frame);
   await page.getByRole("slider", { name: "Camera zoom" }).fill("0.25");
   await aligned(frame);
@@ -223,34 +258,34 @@ test("navigation and removed instances clear markers without transferring them t
 
 test("overlapping captures hide all chrome until the last capture ends, including failures and removals", async ({ page }) => {
   const frame = preview(page);
-  await page.evaluate(() => { (window as any).overlayTest.hold = true; });
+  await page.evaluate(() => { window.overlayTest!.hold = true; });
   await picker(page); await frame.locator("#one").click(); await frame.locator("#two").click();
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.captures.length)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.captures.length)).toBe(2);
   await expect(markers(frame)).toHaveCount(2);
   await expect(markers(frame).first()).toBeHidden();
   await finishCapture(page, 0);
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.captures[0].chrome)).toEqual({ hover: false, markers: false });
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.captures[0].chrome)).toEqual({ hover: false, markers: false });
   await expect(markers(frame).first()).toBeHidden();
   await finishCapture(page, 1);
   await expect(markers(frame).first()).toBeVisible();
   await frame.locator("#three").click();
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.captures.length)).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.captures.length)).toBe(3);
   await page.getByRole("button", { name: "Remove selection Target three", exact: true }).click();
   await finishCapture(page, 2);
   await expect(markers(frame)).toHaveCount(2);
   await expect(markers(frame).first()).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.released)).toContain("/test-capture-2.png");
-  await page.evaluate(() => { (window as any).overlayTest.hold = false; (window as any).overlayTest.fail = true; });
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.released)).toContain("/test-capture-2.png");
+  await page.evaluate(() => { const state = window.overlayTest!; state.hold = false; state.fail = true; });
   await frame.locator("#three").click();
   await expect(markers(frame)).toHaveCount(3);
   await expect(markers(frame).last()).toBeVisible();
-  expect(await page.evaluate(() => (window as any).overlayTest.captures.every((capture: any) => !capture.chrome.hover && !capture.chrome.markers))).toBe(true);
+  expect(await page.evaluate(() => window.overlayTest!.captures.every(capture => !capture.chrome.hover && !capture.chrome.markers))).toBe(true);
   await page.keyboard.press("Escape");
-  await page.evaluate(() => { (window as any).overlayTest.fail = false; });
+  await page.evaluate(() => { window.overlayTest!.fail = false; });
   await page.getByRole("button", { name: "Desktop actions", exact: true }).click();
   await page.getByRole("button", { name: "Capture screenshot", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.captures.length)).toBe(5);
-  expect(await page.evaluate(() => (window as any).overlayTest.captures[4].chrome)).toEqual({ hover: false, markers: false });
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.captures.length)).toBe(5);
+  expect(await page.evaluate(() => window.overlayTest!.captures[4].chrome)).toEqual({ hover: false, markers: false });
   await expect(markers(frame).first()).toBeVisible();
 });
 
@@ -279,7 +314,7 @@ test("stale bridge messages cannot clear marks and browser ownership hides them 
   await expect(markers(frame)).toBeVisible();
   await page.keyboard.press("Escape");
   await page.evaluate(() => {
-    const state = (window as any).overlayTest;
+    const state = window.overlayTest!;
     const target = document.querySelector<HTMLIFrameElement>('[data-testid="desktop-preview"]')!.contentWindow!;
 
     for (const invalid of [{ generation: "old-document" }, { session: "other-workspace" }]) {
@@ -287,11 +322,12 @@ test("stale bridge messages cannot clear marks and browser ownership hides them 
     }
   });
   await expect(markers(frame)).toBeVisible();
-  const state = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
-  await page.evaluate(state => (window as any).overlayTest.browserState(state), state);
+  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
+  await page.evaluate(state => window.overlayTest!.browserState!(state), state);
   await expect(markers(frame)).toHaveCount(0);
   await expect(chips(page)).toHaveCount(1);
-  await page.evaluate(state => (window as any).overlayTest.browserState(state), { ...state, generation: 2, owner: "human" });
+  const released: BrowserState = { ...state, generation: 2, owner: "human" };
+  await page.evaluate(state => window.overlayTest!.browserState!(state), released);
   await expect(markers(frame)).toBeVisible();
 });
 
@@ -300,13 +336,13 @@ test("keyboard attachment stays marked on rejected send and clears only after ac
   await picker(page); await frame.locator("#one").hover(); await page.keyboard.press("Enter");
   await expect(markers(frame)).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.evaluate(() => { (window as any).overlayTest.accept = false; });
+  await page.evaluate(() => { window.overlayTest!.accept = false; });
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Polish this button");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).overlayTest.sent.length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.overlayTest!.sent.length)).toBe(1);
   await expect(markers(frame)).toBeVisible();
   await expect(chips(page)).toHaveCount(1);
-  await page.evaluate(() => { (window as any).overlayTest.accept = true; });
+  await page.evaluate(() => { window.overlayTest!.accept = true; });
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(markers(frame)).toHaveCount(0);
   await expect(chips(page)).toHaveCount(0);

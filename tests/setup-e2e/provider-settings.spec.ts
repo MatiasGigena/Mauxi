@@ -1,14 +1,32 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { AgentLoginRequest, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+
+type ProviderAction = ({ action: "login" } & AgentLoginRequest) | { action: "logout"; workspaceId: string; providerId: string } | { action: "refresh" };
+
+type ProviderSettingsTest = { actions: ProviderAction[]; finishLogin?: () => void };
+
+declare global {
+  interface Window { providerSettingsTest?: ProviderSettingsTest }
+}
+
+function setupTest(page: Page) {
+  return page.evaluateHandle(() => {
+    if (!window.setupTest) throw new Error("mockDesktop did not install setupTest");
+
+    return window.setupTest;
+  });
+}
 
 for (const width of [1280, 390]) {
   test(`provider actions are background-free and Conversations is absent at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 800 });
     await mockDesktop(page);
     await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
-    await page.evaluate(() => {
-      const state = (window as any).setupTest;
-      state.actions = [];
+    await (await setupTest(page)).evaluate(setup => {
+      const state: ProviderSettingsTest = { actions: [] };
+      window.providerSettingsTest = state;
       window.mauxi!.agentLogin = async (request) => {
         state.actions.push({ action: "login", ...request });
         await new Promise<void>(resolve => { state.finishLogin = resolve; });
@@ -18,17 +36,18 @@ for (const width of [1280, 390]) {
 
       window.mauxi!.agentRefreshCatalog = async () => { state.actions.push({ action: "refresh" }); };
 
-      const snapshot = {
+      const base: AgentSnapshot = {
         ready: true, workspaceId: "test-workspace",
         providers: [
           { id: "anthropic", name: "Anthropic", authenticated: false, authMethods: [{ type: "oauth", label: "Anthropic (Claude Pro/Max)" }, { type: "api_key", label: "Anthropic API key" }] },
           { id: "connected", name: "Connected provider", authenticated: true, authMethods: [{ type: "api_key", label: "API key" }] },
         ],
-        models: [], sessions: [{ id: "old-session", name: "Previous conversation", active: true, updatedAt: Date.now() }],
+        models: [],
         messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       };
 
-      state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
+      const snapshot = { ...base, sessions: [{ id: "old-session", name: "Previous conversation", active: true, updatedAt: Date.now() }] };
+      setup.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
     });
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();
     const settings = page.getByRole("region", { name: "Models and providers" });
@@ -62,7 +81,7 @@ for (const width of [1280, 390]) {
     expect(await settings.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await login.click();
     await expect(settings.locator(".settings-action:disabled")).toHaveCount(5);
-    await page.evaluate(() => (window as any).setupTest.finishLogin());
+    await page.evaluate(() => window.providerSettingsTest!.finishLogin!());
     await expect(login).toBeEnabled();
     await settings.getByRole("button", { name: "Log out", exact: true }).click();
     const refresh = settings.getByRole("button", { name: "Refresh catalog", exact: true });
@@ -70,7 +89,7 @@ for (const width of [1280, 390]) {
     await refresh.press("Enter");
     await expect(refresh).toBeFocused();
     await expect(refresh).toHaveCSS("outline-style", "solid");
-    expect(await page.evaluate(() => (window as any).setupTest.actions)).toEqual([
+    expect(await page.evaluate(() => window.providerSettingsTest!.actions)).toEqual([
       { action: "login", workspaceId: "test-workspace", providerId: "anthropic", type: "oauth" },
       { action: "logout", workspaceId: "test-workspace", providerId: "connected" },
       { action: "refresh" },

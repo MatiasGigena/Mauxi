@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
+import type { AgentDialogResponse, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+
+interface ChatSettingsTest {
+  agentSnapshot: AgentSnapshot;
+  selectedModel?: string;
+  dialogResponse?: AgentDialogResponse;
+}
+
+declare global {
+  interface Window { chatSettingsTest?: ChatSettingsTest }
+}
 
 test("model setup expands inside chat and the send border keeps moving", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -7,22 +18,23 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".chat-dock")).toBeVisible();
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const setup = window.setupTest!;
 
-    const snapshot = {
+    const snapshot: AgentSnapshot = {
       ready: true, workspaceId: "test-workspace", providers: [{ id: "fake", name: "Fake", authenticated: true, authMethods: [{ type: "api_key", label: "API key" }] }],
       models: [{ key: "fake/one", provider: "Fake", id: "one", name: "Model One", available: true, supportsImages: true, thinkingLevels: ["off", "low"] }],
       messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
 
-    state.agentSnapshot = snapshot;
+    const state: ChatSettingsTest = { agentSnapshot: snapshot };
+    window.chatSettingsTest = state;
     window.mauxi!.agentSelectModel = async ({ modelKey }) => {
       state.selectedModel = modelKey;
       state.agentSnapshot = { ...state.agentSnapshot, selectedModel: modelKey };
-      state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: state.agentSnapshot }));
+      setup.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot: state.agentSnapshot }));
     };
 
-    state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
+    setup.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
   });
 
   const send = page.locator(".composer button[type=submit]");
@@ -47,7 +59,7 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await page.screenshot({ path: testInfo.outputPath("chat-settings.png") });
   await page.getByRole("combobox", { name: /Model/ }).click();
   await page.getByRole("option", { name: /Model One/ }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).setupTest.selectedModel)).toBe("fake/one");
+  await expect.poll(() => page.evaluate(() => window.chatSettingsTest!.selectedModel)).toBe("fake/one");
   await expect(page.locator(".chat-settings")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Models & providers" })).toHaveAttribute("aria-expanded", "false");
   await expect(message).toHaveValue("Keep this draft while choosing a model");
@@ -62,10 +74,10 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await expect(send).toBeEnabled();
   await expect(send).toHaveCSS("opacity", "1");
   await page.evaluate(() => {
-    const state = (window as any).setupTest;
+    const state = window.chatSettingsTest!;
     window.mauxi!.agentDialogResponse = async (response) => { state.dialogResponse = response; };
 
-    state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {
+    window.setupTest!.agentListeners.forEach(listener => listener({ type: "dialog", dialog: {
       id: "provider-choice", kind: "select", title: "Choose sign-in method", message: "Select one option", options: [{ id: "oauth", label: "Browser sign-in" }],
     } }));
   });
@@ -77,5 +89,5 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await expect(proceed).toHaveCSS("opacity", "0.48");
   await page.getByRole("button", { name: "Browser sign-in" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).setupTest.dialogResponse?.value)).toBe("oauth");
+  await expect.poll(() => page.evaluate(() => window.chatSettingsTest!.dialogResponse?.value)).toBe("oauth");
 });

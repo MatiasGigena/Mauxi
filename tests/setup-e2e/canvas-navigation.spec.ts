@@ -1,12 +1,17 @@
 import { fitCanvas } from "../helpers/workspace-controls";
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import type { BrowserState } from "../../src/application/browser-contract";
 import { mockDesktop } from "./fixtures";
+
+declare global {
+  interface Window { canvasNavigationBrowserState?: (state: BrowserState) => void }
+}
 
 const board = (page: Page, id = "desktop") => page.locator(`[data-preview-id="${id}"]`);
 const preview = (page: Page) => page.frameLocator('[data-testid="desktop-preview"]');
 const activate = (page: Page, id = "Desktop") => page.getByRole("button", { name: `Interact with ${id} preview`, exact: true });
-const camera = (page: Page) => board(page).evaluate(node => ({ x: (node as HTMLElement).style.left, y: (node as HTMLElement).style.top, zoom: document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value }));
+const camera = (page: Page) => board(page).evaluate(node => ({ x: node.style.left, y: node.style.top, zoom: document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value }));
 const idle = (page: Page) => expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
 
 async function blank(page: Page) {
@@ -29,9 +34,9 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => {
     window.mauxi!.bridgeReady = async () => {};
 
-    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener;
+    window.mauxi!.onBrowserState = listener => { window.canvasNavigationBrowserState = listener;
 
- return () => {}; };
+    return () => {}; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
@@ -298,8 +303,8 @@ test("compact header keeps focus, picker and keyboard dragging accessible", asyn
 
 test("agent ownership blocks navigation and returns to passive previews", async ({ page }) => {
   await activate(page).click();
-  const state = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
-  await page.evaluate(state => (window as any).emitBrowserState(state), state);
+  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
+  await page.evaluate(state => window.canvasNavigationBrowserState!(state), state);
   await expect(page.locator("[data-browser-shield]")).toHaveCount(2);
   await expect(activate(page)).toHaveCount(0);
   const before = await camera(page);
@@ -308,7 +313,8 @@ test("agent ownership blocks navigation and returns to passive previews", async 
   await page.getByTestId("canvas").dispatchEvent("wheel", { deltaY: 100 });
   expect(await camera(page)).toEqual(before);
   await expect(page.getByTestId("canvas")).not.toHaveClass(/hand-mode/);
-  await page.evaluate(state => (window as any).emitBrowserState(state), { ...state, generation: 2, owner: "human" });
+  const released: BrowserState = { ...state, generation: 2, owner: "human" };
+  await page.evaluate(state => window.canvasNavigationBrowserState!(state), released);
   await expect(page.locator("[data-browser-shield]")).toHaveCount(0);
   await expect(activate(page)).toBeVisible();
   await expect(board(page)).toHaveAttribute("data-interacting", "false");

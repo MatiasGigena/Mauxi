@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { AgentEvent } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600 }, { width: 390, height: 800 }]) {
@@ -32,8 +33,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
     expect(await canvas.evaluate(node => node.contains(document.elementFromPoint(5, innerHeight - 5)))).toBe(true);
     await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep this draft");
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
-      const emit = (event: unknown) => state.agentListeners.forEach((listener: (event: unknown) => void) => listener(event));
+      const state = window.setupTest!;
+      const emit = (event: AgentEvent) => state.agentListeners.forEach(listener => listener(event));
       emit({ type: "snapshot", snapshot: {
         ready: true, workspaceId: "test-workspace", providers: Array.from({ length: 20 }, (_, i) => ({ id: String(i), name: `Provider ${i}`, authenticated: false, authMethods: [{ type: "api_key", label: `Sign in ${i}` }] })),
         models: [], messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",

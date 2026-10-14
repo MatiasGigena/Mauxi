@@ -1,15 +1,25 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { BrowserState } from "../../src/application/browser-contract";
+import type { CanvasState } from "../../src/application/canvas-state";
 import { mockDesktop } from "./fixtures";
+
+declare global {
+  interface Window {
+    workspaceHeaderSaves?: Array<{ workspaceId: string; canvas: CanvasState }>;
+    workspaceHeaderBrowserState?: (state: BrowserState) => void;
+  }
+}
 
 async function openWorkspace(page: Page) {
   await mockDesktop(page);
   await page.evaluate(() => {
-    (window as any).savedCanvas = [];
-    window.mauxi!.saveCanvas = async input => { (window as any).savedCanvas.push(input); };
+    const saves: Array<{ workspaceId: string; canvas: CanvasState }> = [];
+    window.workspaceHeaderSaves = saves;
+    window.mauxi!.saveCanvas = async input => { saves.push(input); };
 
-    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener;
+    window.mauxi!.onBrowserState = listener => { window.workspaceHeaderBrowserState = listener;
 
- return () => {}; };
+    return () => {}; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".topbar")).toBeVisible();
@@ -115,7 +125,7 @@ test("zoom updates both previews and persists; keyboard supports the complete ra
       await expect.poll(() => page.getByTestId(`${id}-preview`).evaluate(node => node.style.transform)).toBe(`scale(${Number(value)})`);
     }
 
-    await expect.poll(() => page.evaluate(() => (window as any).savedCanvas.at(-1)?.canvas.camera.zoom)).toBe(Number(value));
+    await expect.poll(() => page.evaluate(() => window.workspaceHeaderSaves?.at(-1)?.canvas.camera.zoom)).toBe(Number(value));
   }
 
   await zoom.focus();
@@ -129,10 +139,10 @@ test("zoom updates both previews and persists; keyboard supports the complete ra
 
 test("agent lock disables zoom without adding header actions; emergency return stays available", async ({ page }) => {
   await openWorkspace(page);
-  await page.evaluate(() => (window as any).emitBrowserState({ workspaceId: "test-workspace", owner: "agent", generation: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
   await expect(page.locator(".topbar button")).toHaveCount(1);
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
-  await page.evaluate(() => (window as any).emitBrowserState({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
 });

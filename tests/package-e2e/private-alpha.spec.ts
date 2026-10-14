@@ -1,4 +1,4 @@
-import { closeProject as closeWorkspace } from "../helpers/workspace-controls";
+import { BrowserTargetSchema, closeProject as closeWorkspace } from "../helpers/workspace-controls";
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -7,7 +7,38 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { BrowserTarget } from "../../src/application/browser-contract";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
+import type { WorkspaceBootstrap } from "../../src/application/project-contract";
+
+const ChatContentPartSchema = Type.Object({ type: Type.String(), text: Type.Optional(Type.String()), image_url: Type.Optional(Type.Object({ url: Type.String() })) });
+const ChatMessageSchema = Type.Object({ role: Type.String(), content: Type.Optional(Type.Union([Type.String(), Type.Array(ChatContentPartSchema), Type.Null()])) });
+const ChatRequestSchema = Type.Object({ messages: Type.Array(ChatMessageSchema) });
+const BrowserTargetsSchema = Type.Object({ generation: Type.Number(), targets: Type.Array(BrowserTargetSchema) });
+const UntrustedIpcSchema = Type.Array(Type.Object({ channel: Type.String(), rejected: Type.Boolean() }));
+
+type ChatRequest = Static<typeof ChatRequestSchema>;
+
+interface ChatDelta {
+  role?: "assistant";
+  content?: string;
+  tool_calls?: Array<{ index: number; id: string; type: "function"; function: { name: string; arguments: string } }>;
+}
+
+interface PackageEvidence {
+  artifact: string;
+  sha256: string;
+  provider: string;
+  cycles: Array<{ name: string; cycle: number; stoppedPids: number[] }>;
+  runtime?: { packaged: boolean; versions: NodeJS.ProcessVersions; arguments: string[]; userData: string; path: string | undefined };
+  untrustedIpc?: Static<typeof UntrustedIpcSchema>;
+  reopenCleanup?: { name: string; stoppedPids: number[]; ownedFilesAbsent: boolean; configPreserved: boolean };
+  requests?: number;
+  failureState?: WorkspaceBootstrap;
+  [cookieLogin: `${string}CookieLogin`]: { sharedWithinWorkspace: boolean; httpOnly: boolean };
+  [responsiveness: `${string}Responsiveness`]: { frames: number; p95FrameMs: number; maxFrameMs: number | undefined; longTaskMs: number[] };
+  [dualCaptures: `${string}DualCaptures`]: Array<{ width: number; height: number; red: number; blue: number }>;
+}
 
 const exec = promisify(execFile);
 const artifact = path.resolve(process.env.MAUXI_APPIMAGE ?? "release/Mauxi-0.1.0-x86_64.AppImage");
@@ -77,7 +108,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
   const npm = (await exec("which", ["npm"])).stdout.trim();
   await symlink(npm, path.join(bin, "npm"));
 
-  const env: Record<string, string> = {
+  const env = {
     HOME: home, XDG_CONFIG_HOME: path.join(home, "config"), XDG_CACHE_HOME: path.join(home, "cache"),
     PATH: `${bin}:/usr/bin:/bin`, APPIMAGE_EXTRACT_AND_RUN: "1", NEXT_TELEMETRY_DISABLED: "1", PI_TELEMETRY: "0",
     ...Object.fromEntries(["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG"].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : [])),
@@ -93,7 +124,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
     await symlink(path.resolve("node_modules"), path.join(destination, "node_modules"));
   }
 
-  const requests: any[] = [];
+  const requests: ChatRequest[] = [];
   let workspaceId = ""; let editingNext = false;
   let providerError = "";
 
@@ -101,8 +132,11 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
     let body = ""; request.on("data", chunk => { body += chunk; });
     request.on("end", () => {
       try {
-        const parsed = JSON.parse(body); requests.push(parsed);
-        const messages = parsed.messages as Array<{ role: string; content: any }>;
+        const parsed = JSON.parse(body);
+
+        if (!Value.Check(ChatRequestSchema, parsed)) throw new Error("Unexpected provider request");
+        requests.push(parsed);
+        const { messages } = parsed;
         const lastUser = messages.findLastIndex(message => message.role === "user" && /Polish this selected fixture button|Verify both visible previews/.test(JSON.stringify(message.content)));
         const results = messages.slice(lastUser + 1).filter(message => message.role === "tool");
         const verify = JSON.stringify(messages[lastUser]).includes("Verify both visible previews");
@@ -116,15 +150,17 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           if (!results.length) tool = { name: "browser_targets", arguments: JSON.stringify({ workspaceId }) };
           else if (results.length <= 4) {
             const content = results[0].content;
-            const text = typeof content === "string" ? content : content.find((part: any) => part.type === "text").text;
-            const targets = JSON.parse(text) as { generation: number; targets: BrowserTarget[] };
+            const text = Array.isArray(content) ? content.find(part => part.type === "text")?.text : content;
+
+            if (text == null) throw new Error("Missing browser targets result");
+            const targets = Value.Parse(BrowserTargetsSchema, JSON.parse(text));
             const index = results.length - 1;
             tool = { name: "browser_action", arguments: JSON.stringify({ ...targets.targets.find(target => target.previewId === (index < 2 ? "desktop" : "mobile")), generation: targets.generation, operation: index % 2 ? "screenshot" : "inspect" }) };
           }
         }
 
         response.writeHead(200, { "content-type": "text/event-stream" });
-        const push = (delta: unknown, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: `fake-${requests.length}`, object: "chat.completion.chunk", created: 1, model: "alpha", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+        const push = (delta: ChatDelta, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: `fake-${requests.length}`, object: "chat.completion.chunk", created: 1, model: "alpha", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
         push({ role: "assistant", content: "" });
 
         if (tool) { push({ tool_calls: [{ index: 0, id: `tool-${requests.length}`, type: "function", function: tool }] }); push({}, "tool_calls"); }
@@ -149,9 +185,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
   });
 
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-
- if (!address || typeof address === "string") throw new Error("No local provider");
+  const address = Value.Parse(Type.Object({ port: Type.Number() }), server.address());
   const profile = path.join(env.XDG_CONFIG_HOME, "Mauxi", "pi-profile");
   await mkdir(profile, { recursive: true });
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { "alpha-local": {
@@ -159,15 +193,16 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
     models: [{ id: "alpha", name: "Alpha local fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
   } } }));
   let app: ElectronApplication | undefined;
-  const report: Record<string, unknown> = { artifact, sha256: createHash("sha256").update(await readFile(artifact)).digest("hex"), provider: "loopback fake; $0; no live auth", cycles: [] };
+  const report: PackageEvidence = { artifact, sha256: createHash("sha256").update(await readFile(artifact)).digest("hex"), provider: "loopback fake; $0; no live auth", cycles: [] };
   let stderr = ""; let completed = false;
 
   try {
     app = await electron.launch({ executablePath: artifact, args: [], env, chromiumSandbox: true, timeout: 60_000 });
     app.process().stderr?.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-120_000); });
-    report.runtime = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, versions: process.versions, arguments: process.argv, userData: app.getPath("userData"), path: process.env.PATH }));
-    expect((report.runtime as any).packaged).toBe(true);
-    expect((report.runtime as any).arguments).not.toContain("--no-sandbox");
+    const runtime = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, versions: process.versions, arguments: process.argv, userData: app.getPath("userData"), path: process.env.PATH }));
+    report.runtime = runtime;
+    expect(runtime.packaged).toBe(true);
+    expect(runtime.arguments).not.toContain("--no-sandbox");
     let page = await app.firstWindow();
     const cleanConfigs = new Map<string, string>();
 
@@ -217,7 +252,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
 
           for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
             const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
-            await expect.poll(() => frame.getByTestId("known-target").evaluate(node => Object.keys(node).some(key => key.startsWith("__reactProps$") && typeof (node as any)[key]?.onClick === "function"))).toBe(true);
+            await expect.poll(() => frame.getByTestId("known-target").evaluate(node => Object.entries(node).some(([key, value]) => key.startsWith("__reactProps$") && value?.onClick instanceof Function))).toBe(true);
             await frame.getByTestId("known-target").evaluate((node, background) => { node.style.background = background; node.scrollIntoView({ block: "center" }); }, color);
             const label = side === "desktop" ? "Desktop" : "Mobile";
             await page.getByRole("button", { name: `Select in ${label}`, exact: true }).click();
@@ -227,7 +262,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
             const target = await frame.getByTestId("known-target").evaluate(node => {
               const r = node.getBoundingClientRect();
 
- return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };
+              return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight };
             });
 
             await page.mouse.click(frameBox!.x + target.x * frameBox!.width / target.width, frameBox!.y + target.y * frameBox!.height / target.height);
@@ -241,18 +276,22 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
 
           await expect(page.locator(".selection-chip")).toHaveCount(2);
           const firstRequest = requests.length;
-          await page.evaluate(() => {
-            const sample = { frames: [] as number[], longTasks: [] as number[], previous: performance.now(), running: true };
+
+          const timing = await page.evaluateHandle(() => {
+            const frames: number[] = []; const longTasks: number[] = [];
+            const sample = { frames, longTasks, previous: performance.now(), running: true };
             const observer = new PerformanceObserver(list => sample.longTasks.push(...list.getEntries().map(entry => entry.duration)));
             observer.observe({ type: "longtask" });
 
             const tick = (now: number) => { sample.frames.push(now - sample.previous); sample.previous = now;
 
- if (sample.running) requestAnimationFrame(tick); };
+            if (sample.running) requestAnimationFrame(tick); };
 
             requestAnimationFrame(tick);
-            (window as any).alphaTiming = { sample, observer };
+
+            return { sample, observer };
           });
+
           await page.getByLabel("Message", { exact: true }).fill("Polish this selected fixture button");
           await page.getByRole("button", { name: "Send", exact: true }).click();
           await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
@@ -263,10 +302,9 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await expect(desktop.getByText("Polished action", { exact: true })).toBeVisible({ timeout: 30_000 });
           await expect(mobile.getByText("Polished action", { exact: true })).toBeVisible();
           await expect(page.locator(".change-review")).toHaveCount(0);
-          report[`${name}Responsiveness`] = await page.evaluate(() => {
-            const { sample, observer } = (window as any).alphaTiming;
+          report[`${name}Responsiveness`] = await timing.evaluate(({ sample, observer }) => {
             sample.running = false; observer.disconnect();
-            const frames = sample.frames.slice(1).sort((a: number, b: number) => a - b);
+            const frames = sample.frames.slice(1).sort((a, b) => a - b);
 
             return { frames: frames.length, p95FrameMs: frames[Math.floor(frames.length * 0.95)], maxFrameMs: frames.at(-1), longTaskMs: sample.longTasks };
           });
@@ -274,8 +312,8 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 1 [mobile]");
           expect(JSON.stringify(requests[firstRequest])).toContain("Selection 2 [desktop]");
           expect(JSON.stringify(requests[firstRequest])).toContain(createHash("sha256").update(original).digest("hex"));
-          const userMessage = requests[firstRequest].messages.findLast((message: any) => message.role === "user");
-          const images = userMessage.content.filter((part: any) => part.type === "image_url").map((part: any) => part.image_url.url) as string[];
+          const userContent = requests[firstRequest].messages.findLast(message => message.role === "user")?.content;
+          const images = Array.isArray(userContent) ? userContent.flatMap(part => part.type === "image_url" && part.image_url ? [part.image_url.url] : []) : [];
           expect(images).toHaveLength(2);
 
           const pixels = await app.evaluate(({ nativeImage }, urls) => urls.map(url => {
@@ -319,25 +357,29 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
         await writeFile(config, `${await readFile(config, "utf8")}${userEdit}`);
         page = await closeProject(app, page);
         await expectProjectClean(project, editingNext ? "next" : "vite", expectedConfig, pids);
-        (report.cycles as unknown[]).push({ name, cycle, stoppedPids: pids });
+        report.cycles.push({ name, cycle, stoppedPids: pids });
       }
 
       cleanConfigs.set(name, expectedConfig);
     }
 
-    report.untrustedIpc = await app.evaluate(async ({ BrowserWindow, ipcMain }) => {
+    const untrustedIpc = Value.Parse(UntrustedIpcSchema, await app.evaluate(async ({ BrowserWindow, ipcMain }) => {
       const attacker = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
 
       try {
         await attacker.loadURL("about:blank");
-        const channels = [...(ipcMain as unknown as { _invokeHandlers: Map<string, unknown> })._invokeHandlers.keys()].filter(name => name.startsWith("mauxi:"));
+
+        if (!("_invokeHandlers" in ipcMain) || !(ipcMain._invokeHandlers instanceof Map)) throw new Error("Electron IPC handlers are unavailable");
+        const channels = Array.from(ipcMain._invokeHandlers.keys(), String).filter(name => name.startsWith("mauxi:"));
         const results = await attacker.webContents.executeJavaScript(`Promise.all(${JSON.stringify(channels)}.map(async channel => { try { await require('electron').ipcRenderer.invoke(channel, {}); return { channel, rejected: false }; } catch (error) { return { channel, rejected: /Untrusted IPC sender/.test(String(error)) }; } }))`);
 
         return results;
       } finally { attacker.destroy(); }
-    });
-    expect((report.untrustedIpc as Array<{ rejected: boolean }>).length).toBeGreaterThan(20);
-    expect((report.untrustedIpc as Array<{ rejected: boolean }>).every(result => result.rejected)).toBe(true);
+    }));
+
+    report.untrustedIpc = untrustedIpc;
+    expect(untrustedIpc.length).toBeGreaterThan(20);
+    expect(untrustedIpc.every(result => result.rejected)).toBe(true);
     const auth = await readFile(path.join(profile, "auth.json"));
     await app.close(); app = undefined;
     app = await electron.launch({ executablePath: artifact, args: [], env, chromiumSandbox: true, timeout: 60_000 });
@@ -347,7 +389,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
     expect(await readFile(path.join(profile, "auth.json"))).toEqual(auth);
     expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => localStorage.getItem("alpha-workspace"))).toBe(fixture);
     expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => document.cookie)).toContain(`alpha-isolation=${fixture}`);
-    expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => [typeof window.mauxi, typeof (window as any).require])).toEqual(["undefined", "undefined"]);
+    expect(await page.frameLocator('[data-testid="desktop-preview"]').locator("body").evaluate(() => [typeof window.mauxi === "undefined", typeof require === "undefined"])).toEqual([true, true]);
     page = await closeProject(app, page);
     await expectProjectClean(reopenedProject, fixture, cleanConfigs.get(fixture)!, reopenedPids);
     report.reopenCleanup = { name: fixture, stoppedPids: reopenedPids, ownedFilesAbsent: true, configPreserved: true };

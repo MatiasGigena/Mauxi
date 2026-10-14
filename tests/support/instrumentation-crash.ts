@@ -20,7 +20,11 @@ class CrashStore extends JournalStore {
   }
 }
 
-const plan = await prepareIntegrationPlan(root, framework as "vite" | "next", ownedSession === "owned").catch(() => undefined);
+const supportedFramework = framework === "vite" || framework === "next" ? framework : undefined;
+
+if (!supportedFramework) throw new Error(`Unsupported framework: ${framework}`);
+
+const plan = await prepareIntegrationPlan(root, supportedFramework, ownedSession === "owned").catch(() => undefined);
 const store = new CrashStore(directory);
 
 if (operation === "apply") {

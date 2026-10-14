@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { defaultCanvas } from "../../src/application/canvas-state";
 
+declare global {
+  var releaseReplacement: (() => void) | undefined;
+}
+
 test("window handoff discards old layout saves without trusting unrelated IPC senders", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-canvas-handoff-"));
   const project = path.join(temp, "project");
@@ -27,7 +31,7 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
       const original = BrowserWindow.prototype.loadURL;
       BrowserWindow.prototype.loadURL = async function (...args) {
         BrowserWindow.prototype.loadURL = original;
-        await new Promise<void>(resolve => { (globalThis as any).releaseReplacement = resolve; });
+        await new Promise<void>(resolve => { globalThis.releaseReplacement = resolve; });
 
         return original.apply(this, args);
       };
@@ -35,11 +39,11 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
     const discovery = await oldPage.evaluate(root => window.mauxi!.inspectProjectPath(root), project);
     const next = app.waitForEvent("window");
     const active = await oldPage.evaluate(request => window.mauxi!.confirmProject(request), { discoveryId: discovery.discoveryId, planId: discovery.plans[0].id, mode: "start" as const });
-    await expect.poll(() => app.evaluate(() => !!(globalThis as any).releaseReplacement)).toBe(true);
+    await expect.poll(() => app.evaluate(() => !!globalThis.releaseReplacement)).toBe(true);
     const stale = defaultCanvas(); stale.camera.x = 987654;
     await oldPage.evaluate(input => window.mauxi!.saveCanvas(input), { workspaceId: active.workspaceId, canvas: stale });
     expect(stderr).not.toContain("Untrusted IPC sender");
-    await app.evaluate(() => (globalThis as any).releaseReplacement());
+    await app.evaluate(() => globalThis.releaseReplacement!());
     const page = await next;
     await expect(page.getByRole("button", { name: "Models & providers", exact: true })).toBeVisible();
     const restored = await page.evaluate(() => window.mauxi!.getBootstrap());
@@ -61,7 +65,7 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
 
     expect(rejection).toContain("Untrusted IPC sender");
   } finally {
-    await app.evaluate(() => (globalThis as any).releaseReplacement?.()).catch(() => undefined);
+    await app.evaluate(() => globalThis.releaseReplacement?.()).catch(() => undefined);
     await app.close();
     await rm(temp, { recursive: true, force: true });
   }

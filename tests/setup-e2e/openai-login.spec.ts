@@ -3,6 +3,12 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+type OpenAiLoginTest = { urls: string[]; failBrowser: boolean; tokenRequests: number };
+
+declare global {
+  var openAiLoginTest: OpenAiLoginTest | undefined;
+}
+
 test("OpenAI browser login works through the real SDK, IPC and desktop UI", async ({}, testInfo) => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-openai-desktop-"));
   const project = path.join(temp, "project");
@@ -19,8 +25,8 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
 
   try {
     await app.evaluate(({ shell }) => {
-      const state = { urls: [] as string[], failBrowser: false, tokenRequests: 0 };
-      (globalThis as any).loginTest = state;
+      const state: OpenAiLoginTest = { urls: [], failBrowser: false, tokenRequests: 0 };
+      globalThis.openAiLoginTest = state;
       Object.assign(shell, { openExternal: async (url: string) => {
         state.urls.push(url);
 
@@ -54,11 +60,11 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
     const manual = page.getByRole("textbox", { name: "Complete login in your browser, or paste the authorization code / redirect URL here:", exact: true });
     await expect(manual).toBeVisible();
     await expect(page.getByRole("button", { name: "Open sign-in", exact: true })).toBeVisible();
-    await expect.poll(() => app.evaluate(() => (globalThis as any).loginTest.urls.length)).toBe(1);
+    await expect.poll(() => app.evaluate(() => globalThis.openAiLoginTest!.urls.length)).toBe(1);
     await page.screenshot({ path: testInfo.outputPath("openai-browser-login.png") });
 
     await app.evaluate(async () => {
-      const auth = new URL((globalThis as any).loginTest.urls[0]);
+      const auth = new URL(globalThis.openAiLoginTest!.urls[0]);
       const callback = new URL("http://127.0.0.1:1455/auth/callback");
       callback.searchParams.set("code", "fake-code");
       callback.searchParams.set("state", auth.searchParams.get("state")!);
@@ -71,9 +77,9 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
     const provider = page.locator(".provider-list article").filter({ has: page.getByText("OpenAI Codex", { exact: true }) });
     await expect(provider).toContainText("Connected");
     await expect(page.getByRole("alert")).toHaveCount(0);
-    expect(await app.evaluate(() => (globalThis as any).loginTest.tokenRequests)).toBe(1);
+    expect(await app.evaluate(() => globalThis.openAiLoginTest!.tokenRequests)).toBe(1);
 
-    await app.evaluate(() => { (globalThis as any).loginTest.failBrowser = true; });
+    await app.evaluate(() => { globalThis.openAiLoginTest!.failBrowser = true; });
     await provider.getByRole("button", { name: "Re-authenticate", exact: true }).click();
     await page.getByRole("button", { name: "Browser login (default)", exact: true }).click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();

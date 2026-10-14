@@ -1,6 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { mockDesktop } from "./fixtures";
 
+interface ComposerMessageTest {
+  messageNode: Element | null;
+  messageAnimations: Array<{ frames: Keyframe[]; duration: EffectTiming["duration"] }>;
+}
+
+declare global {
+  interface Window { composerMessageTest?: ComposerMessageTest }
+}
+
 for (const mode of ["pointer", "keyboard", "reduced"] as const) {
   test(`message field hides and restores its draft: ${mode}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: mode === "reduced" ? "reduce" : "no-preference" });
@@ -9,14 +18,15 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     const message = page.getByRole("textbox", { name: "Message", exact: true });
     await message.fill("An unfinished draft");
     await page.evaluate(() => {
-      const state = (window as any).setupTest;
-      state.messageNode = document.querySelector("#chat-message");
-      state.messageAnimations = [];
+      const state: ComposerMessageTest = { messageNode: document.querySelector("#chat-message"), messageAnimations: [] };
+      window.composerMessageTest = state;
       const animate = HTMLElement.prototype.animate;
       HTMLElement.prototype.animate = function (frames, options) {
-        if (this.classList.contains("composer-message")) state.messageAnimations.push({ frames, options });
+        const animation = animate.call(this, frames, options);
 
-        return animate.call(this, frames, options);
+        if (this.classList.contains("composer-message")) state.messageAnimations.push({ frames: Array.isArray(frames) ? frames : [], duration: animation.effect?.getTiming().duration });
+
+        return animation;
       };
     });
     const toggle = page.getByRole("button", { name: "Models & providers", exact: true });
@@ -41,11 +51,11 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await expect(message).toHaveValue("An unfinished draft");
     await expect(toggle).toBeFocused();
     await expect(page.locator(".chat-settings")).toHaveCount(0);
-    expect(await page.evaluate(() => document.querySelector("#chat-message") === (window as any).setupTest.messageNode)).toBe(true);
-    const animations = await page.evaluate(() => (window as any).setupTest.messageAnimations);
+    expect(await page.evaluate(() => document.querySelector("#chat-message") === window.composerMessageTest!.messageNode)).toBe(true);
+    const animations = await page.evaluate(() => window.composerMessageTest!.messageAnimations);
 
     if (mode === "pointer") {
-      expect(animations.map((animation: any) => animation.options.duration)).toEqual([110, 160]);
+      expect(animations.map(animation => animation.duration)).toEqual([110, 160]);
       expect(animations[0].frames.at(-1)).toMatchObject({ opacity: 0, transform: "translateY(-12%) scale(.97)" });
       expect(animations[1].frames[0]).toMatchObject({ opacity: 0, transform: "translateY(15%) scale(.97)" });
     } else expect(animations).toEqual([]);

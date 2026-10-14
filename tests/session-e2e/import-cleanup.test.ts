@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { expect, it } from "vitest";
 import { WorkspaceManager } from "../../src/application/workspace-manager";
 import { JournalStore } from "../../src/infrastructure/instrumentation/journal";
@@ -13,9 +15,7 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
   const root = path.join(base, "project");
   const blocker = createServer((_request, response) => response.end("other project"));
   await new Promise<void>(resolve => blocker.listen(0, "127.0.0.1", resolve));
-  const address = blocker.address();
-
-  if (!address || typeof address === "string") throw new Error("No port");
+  const address = Value.Parse(Type.Object({ port: Type.Number() }), blocker.address());
   let lastState: unknown;
   const framework = kind === "vite" ? "vite" : "next";
   const manager = new WorkspaceManager(new JournalStore(path.join(base, "journals")), new WorkspaceStore(path.join(base, "settings")), path.join(base, "bridge-entry.js"));

@@ -1,5 +1,23 @@
 import type { Page } from "@playwright/test";
-import type { ActiveWorkspace, LaunchPlan, ProjectDiscovery } from "../../src/application/project-contract";
+import type { AgentEvent } from "../../src/application/agent-contract";
+import type { ActiveWorkspace, ConfirmProjectRequest, LaunchPlan, ProjectDiscovery, WorkspaceEvent } from "../../src/application/project-contract";
+
+export interface SetupTest {
+  next: ProjectDiscovery | null;
+  calls: number;
+  confirms: ConfirmProjectRequest[];
+  pending: boolean;
+  release: null | (() => void);
+  confirmPending: boolean;
+  confirmRelease: null | (() => void);
+  confirmError: boolean;
+  agentListeners: Array<(event: AgentEvent) => void>;
+  workspaceListeners: Array<(event: WorkspaceEvent) => void>;
+}
+
+declare global {
+  interface Window { setupTest?: SetupTest }
+}
 
 export function discovery(): ProjectDiscovery {
   const vite: LaunchPlan = {
@@ -33,16 +51,18 @@ export async function selectScript(page: Page, command: string) {
 export async function mockDesktop(page: Page) {
   await page.context().route("http://127.0.0.1:5173/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Test preview</title><body>Test preview</body>" }));
   await page.addInitScript((initial) => {
-    const state = { next: initial as typeof initial | null, calls: 0, confirms: [] as unknown[], pending: false, release: null as null | (() => void), confirmPending: false, confirmRelease: null as null | (() => void), confirmError: false, agentListeners: [] as Array<(event: unknown) => void>, workspaceListeners: [] as Array<(event: unknown) => void> };
-    (window as unknown as { setupTest: typeof state }).setupTest = state;
+    const state: SetupTest = { next: initial, calls: 0, confirms: [], pending: false, release: null, confirmPending: false, confirmRelease: null, confirmError: false, agentListeners: [], workspaceListeners: [] };
+    const unmocked = () => { throw new TypeError("This desktop API is not mocked"); };
+
+    window.setupTest = state;
     window.mauxi = {
       getBootstrap: async () => ({ mode: "project", active: null, recoveryConflicts: [] }),
-      onWorkspaceEvent: (listener: (event: unknown) => void) => { state.workspaceListeners.push(listener);
+      onWorkspaceEvent: listener => { state.workspaceListeners.push(listener);
 
- return () => { state.workspaceListeners = state.workspaceListeners.filter(item => item !== listener); }; },
-      onAgentEvent: (listener: (event: unknown) => void) => { state.agentListeners.push(listener);
+      return () => { state.workspaceListeners = state.workspaceListeners.filter(item => item !== listener); }; },
+      onAgentEvent: listener => { state.agentListeners.push(listener);
 
- return () => { state.agentListeners = state.agentListeners.filter((item) => item !== listener); }; },
+      return () => { state.agentListeners = state.agentListeners.filter((item) => item !== listener); }; },
       agentBootstrap: () => new Promise(() => {}),
       onBrowserState: () => () => {},
       browserState: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
@@ -57,7 +77,7 @@ export async function mockDesktop(page: Page) {
 
         return state.next;
       },
-      confirmProject: async (request: unknown) => {
+      confirmProject: async request => {
         state.confirms.push(request);
 
         if (state.confirmPending) await new Promise<void>(resolve => { state.confirmRelease = resolve; });
@@ -71,7 +91,23 @@ export async function mockDesktop(page: Page) {
           logs: [], connectedPreviews: [], cleanupConflicts: [],
         } satisfies ActiveWorkspace;
       },
-    } as unknown as typeof window.mauxi;
+      browserTest: unmocked,
+      inspectProjectPath: unmocked,
+      closeProject: unmocked,
+      bridgeReady: unmocked,
+      resolveSource: unmocked,
+      resolveFixtureSource: unmocked,
+      capturePreview: unmocked,
+      agentLogin: unmocked,
+      agentLogout: unmocked,
+      agentRefreshCatalog: unmocked,
+      agentSelectModel: unmocked,
+      agentSetThinking: unmocked,
+      agentSend: unmocked,
+      agentStop: unmocked,
+      agentDialogResponse: unmocked,
+      openAuthUrl: unmocked,
+    };
   }, discovery());
   await page.goto("/");
   await page.getByRole("button", { name: "Open Project", exact: true }).click();

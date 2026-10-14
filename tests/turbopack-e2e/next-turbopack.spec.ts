@@ -1,6 +1,10 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+
+const ReadyMessageSchema = Type.Object({ reactGrab: Type.Boolean(), url: Type.String() });
 
 let application: ElectronApplication;
 let page: Page;
@@ -22,13 +26,13 @@ test("Next.js Turbopack loads the Mauxi bridge without changing next.config", as
   const message = await page.evaluate(async () => {
     const session = crypto.randomUUID();
 
-    const ready = new Promise<Record<string, unknown>>((resolve, reject) => {
+    const ready = new Promise<object>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Timed out waiting for the Turbopack bridge")), 30_000);
       window.addEventListener("message", (event) => {
         if (event.origin !== "http://127.0.0.1:45001") return;
-        const value = event.data as Record<string, unknown>;
+        const value: unknown = event.data;
 
-        if (value.protocol !== "mauxi-preview-v1" || value.kind !== "ready" || value.session !== session) return;
+        if (!(value instanceof Object) || !("protocol" in value) || value.protocol !== "mauxi-preview-v1" || !("kind" in value) || value.kind !== "ready" || !("session" in value) || value.session !== session) return;
         clearTimeout(timeout);
         resolve(value);
       });
@@ -45,6 +49,7 @@ test("Next.js Turbopack loads the Mauxi bridge without changing next.config", as
     return ready;
   });
 
+  Value.Assert(ReadyMessageSchema, message);
   expect(message.reactGrab).toBe(true);
   expect(message.url).toContain("mauxiPreview=desktop");
 });
