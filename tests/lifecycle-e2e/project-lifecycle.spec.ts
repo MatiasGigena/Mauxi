@@ -13,7 +13,7 @@ const configPath = path.resolve("fixtures/vite/vite.config.ts");
 async function portIsFree(): Promise<boolean> {
   try { await fetch("http://127.0.0.1:45173", { signal: AbortSignal.timeout(500) });
 
- return false; }
+  return false; }
   catch { return true; }
 }
 

@@ -12,11 +12,11 @@ const limits = structuredClone(ARTIFACT_LIMITS);
 
 const root = () => { const dir = mkdtempSync(path.join(os.tmpdir(), "mauxi-budget-")); roots.push(dir);
 
- return dir; };
+return dir; };
 
 afterEach(() => { Object.assign(ARTIFACT_LIMITS, structuredClone(limits));
 
- for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 it("admits exactly the capture byte/count bounds and preserves old captures at capacity", () => {
   const dir = root(); ARTIFACT_LIMITS.captures = { files: 2, bytes: 5 };

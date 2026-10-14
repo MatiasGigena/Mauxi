@@ -34,7 +34,7 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
 
   const marker = await desktop().locator("body").evaluate(() => { const id = crypto.randomUUID(); document.body.dataset.instance = id;
 
- return id; });
+  return id; });
 
   const before = await page.locator('[data-preview-id="desktop"]').boundingBox();
   await button("Focus Desktop").click();

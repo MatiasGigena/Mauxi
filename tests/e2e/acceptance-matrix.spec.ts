@@ -130,7 +130,7 @@ test("Next: delayed server bytes, visible fallback, hydrated card and client rou
   for (;;) {
     const { done, value } = await reader.read();
 
- if (done) break;
+    if (done) break;
     html += new TextDecoder().decode(value);
 
     if (!fallbackAt && html.includes('data-testid="streaming-fallback"')) fallbackAt = Date.now();

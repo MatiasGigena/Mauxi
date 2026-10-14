@@ -21,14 +21,14 @@ export async function inspectDomSource(root: string, tag: string, testId: string
 
       if (++visited > 1000 || bytes >= 4 * 1024 * 1024) { bounded = true;
 
- return; }
+      return; }
 
       if (entry.name.startsWith(".") || ["node_modules", "dist", "build", "coverage"].includes(entry.name) || entry.isSymbolicLink()) continue;
       const filename = path.join(directory, entry.name);
 
       if (entry.isDirectory()) { await walk(filename);
 
- if (bounded || matches.length > 1) return; continue; }
+      if (bounded || matches.length > 1) return; continue; }
 
       if (!entry.isFile() || !/\.[jt]sx?$/.test(entry.name)) continue;
       const handle = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined);
@@ -41,7 +41,7 @@ export async function inspectDomSource(root: string, tag: string, testId: string
         if (!actual.startsWith(canonical + path.sep)) continue;
         const info = await handle.stat();
 
- if (!info.isFile() || info.size > 512 * 1024) { bounded = true; continue; }
+        if (!info.isFile() || info.size > 512 * 1024) { bounded = true; continue; }
 
         bytes += info.size;
         const content = await handle.readFile("utf8");

@@ -23,7 +23,7 @@ export class BrowserControl implements BrowserPort {
   state(): BrowserState { return structuredClone(this.value); }
   subscribe(listener: (state: BrowserState) => void) { this.listeners.add(listener);
 
- return () => { this.listeners.delete(listener); }; }
+  return () => { this.listeners.delete(listener); }; }
   private publish() { for (const listener of this.listeners) listener(this.state()); }
   async targets() { return this.adapter.targets(); }
   grant() {
@@ -97,9 +97,9 @@ export class BrowserControl implements BrowserPort {
       } catch (error) { this.revoke(`Control returned: ${error instanceof Error ? error.message : String(error)}`); throw error; }
       finally { this.active--;
 
- if (!this.adapter.release) this.value.releasing = this.active > 0 && this.value.owner !== "agent";
+      if (!this.adapter.release) this.value.releasing = this.active > 0 && this.value.owner !== "agent";
 
- if (this.value.owner === "agent") this.value.activity = "Agent controls both previews"; this.publish(); }
+      if (this.value.owner === "agent") this.value.activity = "Agent controls both previews"; this.publish(); }
     });
 
     this.tail = result.catch(() => undefined);

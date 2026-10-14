@@ -144,7 +144,7 @@ test("Next Link client navigation reaches the peer once without remounting the s
 
   const marker = await desktop.locator("body").evaluate(() => { document.body.dataset.instance = crypto.randomUUID();
 
- return document.body.dataset.instance; });
+  return document.body.dataset.instance; });
 
   await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByRole("link", { name: "Next client route", exact: true }).click();

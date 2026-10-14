@@ -197,7 +197,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         } else {
           const frame = frames.current[id];
 
- if (!frame) return;
+          if (!frame) return;
           const rect = frame.getBoundingClientRect();
           applyWheel({ ...message, deltaX: 0, ctrlKey: true, metaKey: false, clientX: rect.x + message.clientX * rect.width / Number(frame.width), clientY: rect.y + message.clientY * rect.height / Number(frame.height) });
         }
@@ -207,11 +207,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (message.kind === "selection-cancelled") { navigationRef.current.exit();
 
- return; }
+      return; }
 
       if (message.kind === "navigation-blocked") { if (active) void browser.owner("human"); setNotice("External navigation blocked. Browser control returned; previews stay within the approved project origin.");
 
- return; }
+      return; }
 
       if (message.kind === "route") {
         const route = projectRoute(message.url, origin);
@@ -316,7 +316,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); navigation.exit();
 
- return; }
+      return; }
 
       if (!action) return;
       event.preventDefault(); event.stopPropagation(); send(selecting, { kind: "picker-refine", action });
@@ -377,11 +377,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   function moveDrag(event: ReactPointerEvent) {
     if (browserLocked.current) { endDrag();
 
- return; }
+    return; }
 
     const start = drag.current;
 
- if (!start) return;
+    if (!start) return;
     const delta = { x: event.clientX - start.x, y: event.clientY - start.y };
 
     if (!dragMoved.current && Math.hypot(delta.x, delta.y) < 4) return;
@@ -460,7 +460,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         if (!mounted.current || !selectionsRef.current.some(item => item.capture.selectionId === capture.selectionId)) {
           releaseDraftCaptures([result.path]);
 
- return;
+          return;
         }
 
         previousCapturePaths.current = [...new Set([...previousCapturePaths.current, result.path])];
@@ -547,7 +547,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     if (!frame || !window.mauxi || !fullyVisible(id)) { setNotice("Fit the full viewport before capturing.");
 
- return; }
+    return; }
 
     try {
       const host = window.mauxi;
@@ -590,7 +590,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
- if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -623,6 +623,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 
- return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
+    return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
   </div>;
 }

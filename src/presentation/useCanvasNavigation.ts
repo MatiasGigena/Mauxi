@@ -44,7 +44,7 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
     restoreFrame.current = null; spaceDown.current = false; setSpace(false);
     stopWheel();
 
- if (notify) current.current.onExit();
+    if (notify) current.current.onExit();
     canvas.current?.focus({ preventScroll: true });
   }, [canvas, stopWheel]);
 
@@ -77,7 +77,7 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
 
       if (event.key === "Escape") { event.preventDefault(); exit();
 
- return; }
+      return; }
 
       if (event.code !== "Space" || event.ctrlKey || event.metaKey || event.altKey || target.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
       event.preventDefault(); startSpace();
