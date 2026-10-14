@@ -13,6 +13,9 @@ export interface PatchRecord {
   originalContent?: string;
   anchor: string;
   applied: boolean;
+  writeStarted?: boolean;
+  cleanupBeforeHash?: string;
+  cleanupAfterHash?: string;
   cleaned?: boolean;
   ownedParts?: string[];
 }

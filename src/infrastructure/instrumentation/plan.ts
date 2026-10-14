@@ -283,13 +283,14 @@ export async function applyIntegration(
       originalContent,
       anchor: plan.anchor ?? "<append>",
       applied: false,
+      writeStarted: false,
     }] : [],
     artifacts: createdArtifacts.map((artifact) => ({ path: artifact.path, hash: sha256(artifact.content), created: true, written: false })),
     conflicts: [],
   };
   for (const patch of plan.sessionPatches ?? []) {
     if (await readFile(patch.path, "utf8") !== patch.before) throw new Error("Configuration changed before session setup.");
-    journal.patches.push({ path: patch.path, originalHash: sha256(patch.before), originalContent: patch.before, appliedHash: null, ownedText: "", ownedParts: plan.sessionRemovals, anchor: "<session>", applied: false });
+    journal.patches.push({ path: patch.path, originalHash: sha256(patch.before), originalContent: patch.before, appliedHash: null, ownedText: "", ownedParts: plan.sessionRemovals, anchor: "<session>", applied: false, writeStarted: false });
   }
   if (plan.runtimeDirectory) {
     journal.runtime = { path: plan.runtimeDirectory, token: randomUUID(), created: false };
@@ -328,15 +329,22 @@ export async function applyIntegration(
     const patched = plan.placement === "append"
       ? `${originalContent}${plan.patch}`
       : originalContent.replace(plan.anchor!, () => `${plan.anchor}${plan.patch}`);
+    const record = journal.patches[0];
+    record.writeStarted = true;
+    await store.write(journal);
+    if (sha256(await readFile(plan.configPath, "utf8")) !== record.originalHash) throw new Error(`File changed while setup was being prepared: ${plan.configPath}`);
     await atomicWrite(plan.configPath, patched, configMode);
-    journal.patches[0].applied = true;
-    journal.patches[0].appliedHash = sha256(patched);
+    record.applied = true;
+    record.appliedHash = sha256(patched);
   }
   for (const patch of plan.sessionPatches ?? []) {
     const info = await lstat(patch.path);
     if (!info.isFile() || info.isSymbolicLink() || await readFile(patch.path, "utf8") !== patch.before) throw new Error("Configuration changed during session setup.");
-    await atomicWrite(patch.path, patch.after, info.mode);
     const record = journal.patches.find(item => item.path === patch.path)!;
+    record.writeStarted = true;
+    await store.write(journal);
+    if (await readFile(patch.path, "utf8") !== patch.before) throw new Error("Configuration changed during session setup.");
+    await atomicWrite(patch.path, patch.after, info.mode);
     record.applied = true;
     record.appliedHash = sha256(patch.after);
     await store.write(journal);
@@ -366,8 +374,16 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
       continue;
     }
     const current = await readFile(patch.path, "utf8");
+    const currentHash = sha256(current);
     const parts = patch.ownedParts ?? [patch.ownedText];
-    if (!patch.applied && !current.includes("mauxi-owned:") && parts.every(part => !part || !current.includes(part))) {
+    if (patch.cleanupBeforeHash !== undefined && currentHash === patch.cleanupAfterHash) {
+      patch.applied = false;
+      patch.cleaned = true;
+      await store.write(journal);
+      continue;
+    }
+    if (patch.writeStarted === false && !patch.applied && patch.appliedHash === null && patch.cleanupAfterHash === undefined
+      && !current.includes("mauxi-owned:") && parts.every(part => !part || !current.includes(part))) {
       patch.cleaned = true;
       await store.write(journal);
       continue;
@@ -375,11 +391,18 @@ export async function cleanupIntegration(transactionId: string, store: JournalSt
     if (parts.every(part => part && current.split(part).length === 2)) {
       let cleaned = current;
       for (const part of parts) cleaned = cleaned.replace(part, "");
+      patch.cleanupBeforeHash = currentHash;
+      patch.cleanupAfterHash = sha256(cleaned);
+      await store.write(journal);
+      if (sha256(await readFile(patch.path, "utf8")) !== currentHash) {
+        journal.conflicts.push(`Patched file changed during cleanup; preserving it for retry: ${patch.path}`);
+        continue;
+      }
       await atomicWrite(patch.path, cleaned, currentFile.mode);
       patch.applied = false;
       patch.cleaned = true;
       await store.write(journal);
-    } else journal.conflicts.push(`Owned patch changed or missing: ${patch.path}`);
+    } else journal.conflicts.push(`Owned patch changed or missing; no durable cleanup proof: ${patch.path}`);
   }
   for (const artifact of journal.artifacts) {
     if (!artifact.created) continue;

@@ -22,7 +22,8 @@ async function setup(framework: "vite" | "next") {
 for (const framework of ["vite", "next"] as const) {
   for (const operation of ["apply", "cleanup"] as const) {
     for (const when of ["before", "after"] as const) {
-      const boundaries = framework === "next" && operation === "apply" ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
+      const lastBoundary = framework === "next" && operation === "cleanup" ? 4 : 5;
+      const boundaries = Array.from({ length: lastBoundary }, (_, index) => index + 1);
       it.each(boundaries)(`${framework} SIGKILL ${when} ${operation} journal write %i preserves recoverability`, async boundary => {
         const { root, bridge, store, plan } = await setup(framework);
         if (operation === "cleanup") await applyIntegration(plan, store, bridge);
