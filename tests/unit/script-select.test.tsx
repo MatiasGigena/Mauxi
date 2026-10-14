@@ -4,6 +4,7 @@ import { ScriptSelect } from "../../src/presentation/ScriptSelect";
 import { discovery } from "../setup-e2e/fixtures";
 
 const callbacks = { onChange: () => {}, onOpenChange: () => {} };
+
 describe("inline script selector", () => {
   it("renders a named command-only control instead of a native select", () => {
     const plans = discovery().plans;
@@ -28,6 +29,7 @@ describe("inline script selector", () => {
   });
   it("does not expose a menu while disabled or when its selection is missing", () => {
     const plans = discovery().plans;
+
     for (const props of [{ value: plans[0].id, disabled: true }, { value: "missing", disabled: false }]) {
       const html = renderToStaticMarkup(<ScriptSelect plans={plans} open keyboard={false} {...props} {...callbacks} />);
       expect(html).toContain('disabled=""');

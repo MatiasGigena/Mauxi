@@ -5,10 +5,13 @@ import { afterEach, expect, it } from "vitest";
 import { loadModelPreference, saveModelPreference } from "../../src/infrastructure/agent/model-preference";
 
 const roots: string[] = [];
+
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+
 async function profile() {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-model-preference-"));
   roots.push(root);
+
   return root;
 }
 

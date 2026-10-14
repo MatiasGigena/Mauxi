@@ -11,6 +11,7 @@ test("both setup rows reveal labels without a filled hover or layout shift", asy
   page.on("pageerror", error => errors.push(error.message));
   await mockDesktop(page);
   await page.mouse.move(0, 0);
+
   for (const { selector, label, close } of rows) {
     const row = page.locator(selector);
     const text = row.locator(".row-link-label");
@@ -41,6 +42,7 @@ test("both setup rows reveal labels without a filled hover or layout shift", asy
     await page.mouse.move(0, 0);
     await expect(text).toHaveCSS("opacity", "0");
   }
+
   expect(errors).toEqual([]);
 });
 
@@ -48,6 +50,7 @@ test("keyboard reveals are immediate and reduced motion has no label translation
   await mockDesktop(page);
   await page.mouse.move(0, 0);
   await page.keyboard.press("Tab");
+
   for (const { selector } of rows) {
     const row = page.locator(selector);
     const text = row.locator(".row-link-label");
@@ -61,8 +64,10 @@ test("keyboard reveals are immediate and reduced motion has no label translation
     await row.press("Escape");
     await expect(row).toHaveAttribute("aria-expanded", "false");
   }
+
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("heading", { name: /Let’s work/ }).click();
+
   for (const { selector } of rows) {
     const text = page.locator(`${selector} .row-link-label`);
     await expect(text).toHaveCSS("transform", "none");
@@ -77,6 +82,7 @@ test.describe("touch", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   test("both labels remain visible without hover", async ({ page }) => {
     await mockDesktop(page);
+
     for (const { selector, close } of rows) {
       const row = page.locator(selector);
       const text = row.locator(".row-link-label");
@@ -89,6 +95,7 @@ test.describe("touch", () => {
       await expect(row).toHaveAttribute("aria-expanded", "false");
       await expect(text).toHaveCSS("opacity", "1");
     }
+
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 });

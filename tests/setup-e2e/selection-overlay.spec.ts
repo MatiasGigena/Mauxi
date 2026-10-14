@@ -6,17 +6,21 @@ import { mockDesktop } from "./fixtures";
 const preview = (page: Page, id = "desktop") => page.frameLocator(`[data-testid="${id}-preview"]`);
 const markers = (frame: FrameLocator) => frame.locator("[data-mauxi-selected]");
 const chips = (page: Page) => page.locator(".selection-chip");
+
 async function picker(page: Page, label = "Desktop") {
   await page.getByRole("button", { name: `${label} actions`, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: `Select in ${label}`, exact: true }).click();
 }
+
 async function finishCapture(page: Page, index: number) {
   await page.evaluate(index => (window as any).overlayTest.resolvers[index](), index);
 }
+
 async function aligned(frame: FrameLocator, target = "one", index = 0) {
   await expect.poll(async () => {
     const a = await frame.locator(`#${target}`).boundingBox();
     const b = await markers(frame).nth(index).boundingBox();
+
     return a && b ? Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.width - b.width), Math.abs(a.height - b.height)) : Infinity;
   }).toBeLessThan(1);
 }
@@ -26,6 +30,7 @@ test.beforeEach(async ({ page }) => {
   const bridge = await readFile("dist-electron/bridge-entry.js", "utf8");
   await page.route("http://127.0.0.1:5173/**", route => {
     if (new URL(route.request().url()).pathname === "/bridge.js") return route.fulfill({ contentType: "text/javascript", body: bridge });
+
     return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>
       body { margin:0; padding:80px 24px; min-height:2400px; background:#fafaf9; font:16px system-ui; }
       h1 { margin:0 0 24px; font-size:28px; }
@@ -37,6 +42,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.exposeFunction("inspectCaptureChrome", async (id: string) => {
     const frame = preview(page, id);
+
     return {
       hover: await frame.locator("[data-mauxi-hover]").isVisible(),
       markers: await markers(frame).evaluateAll(nodes => nodes.some(node => getComputedStyle(node).visibility !== "hidden" && !(node as HTMLElement).hidden)),
@@ -46,18 +52,29 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => {
     const state = (window as any).overlayTest = { hold: false, fail: false, captures: [] as unknown[], resolvers: [] as Array<() => void>, released: [] as string[], accept: true, sent: [] as unknown[] };
     window.addEventListener("message", event => { if (event.data?.kind === "selection") (state as any).lastSelection = event.data; });
-    window.mauxi!.onBrowserState = listener => { (state as any).browserState = listener; return () => {}; };
+    window.mauxi!.onBrowserState = listener => { (state as any).browserState = listener;
+
+ return () => {}; };
+
     window.mauxi!.bridgeReady = async () => {};
+
     window.mauxi!.capturePreview = async request => {
       const chrome = await (window as any).inspectCaptureChrome(request.previewId);
       const index = state.captures.length;
       state.captures.push({ request, chrome });
+
       if (state.hold) await new Promise<void>(resolve => { state.resolvers[index] = resolve; });
+
       if (state.fail) throw new Error("Synthetic capture failure");
+
       return { path: `/test-capture-${index}.png`, width: 100, height: 100 };
     };
+
     window.mauxi!.releaseCaptures = async paths => { state.released.push(...paths); };
-    window.mauxi!.agentSend = async request => { state.sent.push(request); return { accepted: state.accept }; };
+
+    window.mauxi!.agentSend = async request => { state.sent.push(request);
+
+ return { accepted: state.accept }; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
@@ -67,6 +84,7 @@ test.beforeEach(async ({ page }) => {
       models: [{ key: "fake/one", name: "Fake", provider: "fake", id: "one", available: true, supportsImages: true, thinkingLevels: ["off"] }],
       selectedModel: "fake/one", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
+
     (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
   });
 });
@@ -85,11 +103,15 @@ test("picker cursor overrides button, link and nested SVG cursors and restores p
     document.head.append(style);
   });
   const targets = ["#one", "#cursor-link", "#cursor-nested", "#cursor-nested span", "#cursor-nested svg", "#cursor-nested path", "#cursor-input", "#cursor-disabled"];
+
   const before = await frame.locator("body").evaluate((_, selectors) => selectors.map(selector => {
     const node = document.querySelector(selector)!;
+
     return { style: node.getAttribute("style"), cursor: getComputedStyle(node).cursor };
   }), targets);
+
   await picker(page);
+
   for (const selector of targets) await expect(frame.locator(selector)).toHaveCSS("cursor", "crosshair");
   await frame.locator("#one").hover();
   await expect(frame.locator("#one")).toHaveCSS("cursor", "crosshair");
@@ -102,6 +124,7 @@ test("picker cursor overrides button, link and nested SVG cursors and restores p
   await page.keyboard.press("Escape");
   await expect.poll(() => frame.locator("body").evaluate((_, selectors) => selectors.map(selector => {
     const node = document.querySelector(selector)!;
+
     return { style: node.getAttribute("style"), cursor: getComputedStyle(node).cursor };
   }), targets)).toEqual(before);
   await expect(frame.locator("html")).toHaveCSS("cursor", "help");
@@ -146,6 +169,7 @@ test("teal hover chrome is isolated from page CSS and labels stay inside the vie
   await mobile.locator("#one").hover();
   expect(await mobile.locator("[data-mauxi-picker-label]").evaluate(node => {
     const rect = node.getBoundingClientRect();
+
     return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
   })).toBe(true);
 });
@@ -238,11 +262,13 @@ test("duplicate picks share a marker and draft eviction removes old markers", as
   await expect(markers(frame)).toHaveCount(1);
   await chips(page).first().getByRole("button").click();
   await expect(markers(frame)).toHaveCount(1);
+
   for (const id of ["two", "three", "four", "five", "six", "seven", "eight", "nine"]) await frame.locator(`#${id}`).click();
   await expect(chips(page)).toHaveCount(8);
   await expect(markers(frame)).toHaveCount(8);
   await expect(chips(page).filter({ hasText: "Target one" })).toHaveCount(0);
   await page.keyboard.press("Escape");
+
   for (let i = 0; i < 8; i++) await chips(page).first().getByRole("button").click();
   await expect(markers(frame)).toHaveCount(0);
 });
@@ -255,6 +281,7 @@ test("stale bridge messages cannot clear marks and browser ownership hides them 
   await page.evaluate(() => {
     const state = (window as any).overlayTest;
     const target = document.querySelector<HTMLIFrameElement>('[data-testid="desktop-preview"]')!.contentWindow!;
+
     for (const invalid of [{ generation: "old-document" }, { session: "other-workspace" }]) {
       target.postMessage({ ...state.lastSelection, ...invalid, kind: "selection-markers", selectionIds: [] }, "http://127.0.0.1:5173");
     }

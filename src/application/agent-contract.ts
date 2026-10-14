@@ -2,6 +2,7 @@ import type { StoredSelection } from "./selection-state";
 import type { ResourceView } from "./design-resource-contract";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
 export type AgentThinkingLevel = typeof THINKING_LEVELS[number];
 
 export interface AgentProviderView {
@@ -146,11 +147,14 @@ export function assertShortString(value: unknown, label: string, max = 4_096): a
 
 export function selectionContext(selections: readonly StoredSelection[]): string {
   if (!selections.length) return "";
+
   const blocks = selections.map(({ capture }, index) => {
     const source = capture.source.verification === "verified"
       ? `${capture.source.filePath}:${capture.source.lineNumber ?? "?"}:${capture.source.columnNumber ?? "?"} (SHA-256 ${capture.source.fileFingerprint})`
       : `${capture.source.verification}: ${capture.source.filePath || "no source"}`;
+
     const styles = Object.entries(capture.computedStyles).slice(0, 40).map(([key, value]) => `${key}: ${String(value).slice(0, 300)}`).join("; ");
+
     return [
       `Selection ${index + 1} [${capture.previewId}]`,
       `URL: ${capture.url}`,
@@ -163,5 +167,6 @@ export function selectionContext(selections: readonly StoredSelection[]): string
       `Screenshot: ${capture.screenshot.status === "captured" ? "attached as image" : `unavailable (${capture.screenshot.reason ?? capture.screenshot.status})`}`,
     ].join("\n");
   });
+
   return `\n\n<selected_context>\n${blocks.join("\n\n")}\n</selected_context>`;
 }

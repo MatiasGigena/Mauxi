@@ -26,6 +26,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
     expect(preview.y + preview.height).toBeGreaterThan(dockBounds.y + dockBounds.height);
     expect(await dock.evaluate(node => {
       const box = node.getBoundingClientRect();
+
       return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
     })).toBe(true);
     expect(await canvas.evaluate(node => node.contains(document.elementFromPoint(5, innerHeight - 5)))).toBe(true);
@@ -38,6 +39,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
         models: [], messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       } });
       window.mauxi!.agentLogin = async () => { emit({ type: "dialog", dialog: { id: "overlay-login", kind: "secret", title: "Provider 0", message: "Enter API key" } }); };
+
       window.mauxi!.agentDialogResponse = async () => { emit({ type: "dialog-dismissed", id: "overlay-login" }); };
     });
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();

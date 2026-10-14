@@ -2,7 +2,9 @@ import { Component, createRef, type ButtonHTMLAttributes } from "react";
 import { ArrowUpRight, Square } from "lucide-react";
 
 export const ACTION_LABELS = { send: "Send", followUp: "Follow up", stop: "Stop", stopping: "Stopping…" } as const;
+
 type Action = keyof typeof ACTION_LABELS;
+
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & { action: Action; instant: boolean };
 
 export class ComposerAction extends Component<Props, {}, number | null> {
@@ -32,18 +34,25 @@ export class ComposerAction extends Component<Props, {}, number | null> {
     if (before === null) return;
     this.cancel();
     const surface = this.surface.current;
+
     if (!surface || this.props.instant || this.preference?.matches) return;
     const width = surface.getBoundingClientRect().width;
+
     if (!width || Math.abs(width - before) < .5) return;
+
     const animation = surface.animate([
       { transform: `scaleX(${before / width})` }, { transform: "none" },
     ], { duration: width > before ? 180 : 140, easing: "cubic-bezier(0.77, 0, 0.175, 1)" });
+
     this.animation = animation;
-    animation.onfinish = () => { animation.cancel(); if (this.animation === animation) this.animation = undefined; };
+    animation.onfinish = () => { animation.cancel();
+
+ if (this.animation === animation) this.animation = undefined; };
   }
 
   render() {
     const { action, instant, ...props } = this.props;
+
     return <button className="primary send-action" {...props} aria-label={ACTION_LABELS[action]} data-action={action} data-instant={instant || undefined}>
       <span ref={this.surface} className="send-action-surface" aria-hidden="true" />
       <span className="send-action-content" aria-hidden="true">

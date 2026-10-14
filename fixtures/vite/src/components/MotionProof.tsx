@@ -10,6 +10,7 @@ export function MotionProof() {
     const query = matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => setReduced(query.matches);
     update(); query.addEventListener("change", update);
+
     return () => query.removeEventListener("change", update);
   }, []);
   const target = useRef<HTMLButtonElement>(null);
@@ -19,8 +20,10 @@ export function MotionProof() {
     media.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.to(target.current, { x: 48, duration: 1, repeat: -1, yoyo: true, ease: "none" });
     });
+
     return () => media.revert();
   }, []);
+
   return (
     <section aria-label="Animation fixture" style={{ padding: "24px 0", overflow: "hidden" }}>
       <h2>Motion and GSAP</h2>

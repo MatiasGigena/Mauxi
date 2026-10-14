@@ -3,6 +3,7 @@ import { mockDesktop } from "./fixtures";
 
 const operation = JSON.stringify({ executable: "mkdir", args: ["-p", "src/app/header-variants"], cwd: "/projects/rondo", purpose: "Create an isolated route for the header variants." }, null, 2);
 const warnings = ["Commands may change caches, databases, remote APIs, or activity outside checkpoint coverage.", "Approval applies only to this exact executable, arguments, and working directory.", "Commands and dependency installs can execute project code."];
+
 async function openWorkspace(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
@@ -11,15 +12,19 @@ async function openWorkspace(page: Page) {
     state.responses = [];
     window.mauxi!.agentDialogResponse = async response => {
       state.responses.push(response);
+
       if (state.fail) throw new Error("Permission response could not be delivered.");
+
       if (state.pending) await new Promise<void>(resolve => { state.releaseResponse = resolve; });
     };
   });
 }
+
 async function requestApproval(page: Page, title = "Approve command", exactOperation = operation) {
   await page.evaluate(({ title, operation, warnings }) => {
     (window as any).setupTest.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: { id: "permission-fixture", kind: "approval", title, message: "Create the directory for three header variants.", operation, warnings } }));
   }, { title, operation: exactOperation, warnings });
+
   return page.getByRole("dialog", { name: title, exact: true });
 }
 
@@ -29,16 +34,20 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await openWorkspace(page);
     await page.getByRole("button", { name: "Desktop actions", exact: true }).click();
     const actions = page.getByRole("dialog", { name: "Desktop actions", exact: true });
+
     const theme = await actions.evaluate(node => {
       const s = getComputedStyle(node);
       const h = getComputedStyle(node.querySelector("h2")!);
+
       return [s.backgroundColor, s.borderColor, s.borderRadius, s.padding, s.boxShadow, s.fontFamily, h.fontSize, h.fontWeight];
     });
+
     await actions.getByRole("button", { name: "Close actions" }).click();
     const dialog = await requestApproval(page, "Approve command", operation + "\n" + "long-path-".repeat(50));
     expect(await dialog.evaluate(node => {
       const s = getComputedStyle(node);
       const h = getComputedStyle(node.querySelector("h2")!);
+
       return [s.backgroundColor, s.borderColor, s.borderRadius, s.padding, s.boxShadow, s.fontFamily, h.fontSize, h.fontWeight];
     })).toEqual(theme);
     await expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -51,6 +60,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await expect(approve.locator("svg.lucide-arrow-up-right")).toHaveCount(1);
     expect(await dialog.evaluate(node => {
       const rect = node.getBoundingClientRect();
+
       return { overflow: node.scrollWidth > node.clientWidth, contained: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight };
     })).toEqual({ overflow: false, contained: true });
     await page.screenshot({ path: testInfo.outputPath("permission-dialog.png") });
@@ -70,6 +80,7 @@ for (const action of ["Deny", "Deny and close", "Escape"]) {
     await page.keyboard.press("Tab");
     await expect(close).toBeFocused();
     await expect(close).toHaveCSS("outline-color", "rgb(33, 143, 144)");
+
     if (action === "Escape") await page.keyboard.press("Escape");
     else await dialog.getByRole("button", { name: action, exact: true }).click();
     await expect(dialog).toHaveCount(0);

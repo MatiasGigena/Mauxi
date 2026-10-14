@@ -8,7 +8,9 @@ import { JournalStore, type InstrumentationJournal } from "../../src/infrastruct
 import { stopSessionProcess } from "../../src/infrastructure/instrumentation/session-cleanup";
 
 const roots: string[] = [];
+
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+
 async function setup(config = 'module.exports = { allowedDevOrigins: ["custom.local"], distDir: "build", typescript: { tsconfigPath: "tsconfig.json" } };\n') {
   const base = await mkdtemp(path.join(os.tmpdir(), "mauxi-session-")); roots.push(base);
   const root = path.join(base, "app"); await mkdir(root);
@@ -18,6 +20,7 @@ async function setup(config = 'module.exports = { allowedDevOrigins: ["custom.lo
   const bridge = path.join(base, "bridge-entry.js"); await writeFile(bridge, "// bridge\n");
   const store = new JournalStore(path.join(base, "journals"));
   const plan = await prepareIntegrationPlan(root, "next", true);
+
   return { root, store, plan, bridge, config };
 }
 

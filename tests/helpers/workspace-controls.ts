@@ -9,8 +9,10 @@ export async function toggleRoutes(page: Page, expected?: boolean) {
   await page.getByRole("button", { name: "Desktop actions", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Desktop actions" });
   const toggle = dialog.getByRole("button", { name: "Link preview routes", exact: true });
+
   if (expected !== undefined) await expect(toggle).toHaveAttribute("aria-pressed", String(expected));
   await toggle.click();
+
   if (expected !== undefined) await expect(toggle).toHaveAttribute("aria-pressed", String(!expected));
   await dialog.getByRole("button", { name: "Close actions" }).click();
 }
@@ -33,22 +35,29 @@ async function pan(page: Page, x: number, y: number) {
 
 export async function fitCanvas(page: Page) {
   const unfocus = page.getByRole("button", { name: /^Unfocus (Desktop|Mobile)$/ });
+
   if (await unfocus.isVisible()) await unfocus.click();
   const zoom = page.getByRole("slider", { name: "Camera zoom" });
+
   const fit = await page.evaluate(() => {
     const canvas = document.querySelector('[data-testid="canvas"]')!.getBoundingClientRect();
     const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].filter(node => getComputedStyle(node).visibility !== "hidden").map(node => node.getBoundingClientRect());
     const current = Number(document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value);
     const width = Math.max(...boards.map(r => r.right)) - Math.min(...boards.map(r => r.left));
     const height = Math.max(...boards.map(r => r.bottom)) - Math.min(...boards.map(r => r.top));
+
     return Math.max(.25, Math.min(2, Math.floor(current * Math.min((canvas.width - 48) / width, (canvas.height - 96) / height) * 100) / 100));
   });
+
   await zoom.fill(String(fit));
+
   const delta = await page.evaluate(() => {
     const canvas = document.querySelector('[data-testid="canvas"]')!.getBoundingClientRect();
     const boards = [...document.querySelectorAll<HTMLElement>(".artboard")].filter(node => getComputedStyle(node).visibility !== "hidden").map(node => node.getBoundingClientRect());
+
     return { x: (Math.min(...boards.map(r => r.left)) + Math.max(...boards.map(r => r.right)) - canvas.left - canvas.right) / 2, y: (Math.min(...boards.map(r => r.top)) + Math.max(...boards.map(r => r.bottom)) - canvas.top - canvas.bottom) / 2 };
   });
+
   await pan(page, delta.x, delta.y);
 }
 

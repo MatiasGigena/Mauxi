@@ -19,19 +19,26 @@ async function openProviders(page: Page) {
       state.emit({ type: "dialog", dialog: { id: "login-key", kind: "secret", title: providerId, message: "Enter your API key" } });
       await new Promise<void>(resolve => { state.finishLogin = resolve; });
     };
+
     window.mauxi!.agentDialogResponse = async response => {
       state.responses.push(response);
+
       if (state.rejectResponse) throw new Error("Could not save credentials");
+
       if (state.nextStep) {
         state.emit({ type: "dialog", dialog: { id: "manual-code", kind: "manual_code", title: "Complete sign-in", message: "Enter the verification code" } });
         state.nextStep = false;
+
         return;
       }
+
       state.emit({ type: "dialog-dismissed", id: response.dialogId });
+
       if (!response.cancelled) {
         state.snapshot.models = [{ key: "connected/model", provider: "Connected", id: "model", name: "Connected model", available: true, supportsImages: true, thinkingLevels: ["off"] }];
         state.emit({ type: "snapshot", snapshot: state.snapshot });
       }
+
       state.finishLogin();
     };
   });
@@ -41,11 +48,13 @@ async function openProviders(page: Page) {
   await settings.evaluate(node => { (window as any).setupTest.settingsNode = node; });
   const provider = page.getByRole("button", { name: "Provider 18 API key", exact: true });
   await provider.scrollIntoViewIfNeeded();
+
   return { settings, provider };
 }
 
 test("provider choice subtitles are hidden regardless of SDK wording", async ({ page }) => {
   const { settings, provider } = await openProviders(page);
+
   for (const [title, message] of [
     ["Amazon Bedrock", "Select Amazon Bedrock authentication method:"],
     ["Radius", "Sign in to Radius:"],
@@ -82,9 +91,11 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
       const animate = HTMLElement.prototype.animate;
       HTMLElement.prototype.animate = function (frames, options) {
         if (this.dataset.composerMotion) state.motion.push({ key: this.dataset.composerMotion, frames, options });
+
         return animate.call(this, frames, options);
       };
     });
+
     if (mode === "keyboard") { await provider.focus(); await provider.press("Enter"); }
     else await provider.click();
     const dialog = page.getByRole("dialog", { name: "provider-18" });
@@ -104,6 +115,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     const proceed = dialog.getByRole("button", { name: "Continue", exact: true });
     await expect(proceed).toBeDisabled();
     const motion = await page.evaluate(() => (window as any).setupTest.motion);
+
     if (mode === "pointer") {
       expect(motion).toEqual(expect.arrayContaining([
         expect.objectContaining({ key: "panel", options: expect.objectContaining({ duration: 110 }) }),
@@ -118,6 +130,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await cancel.hover();
     await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await page.screenshot({ path: testInfo.outputPath("provider-login.png") });
+
     if (mode === "keyboard") await input.press("Escape");
     else await cancel.click();
     await expect(page.locator(".agent-dialog-inline")).toHaveCount(0);
@@ -126,6 +139,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     expect(await settings.evaluate(node => node.scrollTop)).toBe(scroll);
     expect(await settings.evaluate(node => node === (window as any).setupTest.settingsNode)).toBe(true);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
+
     if (mode === "pointer") {
       expect(await page.evaluate(() => (window as any).setupTest.motion)).toEqual(expect.arrayContaining([
         expect.objectContaining({ key: "login", options: expect.objectContaining({ duration: 110 }) }),
@@ -133,6 +147,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
         expect.objectContaining({ key: "toolbar", options: expect.objectContaining({ duration: 160 }) }),
       ]));
     }
+
     expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([
       { workspaceId: "test-workspace", dialogId: "login-key", cancelled: true, value: undefined },
     ]);
@@ -173,6 +188,7 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
   await page.evaluate(() => {
     const state = (window as any).setupTest;
     window.mauxi!.openAuthUrl = async url => { state.openedUrl = url; };
+
     state.emit({ type: "dialog", dialog: {
       id: "browser-sign-in", kind: "progress", title: "Sign in with your browser", message: "Complete sign-in, then return here.", cancellable: true,
       links: [{ url: "https://example.com/login", label: "Open sign-in page" }],
@@ -186,12 +202,14 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
   expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await dialog.getByRole("button", { name: "Open sign-in page" }).click();
   expect(await page.evaluate(() => (window as any).setupTest.openedUrl)).toBe("https://example.com/login");
+
   const interrupted = await page.evaluate(async () => {
     const button = [...document.querySelectorAll<HTMLButtonElement>(".provider-list button")].find(node => node.textContent === "Provider 18 API key")!;
     await new Promise<void>(resolve => {
       const observer = new MutationObserver(() => {
         if (!button.disabled && !button.closest("[inert]")) { observer.disconnect(); resolve(); }
       });
+
       observer.observe(document.querySelector(".chat-dock")!, { subtree: true, attributes: true, attributeFilter: ["disabled", "inert"] });
       const cancel = document.querySelector<HTMLButtonElement>(".agent-dialog-inline .change-project")!;
       cancel.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -200,8 +218,10 @@ test("OAuth progress uses the replacement view on a narrow screen and survives a
     const exiting = !!document.querySelector(".composer-login")?.getAnimations().length;
     button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     button.click();
+
     return exiting;
   });
+
   expect(interrupted).toBe(true);
   const input = page.getByLabel("Enter your API key");
   await expect(input).toBeFocused();

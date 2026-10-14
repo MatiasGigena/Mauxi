@@ -30,39 +30,54 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
     typeahead.current = { text: "", time: 0 };
     setActive(index); onOpenChange(true, fromKeyboard);
   }
+
   function choose(planId: string, fromKeyboard: boolean) {
     if (unavailable) return;
     onChange(planId); onOpenChange(false, fromKeyboard);
     trigger.current?.focus({ preventScroll: true });
   }
+
   useLayoutEffect(() => {
     if (open && unavailable) onOpenChange(false, true);
   }, [open, unavailable, onOpenChange]);
   useEffect(() => {
     if (!expanded) return;
+
     function outside(event: PointerEvent) {
       if (!root.current?.contains(event.target as Node)) onOpenChange(false, false);
     }
+
     document.addEventListener("pointerdown", outside);
+
     return () => document.removeEventListener("pointerdown", outside);
   }, [expanded, onOpenChange]);
   useLayoutEffect(() => {
     const option = document.getElementById(activeId);
+
     if (!expanded || !option || !list.current) return;
     const itemBounds = option.getBoundingClientRect();
     const listBounds = list.current.getBoundingClientRect();
+
     if (itemBounds.top < listBounds.top) list.current.scrollTop -= listBounds.top - itemBounds.top;
     else if (itemBounds.bottom > listBounds.bottom) list.current.scrollTop += itemBounds.bottom - listBounds.bottom;
   }, [expanded, activeId]);
 
   function keys(event: KeyboardEvent<HTMLButtonElement>) {
     if (unavailable || event.metaKey || event.ctrlKey || event.altKey) return;
+
     if (event.key === "Escape" && expanded) {
-      event.preventDefault(); event.stopPropagation(); onOpenChange(false, true); return;
+      event.preventDefault(); event.stopPropagation(); onOpenChange(false, true);
+
+ return;
     }
-    if (event.key === "Tab") { if (expanded) onOpenChange(false, true); return; }
+
+    if (event.key === "Tab") { if (expanded) onOpenChange(false, true);
+
+ return; }
+
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault(); event.stopPropagation();
+
       if (!expanded) show(true);
       else setActive((activeIndex + (event.key === "ArrowDown" ? 1 : -1) + plans.length) % plans.length);
     } else if (expanded && (event.key === "Enter" || event.key === " ")) {
@@ -70,6 +85,7 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault(); event.stopPropagation();
       const index = event.key === "Home" ? 0 : plans.length - 1;
+
       if (expanded) setActive(index); else show(true, index);
     } else if (event.key.length === 1 && event.key !== " ") {
       event.preventDefault(); event.stopPropagation();
@@ -79,6 +95,7 @@ export function ScriptSelect({ plans, value, disabled, open, keyboard, onChange,
       const start = expanded ? activeIndex : plans.findIndex(plan => plan.id === value);
       const candidates = plans.map((_, offset) => (start + offset + 1) % plans.length);
       const index = candidates.find(index => plans[index].commandDisplay.toLowerCase().startsWith(prefix) || plans[index].scriptName.toLowerCase().startsWith(prefix));
+
       if (!expanded) show(true, index); else if (index !== undefined) setActive(index);
       typeahead.current = { text, time: now };
     }

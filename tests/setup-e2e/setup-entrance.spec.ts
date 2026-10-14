@@ -7,10 +7,12 @@ async function captureEntrance(page: import("@playwright/test").Page) {
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (frames, options) {
       const animation = animate.call(this, frames, options);
+
       if (typeof options === "object" && options.id === "setup-entrance") {
         (window as any).entranceStarts++;
         animation.pause(); animation.currentTime = 0;
       }
+
       return animation;
     };
   });
@@ -19,11 +21,13 @@ async function captureEntrance(page: import("@playwright/test").Page) {
 
 test("setup enters once with a short stagger, without layout shift or replay on interaction", async ({ page }, testInfo) => {
   await captureEntrance(page);
+
   const entry = await page.evaluate(() => document.getAnimations().filter(a => a.id === "setup-entrance").map(a => ({
     duration: a.effect!.getTiming().duration, delay: a.effect!.getTiming().delay,
     target: ((a.effect as KeyframeEffect).target as HTMLElement).className,
     frames: (a.effect as KeyframeEffect).getKeyframes(),
   })));
+
   expect(entry).toHaveLength(5);
   expect(entry.map(a => a.target)).toEqual(["launch-brand setup-brand", "guided-intro", "configure-trigger", "guided-integration", "confirmation-actions"]);
   expect(entry.map(a => a.delay)).toEqual([0, 20, 40, 60, 80]);

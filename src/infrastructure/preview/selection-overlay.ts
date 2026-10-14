@@ -40,6 +40,7 @@ export class SelectionOverlay {
   private bounds(element: Element): DOMRect | null {
     if (!element.isConnected) return null;
     const bounds = element.getBoundingClientRect();
+
     return bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 && bounds.top < innerHeight && bounds.left < innerWidth ? bounds : null;
   }
 
@@ -50,25 +51,32 @@ export class SelectionOverlay {
   render(hover: HoverTarget | null, selected: Iterable<Element>, hidden: boolean): void {
     this.host.style.setProperty("visibility", hidden ? "hidden" : "visible", "important");
     const wanted = new Set([...selected].filter(element => element.isConnected));
+
     for (const [element, marker] of this.markers) {
       if (!wanted.has(element)) { marker.remove(); this.markers.delete(element); }
     }
+
     for (const element of wanted) {
       let marker = this.markers.get(element);
+
       if (!marker) {
         marker = document.createElement("div"); marker.className = "outline selected"; marker.dataset.mauxiSelected = "true";
         const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = "Selected";
         marker.append(badge); this.root.insertBefore(marker, this.hover); this.markers.set(element, marker);
       }
+
       const bounds = this.bounds(element);
       marker.hidden = !bounds;
+
       if (bounds) {
         this.place(marker, bounds);
         (marker.firstElementChild as HTMLElement).hidden = bounds.width < 80 || bounds.height < 32;
       }
     }
+
     const bounds = hover && this.bounds(hover.element);
     this.hover.hidden = this.label.hidden = !bounds;
+
     if (!hover || !bounds) return;
     this.place(this.hover, bounds);
     this.name.textContent = hover.element.tagName.toLowerCase();

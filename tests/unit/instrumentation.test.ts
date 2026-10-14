@@ -21,6 +21,7 @@ async function setup() {
   await writeFile(bridgeEntry, "globalThis.__proofBridge = true;\n");
   const plan = createIntegrationPlan(root, "vite");
   const store = new JournalStore(journalDirectory);
+
   return { root, plan, store, bridgeEntry };
 }
 
@@ -32,6 +33,7 @@ async function setupNext(configContent: string, fileName = "next.config.mjs") {
   const bridgeEntry = path.join(directory, "bridge-entry.js");
   await writeFile(bridgeEntry, "globalThis.__proofBridge = true;\n");
   const store = new JournalStore(path.join(directory, "journals"));
+
   return { root, store, bridgeEntry, configPath: path.join(root, fileName) };
 }
 
@@ -50,9 +52,11 @@ describe("owned instrumentation", () => {
     expect(await readFile(configPath, "utf8")).toBe(original);
     const applied = await applyIntegration(plan, store, bridgeEntry);
     const patched = await readFile(configPath, "utf8");
+
     const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e",
       `const { default: config } = await import(${JSON.stringify(`data:text/javascript,${encodeURIComponent(patched)}`)}); console.log(JSON.stringify({ names: config.plugins.map(p => p.name), apply: config.plugins[0].apply, note: config.note }));`,
     ]);
+
     expect(JSON.parse(stdout)).toEqual({ names: ["mauxi-preview-bridge", ...names], apply: "serve", note: "plugins: [decoy()] $& $' $` $$" });
     const userEdit = "\n// concurrent user edit\n";
     await writeFile(configPath, patched + userEdit);
@@ -107,15 +111,19 @@ describe("owned instrumentation", () => {
   it("cleans a setup that failed before its config patch was written", async () => {
     const { plan, store, bridgeEntry } = await setup();
     const userEdit = "// saved by the user during setup\n";
+
     class EditingStore extends JournalStore {
       override async write(journal: Parameters<JournalStore["write"]>[0]) {
         await super.write(journal);
+
         if (journal.state === "applying" && await readFile(plan.bridgePath).then(() => true, () => false)) {
           const current = await readFile(plan.configPath, "utf8");
+
           if (!current.includes(userEdit)) await writeFile(plan.configPath, current + userEdit);
         }
       }
     }
+
     const editing = new EditingStore(store.directory);
     await expect(applyIntegration(plan, editing, bridgeEntry)).rejects.toThrow("File changed while setup was being prepared");
     const cleaned = await cleanupIntegration(transactionIdFor(plan), new JournalStore(store.directory));
@@ -128,12 +136,15 @@ describe("owned instrumentation", () => {
   it("cleans a setup that failed before writing its owned artifacts", async () => {
     const { root, plan, store, bridgeEntry } = await setup();
     const blocker = path.join(root, ".mauxi");
+
     class BlockingStore extends JournalStore {
       override async write(journal: Parameters<JournalStore["write"]>[0]) {
         await super.write(journal);
+
         if (journal.state === "applying") await writeFile(blocker, "user file\n", { flag: "a" });
       }
     }
+
     await expect(applyIntegration(plan, new BlockingStore(store.directory), bridgeEntry)).rejects.toThrow();
     const cleaned = await cleanupIntegration(transactionIdFor(plan), new JournalStore(store.directory));
     expect(cleaned.conflicts).toEqual([]);

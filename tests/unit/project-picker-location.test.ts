@@ -5,12 +5,15 @@ import path from "node:path";
 import { ProjectPickerLocation } from "../../src/infrastructure/project/project-picker-location";
 
 const roots: string[] = [];
+
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-picker-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   const file = path.join(root, "settings", "project-picker.json");
+
   return { root, home, project, file, store: new ProjectPickerLocation(file) };
 }
 
@@ -25,6 +28,7 @@ describe("project picker location", () => {
   it("falls back to home for corrupt or invalid preferences", async () => {
     const { home, file, store } = await fixture();
     await mkdir(path.dirname(file));
+
     for (const value of ["broken", "null", "{}", '{"version":2,"directory":"/tmp"}', '{"version":1,"directory":"relative"}', '{"version":1,"directory":42}']) {
       await writeFile(file, value);
       expect(await store.defaultPath(home)).toBe(home);
@@ -44,6 +48,7 @@ describe("project picker location", () => {
     const { home, project, store } = await fixture();
     await store.remember(project);
     await chmod(project, 0);
+
     try { expect(await store.defaultPath(home)).toBe(home); }
     finally { await chmod(project, 0o700); }
   });

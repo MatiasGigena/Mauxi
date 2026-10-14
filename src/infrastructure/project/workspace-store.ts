@@ -17,11 +17,13 @@ export class WorkspaceStore {
   constructor(private readonly directory: string) {}
   private fileFor(root: string): string {
     const id = createHash("sha256").update(root).digest("hex").slice(0, 24);
+
     return path.join(this.directory, `${id}.json`);
   }
   private async read(root: string): Promise<RememberedWorkspace | null> {
     try {
       const value = JSON.parse(await readFile(this.fileFor(root), "utf8")) as RememberedWorkspace;
+
       return value.version === 1 && value.projectRoot === root && typeof value.planId === "string" ? value : null;
     } catch { return null; }
   }
@@ -29,10 +31,12 @@ export class WorkspaceStore {
   async startPath(root: string): Promise<string | undefined> { return (await this.read(root))?.startPath; }
   async canvas(root: string): Promise<CanvasState | null> {
     const canvas = (await this.read(root))?.canvas;
+
     return isCanvasState(canvas) ? this.currentCanvas(canvas) : null;
   }
   private currentCanvas(canvas: CanvasState): CanvasState {
     const { version, camera, boards, linked, focus } = structuredClone(canvas);
+
     return { version, camera, boards, linked, focus };
   }
   private update(root: string, change: (current: RememberedWorkspace | null) => RememberedWorkspace): Promise<void> {
@@ -42,7 +46,9 @@ export class WorkspaceStore {
       await writeFile(temporary, `${JSON.stringify(change(await this.read(root)), null, 2)}\n`, { mode: 0o600 });
       await rename(temporary, file);
     });
+
     this.writes = write;
+
     return write;
   }
   async remember(root: string, planId: string, startPath = "/"): Promise<void> {
@@ -51,8 +57,10 @@ export class WorkspaceStore {
   async saveCanvas(root: string, canvas: CanvasState): Promise<void> {
     if (!isCanvasState(canvas)) throw new Error("Invalid canvas layout");
     const snapshot = this.currentCanvas(canvas);
+
     return this.update(root, (current) => {
       if (!current) throw new Error("Workspace has not been confirmed");
+
       return { ...current, canvas: snapshot };
     });
   }

@@ -14,11 +14,13 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
   const blocker = createServer((_request, response) => response.end("other project"));
   await new Promise<void>(resolve => blocker.listen(0, "127.0.0.1", resolve));
   const address = blocker.address();
+
   if (!address || typeof address === "string") throw new Error("No port");
   let lastState: unknown;
   const framework = kind === "vite" ? "vite" : "next";
   const manager = new WorkspaceManager(new JournalStore(path.join(base, "journals")), new WorkspaceStore(path.join(base, "settings")), path.join(base, "bridge-entry.js"));
   manager.subscribe(state => { if (state.active) lastState = state; });
+
   try {
     await mkdir(root);
     await symlink(path.resolve("node_modules"), path.join(root, "node_modules"), "dir");
@@ -28,9 +30,11 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
     await writeFile(path.join(base, "bridge-entry.js"), "window.__sessionBridge = true;\n");
     const configFile = path.join(root, framework === "vite" ? "vite.config.ts" : kind === "next-turbopack" ? "next.config.ts" : "next.config.mjs");
     let config = framework === "vite" ? 'export default { plugins: [], server: { port: 5180 } };\n' : `export default { poweredByHeader: false, turbopack: { root: ${JSON.stringify(path.resolve('.'))} } };\n`;
+
     if (kind === "next-turbopack") config = `import type { NextConfig } from "next";\nconst config = { poweredByHeader: false, turbopack: { root: ${JSON.stringify(path.resolve('.'))} } } satisfies NextConfig;\nexport default config;\n`;
     await writeFile(configFile, config);
     let sourceFile: string;
+
     if (framework === "vite") {
       sourceFile = path.join(root, "index.html");
       await writeFile(sourceFile, '<h1>before</h1>');
@@ -44,6 +48,7 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
       await mkdir(path.join(root, ".next"));
       await writeFile(path.join(root, ".next/existing-cache"), "preserve unrelated cache");
     }
+
     const tsBefore = framework === "next" ? await readFile(path.join(root, "tsconfig.json"), "utf8") : null;
     const typesBefore = framework === "next" ? await readFile(path.join(root, "next-env.d.ts"), "utf8") : null;
     const discovery = await manager.inspect(root);
@@ -58,12 +63,14 @@ it.each(["vite", "next-webpack", "next-turbopack"])("imports %s with an occupied
     expect(await readFile(path.join(root, "package.json"), "utf8")).toBe(manifest);
     expect(await readFile(sourceFile, "utf8")).toContain("after");
     await expect(access(path.join(root, ".mauxi"))).rejects.toMatchObject({ code: "ENOENT" });
+
     if (framework === "next") {
       expect(await readFile(path.join(root, "tsconfig.json"), "utf8")).toBe(tsBefore);
       expect(await readFile(path.join(root, "next-env.d.ts"), "utf8")).toBe(typesBefore);
       expect(await readdir(path.join(root, ".next"))).toEqual(["existing-cache"]);
       await expect(access(path.join(root, "instrumentation-client.js"))).rejects.toMatchObject({ code: "ENOENT" });
     }
+
     const reopened = await manager.inspect(root);
     expect(reopened.plans[0].startPath).toBe("/login");
   } catch (error) {
@@ -101,6 +108,7 @@ it("recovers a killed owner before removing its session and preserves subsequent
   let output = "";
   child.stdout!.on("data", chunk => { output += chunk; }); child.stderr!.on("data", chunk => { output += chunk; });
   const recovered = new WorkspaceManager(new JournalStore(path.join(base, "journals")), new WorkspaceStore(path.join(base, "settings")), bridge);
+
   try {
     const origin = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(output || "Owner startup timed out")), 60_000);
@@ -108,6 +116,7 @@ it("recovers a killed owner before removing its session and preserves subsequent
       child.once("exit", () => { clearTimeout(timer); reject(new Error(output || "Owner exited")); });
       child.once("error", error => { clearTimeout(timer); reject(error); });
     });
+
     await writeFile(path.join(root, "vite.config.ts"), (await readFile(path.join(root, "vite.config.ts"), "utf8")) + "// saved user edit\n");
     child.kill("SIGKILL");
     await new Promise<void>(resolve => child.once("exit", () => resolve()));

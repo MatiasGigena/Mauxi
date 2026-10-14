@@ -6,7 +6,9 @@ import { useState } from "react";
 export function ProofCard({ initialAuthenticated }: { initialAuthenticated: boolean }) {
   const [clicks, setClicks] = useState(0);
   const router = useRouter();
+
   async function signIn() { await fetch("/api/auth", { method: "POST" }); router.refresh(); }
+
   return (
     <section className="grid">
       <article className="card proof-card">

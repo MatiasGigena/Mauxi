@@ -8,17 +8,21 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-setup-desktop-"));
   const first = path.join(temp, "first-project");
   const second = path.join(temp, "second-project");
+
   for (const folder of [first, second]) {
     await mkdir(folder);
     await writeFile(path.join(folder, "package.json"), JSON.stringify({ name: path.basename(folder), scripts: { dev: "vite", "dev:host": "vite --host" }, devDependencies: { vite: "7.3.6" }, dependencies: { react: "19.3.0" } }));
     await writeFile(path.join(folder, "vite.config.ts"), 'import { defineConfig } from "vite";\nexport default defineConfig({ plugins: [] });\n');
     await symlink(path.resolve("node_modules"), path.join(folder, "node_modules"), "dir");
   }
+
   const launchOptions = {
     args: [path.resolve("dist-electron/main.js")],
     env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_PROOF: "0", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(temp, "recovery"), XDG_CONFIG_HOME: path.join(temp, "config") },
   };
+
   let application = await electron.launch(launchOptions);
+
   try {
     await application.evaluate(({ dialog }, folders) => {
       const selections: Array<string | null> = [folders.first, null, folders.second];
@@ -26,6 +30,7 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
       Object.assign(dialog, { showOpenDialog: async (_window: unknown, options: unknown) => {
         (globalThis as any).setupDialogCalls.push(options);
         const selected = selections.shift();
+
         return { canceled: !selected, filePaths: selected ? [selected] : [] };
       } });
     }, { first, second });
@@ -65,6 +70,7 @@ test("desktop opens the native directory dialog via IPC, inspects real folders a
     await application.evaluate(({ dialog }) => {
       Object.assign(dialog, { showOpenDialog: async (_window: unknown, options: unknown) => {
         (globalThis as any).restartedDialogOptions = options;
+
         return { canceled: true, filePaths: [] };
       } });
     });

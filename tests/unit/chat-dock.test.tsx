@@ -34,6 +34,7 @@ describe("minimal canvas composer", () => {
     expect(html).toContain("Run action");
     expect(html).toContain('aria-label="Remove selection Run action"');
     expect(html.match(/<button\b/g)).toHaveLength(1);
+
     for (const detail of ["Inspect", "Revalidate", "ProofCard.tsx", "verified JSX", "Screenshot crop", "selection-inspector"]) expect(html).not.toContain(detail);
   });
 
@@ -68,21 +69,25 @@ describe("minimal canvas composer", () => {
     const composer = new SelectionComposer(props);
     const rect = { left: 0, top: 0, bottom: 100, width: 200, height: 100 } as DOMRect;
     const animations: { cancel: ReturnType<typeof vi.fn>; onfinish?: () => void }[] = [];
+
     const nodes = [`badge:${item.capture.selectionId}`, "panel"].map(key => ({
       dataset: { composerMotion: key, exiting: "" }, style: {}, hasAttribute: () => false,
       getBoundingClientRect: () => rect,
       animate: vi.fn(() => {
         const animation = { cancel: vi.fn(), onfinish: undefined as (() => void) | undefined };
         animations.push(animation);
+
         return animation;
       }),
     }));
+
     const root = {
       querySelector: () => null,
       querySelectorAll: () => nodes,
       getBoundingClientRect: () => rect,
       clientLeft: 0, clientTop: 0,
     };
+
     Object.assign(composer, {
       root: { current: root }, surface: { current: { getBoundingClientRect: () => rect } },
       preference: { matches: mode === "reduced" }, keyboard: mode === "keyboard",
@@ -90,11 +95,13 @@ describe("minimal canvas composer", () => {
     const setState = vi.spyOn(composer, "setState").mockImplementation(() => {});
     const before = { surface: rect, items: new Map(), focusedIndex: -1, panelFocused: false };
     composer.componentDidUpdate({ ...props, panel: null, selections: [] }, { source: [], entries: [] }, before);
+
     if (mode === "pointer") {
       const entrance = [
         [{ opacity: 0, transform: "translateY(15%) scale(.97)" }, { opacity: 1, transform: "none" }],
         { duration: 160, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
       ];
+
       nodes.forEach(node => expect(node.animate).toHaveBeenLastCalledWith(...entrance));
     } else {
       nodes.forEach(node => expect(node.animate).not.toHaveBeenCalled());
@@ -107,11 +114,13 @@ describe("minimal canvas composer", () => {
     composer.componentDidUpdate(props, previous, {
       ...before, items: new Map(nodes.map(node => [node.dataset.composerMotion, { rect, opacity: 0.6 }])),
     });
+
     if (mode === "pointer") {
       const exit = [
         [{ opacity: 0.6, transform: "none" }, { opacity: 0, transform: "translateY(-12%) scale(.97)" }],
         { duration: 110, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
       ];
+
       nodes.forEach(node => expect(node.animate).toHaveBeenLastCalledWith(...exit));
       expect(animations[0].cancel).toHaveBeenCalled();
       expect(animations[1].cancel).toHaveBeenCalled();

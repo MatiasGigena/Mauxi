@@ -18,21 +18,28 @@ async function start(page: Page) {
     state.sendMode = "accept";
     window.mauxi!.agentSend = async request => {
       state.sent.push(request);
+
       if (state.sendMode === "delayed") await new Promise<void>(resolve => { state.releaseSend = resolve; });
+
       if (state.sendMode === "reject") return { accepted: false };
+
       if (state.sendMode === "throw") throw new Error("Send failed");
       state.agentSnapshot.messages = [...state.agentSnapshot.messages, { id: String(state.sent.length), role: "user", text: request.text }];
       state.agentSnapshot.runState = "working";
       state.emit();
+
       return { accepted: true };
     };
+
     window.mauxi!.agentStop = async () => {
       state.stops++;
       await new Promise<void>(resolve => { state.releaseStop = resolve; });
+
       if (state.stopError) throw new Error("Could not stop");
       state.agentSnapshot.runState = "idle";
       state.emit();
     };
+
     state.emit();
   });
 }
@@ -73,9 +80,11 @@ test("Enter does not send while composing with an IME or without a selected mode
   await start(page);
   const editor = page.getByRole("textbox", { name: "Message", exact: true });
   await editor.fill("Composed text");
+
   for (const composing of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }]) {
     await editor.evaluate((node, composing) => node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...composing })), composing);
   }
+
   expect(await page.evaluate(() => (window as any).setupTest.sent.length)).toBe(0);
   await page.evaluate(() => {
     const state = (window as any).setupTest;
@@ -185,6 +194,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const animate = Element.prototype.animate;
       Element.prototype.animate = function (...args) {
         if (this.classList.contains("send-action-surface")) (window as any).buttonSurfaceAnimations.push(args);
+
         return animate.apply(this, args);
       };
     });
@@ -193,12 +203,14 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(action).toHaveAccessibleName("Stop");
     await settled(page);
     const surfaceAnimations = await page.evaluate(() => (window as any).buttonSurfaceAnimations);
+
     if (reducedMotion === "reduce") expect(surfaceAnimations).toHaveLength(0);
     else {
       expect(surfaceAnimations.length).toBeGreaterThan(0);
       expect(surfaceAnimations.every((args: any) => args[0][0].transform.startsWith("scaleX("))).toBe(true);
       expect(surfaceAnimations.every((args: any) => args[1].duration <= 180)).toBe(true);
     }
+
     const stopLayer = action.locator(".send-action-state").filter({ hasText: /^Stop$/ });
     await expect(stopLayer).toHaveCSS("opacity", "1");
     await expect(stopLayer).toHaveCSS("transform", "none");

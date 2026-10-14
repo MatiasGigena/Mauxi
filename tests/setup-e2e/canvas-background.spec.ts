@@ -12,16 +12,22 @@ async function openWorkspace(page: Page) {
 async function assertInitialRouteNearViews(page: Page) {
   const measured = await page.locator(".canvas-surface").evaluate(surface => {
     const origin = surface.getBoundingClientRect();
+
     return { width: origin.width, height: origin.height, views: [...surface.querySelectorAll<HTMLElement>(".artboard")]
       .filter(board => getComputedStyle(board).visibility !== "hidden")
-      .map(board => { const rect = board.getBoundingClientRect(); return { x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }; }) };
+      .map(board => { const rect = board.getBoundingClientRect();
+
+ return { x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }; }) };
   });
+
   const expected = canvasTrailGeometry(measured.width, measured.height, measured.views)?.edges.map(({ x, y, length }) => ({ x, y, length })) ?? [];
   await expect.poll(() => page.locator(".canvas-trail-edge").evaluateAll(edges => edges.map(el => {
     const edge = el as HTMLElement;
     const transform = new DOMMatrix(edge.style.transform);
+
     return { x: transform.m41, y: transform.m42, length: parseFloat(edge.style.width) };
   }))).toEqual(expected);
+
   return expected;
 }
 
@@ -37,16 +43,21 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 800 
     await expect(page.getByRole("button", { name: /Pause.*animation/i })).toHaveCount(0);
     await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);
     await assertInitialRouteNearViews(page);
+
     const motion = await page.locator(".canvas-trail").evaluate(el => {
       const animation = el.getAnimations({ subtree: true })[0];
       const strip = el.querySelector<HTMLElement>(".canvas-trail-strip")!;
       const length = [...el.querySelectorAll<HTMLElement>(".canvas-trail-edge")].reduce((sum, edge) => sum + parseFloat(edge.style.width), 0);
+
       return { width: parseFloat(strip.style.width), speed: length / (Number(animation.effect!.getTiming().duration) / 1000), easing: animation.effect!.getTiming().easing };
     });
+
     expect(motion.width).toBe(240); expect(motion.speed).toBeCloseTo(140); expect(motion.easing).toBe("linear");
+
     for (const selector of [".preview-surface", ".chat-surface"]) {
       expect(await page.locator(selector).first().evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");
     }
+
     const canvas = page.getByTestId("canvas");
     const original = await canvas.boundingBox();
     await page.evaluate(() => { (window as any).originalTrail = document.querySelector(".canvas-trail")!.getAnimations({ subtree: true })[0]; });
@@ -77,12 +88,14 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
       time: Number(trail.getAnimations({ subtree: true })[0].currentTime),
     };
   });
+
   const assertUnchanged = async () => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await page.evaluate(() => {
       const trail = document.querySelector(".canvas-trail")!;
       const initial = (window as any).initialTrail;
       const current = trail.getAnimations({ subtree: true });
+
       return {
         sameRoute: JSON.stringify([...trail.querySelectorAll<HTMLElement>(".canvas-trail-edge")].map(el => el.style.cssText)) === JSON.stringify(initial.edges),
         sameAnimations: current.length === initial.animations.length && current.every((a, i) => a === initial.animations[i]),
@@ -91,10 +104,12 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
       };
     })).toEqual({ sameRoute: true, sameAnimations: true, running: true, advanced: true });
   };
+
   await page.getByRole("slider", { name: "Camera zoom" }).fill("0.25");
   await assertUnchanged();
   const grip = page.getByRole("button", { name: "Move Desktop artboard with arrow keys" });
   await grip.focus();
+
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowLeft");
   await assertUnchanged();
   const header = await page.locator('[data-preview-id="mobile"] .artboard-header').boundingBox();
@@ -109,6 +124,7 @@ test("trail never reroutes or restarts during zoom, movement, focus or pan", asy
   await page.getByRole("button", { name: "Unfocus Mobile", exact: true }).click();
   await assertUnchanged();
   await page.getByTestId("canvas").focus();
+
   for (let i = 0; i < 60; i++) await page.keyboard.press("ArrowRight");
   await assertUnchanged();
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -125,17 +141,22 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await openWorkspace(page);
   await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);
+
   const motion = await page.locator(".canvas-trail").evaluate(el => el.getAnimations({ subtree: true }).map(a => ({
     state: a.playState,
     properties: Object.keys((a.effect as KeyframeEffect).getKeyframes()[0]).filter(key => !["offset", "computedOffset", "easing", "composite"].includes(key)),
   })));
+
   expect(motion.every(a => a.state === "running" && a.properties.join() === "transform")).toBe(true);
   await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: true }); document.dispatchEvent(new Event("visibilitychange")); });
+
   const pausedTimes = await page.locator(".canvas-trail").evaluate(async el => {
     const animations = el.getAnimations({ subtree: true });
     await Promise.all(animations.map(a => a.ready));
+
     return animations.map(a => a.currentTime);
   });
+
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   expect(await page.locator(".canvas-trail").evaluate(el => el.getAnimations({ subtree: true }).map(a => a.currentTime))).toEqual(pausedTimes);
   await page.setViewportSize({ width: 1000, height: 750 });
@@ -151,6 +172,7 @@ test("visibility, resize, reduced motion and unmount clean up correctly", async 
     window.mauxi!.closeProject = async () => {
       const event = { active: null, recoveryConflicts: [] };
       (window as any).setupTest.workspaceListeners.forEach((listener: (event: unknown) => void) => listener(event));
+
       return event;
     };
   });

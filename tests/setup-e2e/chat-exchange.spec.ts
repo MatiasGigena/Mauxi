@@ -17,13 +17,18 @@ async function start(page: Page) {
     state.sendMode = "accept";
     window.mauxi!.agentSend = async request => {
       if (state.sendMode === "reject") return { accepted: false };
+
       if (state.sendMode === "throw") throw new Error("Send failed");
+
       if (state.sendMode === "delayed") await new Promise<void>(resolve => { state.releaseSend = resolve; });
+
       if (state.sendMode !== "queued") {
         state.agentSnapshot.messages = [...state.agentSnapshot.messages, { id: `user-${state.agentSnapshot.messages.length}`, role: "user", text: request.text }];
       }
+
       state.agentSnapshot.runState = "working";
       state.emit();
+
       return { accepted: true };
     };
   });
@@ -59,8 +64,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const animate = Element.prototype.animate;
       Element.prototype.animate = function (...args) {
         if (this.classList.contains("chat-surface")) (window as any).growthAnimations.push(args);
+
         return animate.apply(this, args);
       };
+
       document.querySelector("#chat-message")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
     const editor = page.getByRole("textbox", { name: "Message", exact: true });
@@ -70,6 +77,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     expect(expanded.height).toBeGreaterThan(initial.height + 40);
     expect(expanded.y + expanded.height).toBeCloseTo(initial.y + initial.height, 0);
     const animations = await page.evaluate(() => (window as any).growthAnimations);
+
     if (reducedMotion === "reduce") expect(animations).toHaveLength(0);
     else expect(animations[0][1]).toEqual({ duration: 200, easing: "cubic-bezier(0.77, 0, 0.175, 1)" });
     await editor.fill("Short");
@@ -245,6 +253,7 @@ for (const { viewport, reducedMotion } of [
       const animate = Element.prototype.animate;
       Element.prototype.animate = function (...args) {
         if (this.matches(".chat-surface, .chat-exchange")) (window as any).minimizeAnimations.push({ className: this.className, options: args[1] });
+
         return animate.apply(this, args);
       };
     });
@@ -263,6 +272,7 @@ for (const { viewport, reducedMotion } of [
     expect(await page.locator(".chat-exchange").evaluate(node => node === (window as any).exchangeNode)).toBe(true);
     expect(await canvas.boundingBox()).toEqual(canvasBounds);
     const animations = await page.evaluate(() => (window as any).minimizeAnimations);
+
     if (reducedMotion === "reduce") expect(animations).toEqual([]);
     else {
       expect(animations.filter((item: any) => item.className === "chat-surface").map((item: any) => item.options.duration)).toEqual([160, 200]);
@@ -332,6 +342,7 @@ test("rapid minimize and reopen reverses retained motion without duplicate excha
     const editor = document.querySelector<HTMLTextAreaElement>("#chat-message")!;
     const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     (window as any).exchangeNode = document.querySelector(".chat-exchange");
+
     for (let i = 0; i < 4; i++) {
       target.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
       await frame();

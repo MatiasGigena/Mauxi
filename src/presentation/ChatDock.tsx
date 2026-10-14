@@ -19,23 +19,34 @@ function useModalFocus(onClose: () => void, trap = true, active = true) {
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const element = ref.current;
+
     if (!active || !element) return;
     const focusable = () => [...element.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter((node) => node.getClientRects().length);
     (focusable()[0] ?? element).focus({ preventScroll: true });
+
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); close.current(); }
+
       if (event.key !== "Tab" || !trap) return;
       const items = focusable(); const first = items[0]; const last = items.at(-1);
-      if (!first) { event.preventDefault(); return; }
+
+      if (!first) { event.preventDefault();
+
+ return; }
+
       if (event.shiftKey && (document.activeElement === first || !element.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && (document.activeElement === last || !element.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
     };
+
     element.addEventListener("keydown", keydown);
+
     return () => {
       element.removeEventListener("keydown", keydown);
+
       if (previous?.isConnected && !previous.closest("[inert]")) previous.focus({ preventScroll: true });
     };
   }, [active]);
+
   return ref;
 }
 
@@ -46,9 +57,11 @@ function AgentPromptDialog({ workspaceId, dialog, onClose, inline = false, activ
   const answering = useRef(false);
   useEffect(() => { if (!active) setValue(""); }, [active]);
   const blocking = dialog.kind === "text" || dialog.kind === "secret" || dialog.kind === "manual_code" || dialog.kind === "select" || dialog.kind === "approval" || ((dialog.kind === "info" || dialog.kind === "progress") && !!dialog.cancellable);
+
   async function answer(cancelled: boolean, responseValue = value) {
     if (!active || answering.current) return;
     answering.current = true; setPending(true); setError("");
+
     try {
       if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
       setValue("");
@@ -56,8 +69,10 @@ function AgentPromptDialog({ workspaceId, dialog, onClose, inline = false, activ
     } catch (reason) { setError(errorMessage(reason)); }
     finally { answering.current = false; setPending(false); }
   }
+
   const browserApproval = dialog.kind === "approval" && dialog.title === "Approve browser action";
   const focusRef = useModalFocus(() => void answer(true), !inline && !browserApproval, active);
+
   return <div className={inline ? "agent-dialog-inline" : `agent-dialog-backdrop ${browserApproval ? "browser-approval" : ""}`} role="presentation">
     <section ref={focusRef} className={`agent-dialog${dialog.kind === "approval" ? " action-modal permission-dialog" : ""}`} tabIndex={-1} role="dialog" aria-modal={!inline && !browserApproval} aria-labelledby={`dialog-${dialog.id}`}>
       <header><h2 id={`dialog-${dialog.id}`}>{dialog.title}</h2>{dialog.kind === "approval" ? <button type="button" className="action-modal-close" aria-label="Deny and close" disabled={pending} onClick={() => void answer(true)}><X size={18} aria-hidden="true" /></button> : !blocking && <button aria-label="Close" onClick={onClose}>×</button>}</header>
@@ -98,42 +113,60 @@ function ModelSelect({ agent, busy, onSelect, children }: {
   function setExpanded(next: boolean, fromKeyboard: boolean) {
     if (next && !available.length) return;
     setOpen(next); setKeyboard(fromKeyboard);
+
     if (next) { activeFromPointer.current = false; setQuery(""); setActive(Math.max(0, options.findIndex(model => model.key === agent.selectedModel))); typeahead.current = { text: "", time: 0 }; }
     else setQuery("");
   }
+
   function choose(key: string) {
     if (busy) return;
     setExpanded(false, keyboard); onSelect(key);
     trigger.current?.focus({ preventScroll: true });
   }
+
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setExpanded(false, false); };
+
     document.addEventListener("pointerdown", outside);
+
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
   useLayoutEffect(() => {
     const option = document.getElementById(`${id}-option-${activeIndex}`);
+
     if (!open || activeFromPointer.current || !option || !list.current) return;
     const item = option.getBoundingClientRect(); const bounds = list.current.getBoundingClientRect();
+
     if (item.top < bounds.top) list.current.scrollTop -= bounds.top - item.top;
     else if (item.bottom > bounds.bottom) list.current.scrollTop += item.bottom - bounds.bottom;
   }, [open, activeIndex, query, id]);
 
   function keys(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (busy || event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setExpanded(false, true); return; }
-    if (event.key === "Tab") { if (open) setExpanded(false, true); return; }
+
+    if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setExpanded(false, true);
+
+ return; }
+
+    if (event.key === "Tab") { if (open) setExpanded(false, true);
+
+ return; }
+
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault(); event.stopPropagation();
       activeFromPointer.current = false;
+
       if (!open) setExpanded(true, true);
       else if (options.length) setActive((activeIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
     } else if (open && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault(); event.stopPropagation(); if (options.length) choose(options[activeIndex].key);
+      event.preventDefault(); event.stopPropagation();
+
+ if (options.length) choose(options[activeIndex].key);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault(); event.stopPropagation();
       activeFromPointer.current = false;
+
       if (!open) setExpanded(true, true);
       else setActive(event.key === "Home" ? 0 : options.length - 1);
     } else if (event.key.length === 1 && event.key !== " ") {
@@ -144,11 +177,13 @@ function ModelSelect({ agent, busy, onSelect, children }: {
       const prefix = [...text].every(char => char === text[0]) ? text[0] : text;
       const candidates = options.map((_, offset) => (activeIndex + offset + 1) % options.length);
       const index = candidates.find(index => options[index].name.toLowerCase().startsWith(prefix) || options[index].id.toLowerCase().startsWith(prefix));
+
       if (!open) setExpanded(true, true);
       else if (index !== undefined) setActive(index);
       typeahead.current = { text, time: now };
     }
   }
+
   return <div ref={root} className="script-control model-select" data-keyboard={keyboard} onBlur={event => {
     if (open && !event.currentTarget.contains(event.relatedTarget)) setExpanded(false, keyboard);
   }}>
@@ -162,6 +197,7 @@ function ModelSelect({ agent, busy, onSelect, children }: {
     {open && <div className="script-select-popup">
       <input className="model-search" type="search" aria-label="Search models" placeholder="Search models or providers…" value={query} onChange={event => { activeFromPointer.current = false; setQuery(event.target.value); setActive(0); }} onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setExpanded(false, true); trigger.current?.focus({ preventScroll: true }); }
+
         if (event.key === "ArrowDown" && options.length) { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); setActive(0); }
       }} />
       <div ref={list} className="script-select-options model-options" id={`${id}-list`} role="listbox" aria-label="Model">
@@ -196,6 +232,7 @@ function ProviderScroller({ count, children }: { count: number; children: ReactN
 
   function sync() {
     const node = viewport.current;
+
     if (!node) return;
     const { clientHeight, scrollHeight, scrollTop } = node;
     const visible = scrollHeight > clientHeight + 1;
@@ -203,19 +240,23 @@ function ProviderScroller({ count, children }: { count: number; children: ReactN
     const top = visible ? scrollTop / (scrollHeight - clientHeight) * (clientHeight - height) : 0;
     setThumb({ height, top, visible });
   }
+
   useLayoutEffect(() => {
     const observer = new ResizeObserver(sync);
     observer.observe(viewport.current!);
     observer.observe(content.current!);
     sync();
+
     return () => observer.disconnect();
   }, []);
 
   function scrollToPointer(clientY: number, offset: number) {
     const node = viewport.current;
     const bar = track.current;
+
     if (!node || !bar) return;
     const travel = bar.clientHeight - thumb.height;
+
     if (travel <= 0) return;
     const position = Math.max(0, Math.min(travel, clientY - bar.getBoundingClientRect().top - offset));
     node.scrollTop = position / travel * (node.scrollHeight - node.clientHeight);
@@ -242,6 +283,7 @@ function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
   agent: AgentSnapshot; workspaceId: string; busy: boolean; run: (action: () => Promise<unknown>) => void; login: (action: () => Promise<unknown>, trigger: HTMLElement) => void; onClose: () => void;
 }) {
   const selected = agent.models.find((model) => model.key === agent.selectedModel);
+
   return <section className="chat-settings" aria-label="Models and providers">
       <header><strong>Models & providers</strong><button type="button" aria-label="Close models and providers" onClick={onClose}>×</button></header>
       <ModelSelect agent={agent} busy={busy} onSelect={modelKey => run(async () => { await window.mauxi!.agentSelectModel({ workspaceId, modelKey }); onClose(); })}>
@@ -284,6 +326,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   const exchange = latestExchange(agent.messages, accepted && accepted.workspaceId === workspaceId && accepted.sessionId === agent.sessionId ? accepted : undefined);
   useEffect(() => {
     if (!accepted) return;
+
     if (accepted.workspaceId !== workspaceId || accepted.sessionId !== agent.sessionId || agent.messages.some(message => message.role === "user" && message.text === accepted.text && !accepted.previousUserIds.includes(message.id))) {
       setAccepted(undefined);
     }
@@ -305,28 +348,39 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
     if (inlineDialog || busy || !loginFocus.current?.isConnected) return;
     let frame = 0;
     let attempts = 0;
+
     const restore = () => {
       const target = loginFocus.current;
+
       if (!target?.isConnected) return;
+
       if (!target.closest("[inert]") && getComputedStyle(target).visibility === "visible") {
         target.focus({ preventScroll: true });
         loginFocus.current = null;
       } else if (++attempts < 40) frame = requestAnimationFrame(restore);
     };
+
     frame = requestAnimationFrame(restore);
+
     return () => cancelAnimationFrame(frame);
   }, [inlineDialog, busy]);
 
   useEffect(() => {
     if (!workspaceId || !window.mauxi) return;
     let live = true;
+
     const off = window.mauxi.onAgentEvent((event) => {
       if (!live) return;
+
       if (event.type === "snapshot" && event.snapshot.workspaceId === workspaceId) setAgent(event.snapshot);
+
       if (event.type === "dialog") setDialog(event.dialog);
+
       if (event.type === "dialog-dismissed") setDialog((current) => current?.id === event.id ? null : current);
     });
+
     void window.mauxi.agentBootstrap().then((snapshot) => { if (live) setAgent(snapshot); }).catch((error) => { if (live) setSendError(errorMessage(error)); });
+
     return () => { live = false; off(); };
   }, [workspaceId]);
 
@@ -355,13 +409,22 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
     const submittedDraft = draft;
     const text = submittedDraft.trim();
     setMinimized(false); setSendingDraft(submittedDraft); setBusy(true); setSendError("");
+
     try {
       const result = await onBeforeSend();
-      if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending."); return; }
+
+      if (!result.ok) { setSendError(result.message ?? "Attached context must be refreshed before sending.");
+
+ return; }
+
       const attached = result.selections ?? [];
       const previousUserIds = agent.messages.filter(message => message.role === "user").map(message => message.id);
       const response = await window.mauxi.agentSend({ workspaceId, text, behavior, selections: attached });
-      if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept."); return; }
+
+      if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept.");
+
+ return; }
+
       setAccepted({ text, previousUserIds, workspaceId, sessionId: agent.sessionId });
       setDraft((current) => current === submittedDraft ? "" : current);
       onSelectionsSent(attached.map((item) => item.capture.selectionId));
@@ -384,6 +447,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
             onKeyDown={event => {
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               event.preventDefault();
+
               if (!event.repeat) event.currentTarget.form?.requestSubmit();
             }} />
         </div>

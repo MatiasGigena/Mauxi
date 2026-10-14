@@ -8,6 +8,7 @@ import { PiAgentHost } from "../../src/infrastructure/agent/pi-agent-host";
 
 const roots: string[] = [];
 const hosts: PiAgentHost[] = [];
+
 afterEach(async () => {
   await Promise.all(hosts.splice(0).map(host => host.dispose()));
   vi.restoreAllMocks(); vi.unstubAllGlobals();
@@ -22,27 +23,39 @@ async function setup(openBrowser = vi.fn<(url: string) => Promise<void>>().mockR
   await host.initialize();
   const events: AgentEvent[] = [];
   let current: AgentDialog | undefined;
+
   const off = host.subscribe(event => {
     events.push(event);
+
     if (event.type === "dialog") current = event.dialog;
+
     if (event.type === "dialog-dismissed" && current?.id === event.id) current = undefined;
   });
+
   const respond = (dialog: AgentDialog, value?: string) => host.respondToDialog({ workspaceId: "login-test", dialogId: dialog.id, value, cancelled: value === undefined });
+
   const dialog = async (kind: AgentDialog["kind"]) => {
     await vi.waitFor(() => expect(current?.kind).toBe(kind));
+
     return current!;
   };
+
   const login = () => host.login({ workspaceId: "login-test", providerId: "openai-codex", type: "oauth" });
+
   return { host, runtime, events, off, respond, dialog, login, openBrowser, current: () => current };
 }
 
 function mockTokenExchange() {
   const access = `header.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "test-account" } })).toString("base64")}.signature`;
+
   const fetch = vi.fn(async (url: string | URL | Request) => {
     if (String(url) !== "https://auth.openai.com/oauth/token") throw new Error("Unexpected network request in OAuth test");
+
     return new Response(JSON.stringify({ access_token: access, refresh_token: "test-refresh-secret", expires_in: 3600 }), { status: 200 });
   });
+
   vi.stubGlobal("fetch", fetch);
+
   return fetch;
 }
 
@@ -105,9 +118,11 @@ it("cancels pending login on UI disconnect and permits a fresh attempt", async (
   await expect(test.login()).rejects.toThrow(/already in progress/i);
   test.off();
   await rejected;
+
   const off = test.host.subscribe(event => {
     if (event.type === "dialog" && event.dialog.kind === "select") test.respond(event.dialog);
   });
+
   await expect(test.login()).rejects.toThrow(/cancelled/i);
   off();
 });
@@ -118,6 +133,7 @@ it("retains a cancellable link through progress and dismisses all notices on com
     interaction.notify({ type: "auth_url", url: "https://example.com/login" });
     interaction.notify({ type: "progress", message: "Waiting for browser sign-in" });
     expect(test.current()).toMatchObject({ kind: "progress", cancellable: true, links: [{ url: "https://example.com/login", label: "Open sign-in" }] });
+
     return { type: "oauth", access: "test", refresh: "test", expires: Date.now() + 3600000 };
   });
   await test.login();

@@ -7,19 +7,26 @@ import type { BrowserRequest, BrowserState, BrowserTarget, BrowserResult } from 
 
 async function identities(page: Page) {
   await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).owner)).toBe("agent");
+
   return page.evaluate(() => window.mauxi!.browserTest("targets")) as Promise<{ state: BrowserState; targets: BrowserTarget[] }>;
 }
+
 async function run(page: Page, request: BrowserRequest) { return page.evaluate(r => window.mauxi!.browserTest(r), request) as Promise<BrowserResult>; }
+
 async function startAction(page: Page, request: BrowserRequest) {
   await page.evaluate(r => { (window as any).actionResult = undefined; void window.mauxi!.browserTest(r).then(value => { (window as any).actionResult = { value }; }, error => { (window as any).actionResult = { error: String(error) }; }); }, request);
 }
-async function result(page: Page) { await expect.poll(() => page.evaluate(() => (window as any).actionResult)).toBeTruthy(); return page.evaluate(() => (window as any).actionResult); }
+
+async function result(page: Page) { await expect.poll(() => page.evaluate(() => (window as any).actionResult)).toBeTruthy();
+
+ return page.evaluate(() => (window as any).actionResult); }
 
 test("fake agent checks the visible state, approvals, stale targets, revocation, routing and forged messages", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-browser-electron-"));
   const config = path.resolve("fixtures/vite/vite.config.ts"); const before = await readFile(config, "utf8");
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", chunk => { stderr += String(chunk); });
+
   try {
     await writeFile(testInfo.outputPath("electron-startup.json"), JSON.stringify(await app.evaluate(({ app, BrowserWindow }) => ({ ready: app.isReady(), windows: BrowserWindow.getAllWindows().length, userData: app.getPath("userData") })), null, 2));
     let page = await app.firstWindow();

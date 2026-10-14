@@ -22,8 +22,10 @@ function capture(generation = "generation-1"): SelectionCapture {
 describe("selection crop geometry", () => {
   it.each([.25, .5, 1, 2])("maps preview pixels through %s camera zoom", (zoom) => {
     const frame = { left: 100, top: 80, right: 100 + 1440 * zoom, bottom: 80 + 900 * zoom };
+
     const result = selectionCropToShell({ x: 200, y: 100, width: 300, height: 180 }, { width: 1440, height: 900 }, frame,
       { left: 0, top: 0, right: 2000, bottom: 1200 }, { left: 0, top: 0, right: 2000, bottom: 1200 });
+
     expect(result?.shell).toEqual({ x: 100 + 200 * zoom, y: 80 + 100 * zoom, width: 300 * zoom, height: 180 * zoom });
     expect(result?.preview).toEqual({ x: 200, y: 100, width: 300, height: 180 });
   });
@@ -31,6 +33,7 @@ describe("selection crop geometry", () => {
   it("clips to visible canvas while preserving the actual frame-local crop", () => {
     const result = selectionCropToShell({ x: 0, y: 0, width: 300, height: 200 }, { width: 1000, height: 800 },
       { left: -100, top: 20, right: 900, bottom: 820 }, { left: 0, top: 50, right: 800, bottom: 700 }, { left: 0, top: 0, right: 1200, bottom: 900 });
+
     expect(result).toEqual({ shell: { x: 0, y: 50, width: 200, height: 170 }, preview: { x: 100, y: 30, width: 200, height: 170 } });
   });
 });
@@ -53,6 +56,7 @@ describe("selection freshness", () => {
     const message = { protocol: BRIDGE_PROTOCOL, kind: "selection-markers", session: "session", generation: "generation-1" };
     expect(isShellMessage({ ...message, selectionIds: [] })).toBe(true);
     expect(isShellMessage({ ...message, selectionIds: ["one", "two"] })).toBe(true);
+
     for (const selectionIds of [null, "one", [1], [""], ["one", "one"], ["x".repeat(129)], Array.from({ length: 9 }, (_, i) => String(i))]) {
       expect(isShellMessage({ ...message, selectionIds })).toBe(false);
     }
@@ -81,6 +85,7 @@ describe("selection freshness", () => {
       { capture: capture(), status: "current" },
       { capture: { ...capture(), selectionId: "mobile", previewId: "mobile" }, status: "current" },
     ], "desktop", "generation-2");
+
     expect(result[0].status).toBe("stale");
     expect(result[1].status).toBe("current");
   });
@@ -90,6 +95,7 @@ describe("selection freshness", () => {
       { capture: capture(), status: "current" as const },
       { capture: { ...capture(), selectionId: "mobile", previewId: "mobile" as const }, status: "current" as const },
     ];
+
     const result = markSelectionsAfterRouteChange(original, "desktop");
     expect(result[0]).toMatchObject({ status: "stale", requiresRepick: true, capture: { documentGeneration: "generation-1" } });
     expect(result[0].staleReason).toContain("route changed");
@@ -100,6 +106,7 @@ describe("selection freshness", () => {
 
   it("accepts pointer/keyboard selection origins, but rejects unknown modalities", () => {
     const message = { protocol: BRIDGE_PROTOCOL, kind: "selection", session: "session", generation: "generation-1", capture: capture() };
+
     for (const interaction of [undefined, "pointer", "keyboard"]) expect(isBridgeMessage({ ...message, interaction })).toBe(true);
     expect(isBridgeMessage({ ...message, interaction: "unknown" })).toBe(false);
   });

@@ -55,18 +55,23 @@ export class JournalStore {
 
   async write(journal: InstrumentationJournal): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+
     if (journal.state === "planned") {
       const existing = (await this.list()).some(item => item.transactionId === journal.transactionId);
       assertArtifactCapacity(this.directory, ARTIFACT_LIMITS.journals, 2 * 1024 * 1024, existing ? 0 : 1);
     }
+
     const finalPath = this.pathFor(journal.transactionId);
     const temporaryPath = `${finalPath}.${process.pid}.tmp`;
     const next = { ...journal, updatedAt: new Date().toISOString() };
     await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
     const temporary = await open(temporaryPath, "r");
+
     try { await temporary.sync(); } finally { await temporary.close(); }
+
     await rename(temporaryPath, finalPath);
     const directory = await open(this.directory, "r");
+
     try { await directory.sync(); } finally { await directory.close(); }
   }
 
@@ -76,16 +81,21 @@ export class JournalStore {
 
   async list(): Promise<InstrumentationJournal[]> {
     let names: string[];
+
     try { names = await readdir(this.directory); } catch { return []; }
+
     const journals: InstrumentationJournal[] = [];
+
     for (const name of names.filter((entry) => entry.endsWith(".json")).sort()) {
       try {
         const value = JSON.parse(await readFile(path.join(this.directory, name), "utf8")) as InstrumentationJournal;
+
         if (value.version === 1 && typeof value.transactionId === "string") journals.push(value);
       } catch (error) {
         throw new Error(`Unreadable recovery record ${path.join(this.directory, name)}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+
     return journals;
   }
 }

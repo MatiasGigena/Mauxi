@@ -4,12 +4,19 @@ import type { StoredSelection } from "../application/selection-state";
 
 const easeOut = "cubic-bezier(0.23, 1, 0.32, 1)";
 const easeMove = "cubic-bezier(0.77, 0, 0.175, 1)";
+
 type Entry = { item: StoredSelection; exiting: boolean };
+
 type LoginView = (active: boolean) => ReactNode;
+
 type Props = { selections: StoredSelection[]; onRemove: (id: string) => void; onActivate?: () => void; expansion?: string; contentSize?: string; panel?: ReactNode; login?: LoginView; children: ReactNode };
+
 type State = { source: StoredSelection[]; entries: Entry[]; panel?: ReactNode; panelExiting?: boolean; login?: LoginView; loginExiting?: boolean };
+
 type Appearance = { rect: DOMRect; opacity: number };
+
 type Snapshot = { surface: DOMRect; items: Map<string, Appearance>; focusedIndex: number; panelFocused: boolean; editorFocused?: boolean };
+
 const id = (entry: Entry) => entry.item.capture.selectionId;
 const activeIds = (state: State) => state.entries.filter(entry => !entry.exiting).map(id).join("\n");
 
@@ -26,8 +33,10 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
     const panelExiting = !!panel && !props.panel;
     const login = props.login || state.login;
     const loginExiting = !!login && !props.login;
+
     if (props.selections === state.source && panel === state.panel && panelExiting === state.panelExiting && login === state.login && loginExiting === state.loginExiting) return null;
     const ids = new Set(props.selections.map(item => item.capture.selectionId));
+
     return { source: props.selections, entries: [
       ...props.selections.map(item => ({ item, exiting: false })),
       ...state.entries.filter(entry => !ids.has(id(entry))).map(entry => ({ ...entry, exiting: true })),
@@ -60,6 +69,7 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
 
   private fitEditor = () => {
     const editor = this.root.current?.querySelector<HTMLTextAreaElement>(".composer textarea");
+
     if (!editor || editor.closest("[inert]")) return;
     editor.style.height = "0px";
     editor.style.height = `${editor.scrollHeight}px`;
@@ -69,14 +79,17 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
 
   getSnapshotBeforeUpdate(previousProps: Props, previous: State): Snapshot | null {
     const panelChanged = !!previousProps.panel !== !!this.props.panel || !!previousProps.login !== !!this.props.login;
+
     if ((activeIds(previous) === activeIds(this.state) && !panelChanged && previousProps.expansion === this.props.expansion && previousProps.contentSize === this.props.contentSize) || !this.root.current || !this.surface.current) return null;
     const items = new Map<string, Appearance>();
     this.root.current.querySelectorAll<HTMLElement>("[data-composer-motion]").forEach(node => {
       const opacity = Number(getComputedStyle(node).opacity);
+
       if (node.hasAttribute("data-retained-motion") && node.dataset.exiting === "true" && opacity === 0) return;
       items.set(node.dataset.composerMotion!, { rect: node.getBoundingClientRect(), opacity });
     });
     const focused = document.activeElement?.closest<HTMLElement>("[data-selection-id]")?.dataset.selectionId;
+
     return {
       surface: this.surface.current.getBoundingClientRect(), items,
       panelFocused: !!this.root.current.querySelector(".composer-panel")?.contains(document.activeElement),
@@ -92,7 +105,10 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
   }
 
   componentDidUpdate(_props: Props, previous: State, before: Snapshot | null) {
-    if (!before || !this.root.current || !this.surface.current) { this.fitEditor(); return; }
+    if (!before || !this.root.current || !this.surface.current) { this.fitEditor();
+
+ return; }
+
     const root = this.root.current;
     const active = this.state.entries.filter(entry => !entry.exiting);
     const previousIds = new Set(previous.entries.filter(entry => !entry.exiting).map(id));
@@ -112,25 +128,33 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
       const buttons = root.querySelectorAll<HTMLButtonElement>(".selection-list button");
       (buttons[Math.min(before.focusedIndex, buttons.length - 1)] ?? root.querySelector<HTMLTextAreaElement>("textarea"))?.focus({ preventScroll: true });
     }
+
     if (!this.props.login && ((before.panelFocused && this.state.panelExiting) || (before.editorFocused && this.props.panel))) {
       root.querySelector<HTMLButtonElement>(".model-picker")?.focus({ preventScroll: true });
     }
-    if (instant) { this.settle(); return; }
+
+    if (instant) { this.settle();
+
+ return; }
 
     const after = this.surface.current.getBoundingClientRect();
     const opening = after.height > before.surface.height;
+
     if (Math.abs(before.surface.height - after.height) > .5 || Math.abs(before.surface.bottom - after.bottom) > .5) {
       this.animate(this.surface.current, [
         { transform: `translateY(${before.surface.bottom - after.bottom}px) scaleY(${before.surface.height / after.height})` },
         { transform: "none" },
       ], opening ? 200 : 160, easeMove);
     }
+
     const bounds = root.getBoundingClientRect();
     root.querySelectorAll<HTMLElement>("[data-composer-motion]").forEach(node => {
       const key = node.dataset.composerMotion!;
       const from = before.items.get(key);
+
       if (node.dataset.exiting === "true") {
         if (!from) return;
+
         if (node.hasAttribute("data-retained-motion")) {
           const parent = node.offsetParent as HTMLElement;
           const origin = parent.getBoundingClientRect();
@@ -138,10 +162,13 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
           this.animate(node, [{ visibility: "visible", opacity: from.opacity, transform: "none" }, { visibility: "visible", opacity: 0, transform: "translateY(-12%) scale(.97)" }], 110, easeOut,
             () => {
               node.style.position = "fixed";
+
               if (key === "login") this.setState(state => ({ login: state.loginExiting ? undefined : state.login, loginExiting: false }));
             });
+
           return;
         }
+
         Object.assign(node.style, { left: `${from.rect.left - bounds.left - root.clientLeft}px`, top: `${from.rect.top - bounds.top - root.clientTop}px`, width: `${from.rect.width}px`, height: `${from.rect.height}px` });
         this.animate(node, [{ opacity: from.opacity, transform: "none" }, { opacity: 0, transform: "translateY(-12%) scale(.97)" }], 110, easeOut,
           () => this.setState(state => key === "panel"
@@ -150,9 +177,11 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
       } else {
         const to = node.getBoundingClientRect();
         const textLayer = key === "editor" || key === "exchange" || key === "toolbar";
+
         const transform = from
           ? `translate(${from.rect.left - to.left}px, ${from.rect.top - to.top}px)${textLayer ? "" : ` scale(${from.rect.width / to.width}, ${from.rect.height / to.height})`}`
           : key === "exchange" ? "translateY(8px)" : "translateY(15%) scale(.97)";
+
         if (!from || from.opacity < 1 || Math.abs(from.rect.left - to.left) > .5 || Math.abs(from.rect.top - to.top) > .5) {
           this.animate(node, [{ opacity: from?.opacity ?? 0, transform }, { opacity: 1, transform: "none" }], 160, easeOut);
         }
@@ -164,6 +193,7 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
     const { item, exiting } = entry;
     const capture = item.capture;
     const label = capture.element.label || capture.element.tag;
+
     return <span key={capture.selectionId} className={`selection-badge ${exiting ? "selection-ghost" : "selection-chip"} ${item.status}`} data-composer-motion={`badge:${capture.selectionId}`} data-selection-id={capture.selectionId} data-selection-preview={capture.previewId} data-exiting={exiting || undefined} title={`${label} · ${capture.previewId}${item.status === "stale" ? " · Select again before sending" : ""}`}>
       <span className="selection-label">{label}</span>
       {exiting
@@ -174,11 +204,13 @@ export class SelectionComposer extends Component<Props, State, Snapshot | null> 
 
   private panel(exiting: boolean) {
     const hidden = !exiting && !!this.props.login;
+
     return <div className={`composer-panel${exiting ? " composer-panel-ghost" : ""}`} data-composer-motion="panel" data-retained-motion={exiting ? undefined : ""} data-exiting={exiting || hidden || undefined} inert={hidden} aria-hidden={hidden || undefined}>{this.state.panel}</div>;
   }
 
   render() {
     const active = this.state.entries.filter(entry => !entry.exiting);
+
     return <section ref={this.root} className="chat-dock" aria-label="Chat" onKeyDownCapture={() => { this.keyboard = true; }}
       onPointerDownCapture={() => { this.keyboard = false; this.props.onActivate?.(); }} onFocusCapture={() => this.props.onActivate?.()}>
       <div ref={this.surface} className="chat-surface" aria-hidden="true" />

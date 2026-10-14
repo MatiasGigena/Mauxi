@@ -22,6 +22,7 @@ export function PreviewHeader({ id, board, ready, locked, interacting, selecting
   const label = LABELS[id];
   const focusLabel = `${focused ? "Unfocus" : "Focus"} ${label}`;
   const FocusIcon = focused ? Minimize2 : Maximize2;
+
   return <header className="artboard-header" inert={locked} onPointerDown={event => {
     if (!(event.target as Element).closest("button:not(.board-grip)")) onDrag(event);
   }}>

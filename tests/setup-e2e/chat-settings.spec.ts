@@ -8,17 +8,20 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await expect(page.locator(".chat-dock")).toBeVisible();
   await page.evaluate(() => {
     const state = (window as any).setupTest;
+
     const snapshot = {
       ready: true, workspaceId: "test-workspace", providers: [{ id: "fake", name: "Fake", authenticated: true, authMethods: [{ type: "api_key", label: "API key" }] }],
       models: [{ key: "fake/one", provider: "Fake", id: "one", name: "Model One", available: true, supportsImages: true, thinkingLevels: ["off", "low"] }],
       messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
     };
+
     state.agentSnapshot = snapshot;
     window.mauxi!.agentSelectModel = async ({ modelKey }) => {
       state.selectedModel = modelKey;
       state.agentSnapshot = { ...state.agentSnapshot, selectedModel: modelKey };
       state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: state.agentSnapshot }));
     };
+
     state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
   });
 
@@ -61,6 +64,7 @@ test("model setup expands inside chat and the send border keeps moving", async (
   await page.evaluate(() => {
     const state = (window as any).setupTest;
     window.mauxi!.agentDialogResponse = async (response) => { state.dialogResponse = response; };
+
     state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {
       id: "provider-choice", kind: "select", title: "Choose sign-in method", message: "Select one option", options: [{ id: "oauth", label: "Browser sign-in" }],
     } }));

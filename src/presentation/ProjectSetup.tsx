@@ -13,6 +13,7 @@ interface ProjectSetupProps {
   onChooseProject: () => void;
   onConfirm: () => void;
 }
+
 type View = "overview" | "configure" | "review";
 
 export function integrationSummary(plan: LaunchPlan): string {
@@ -20,8 +21,11 @@ export function integrationSummary(plan: LaunchPlan): string {
   const modified = plan.integration.files.filter(file => file.action === "modify").length;
   const created = plan.integration.files.filter(file => file.action === "create").length;
   const parts = [];
+
   if (modified) parts.push(`${modified} ${modified === 1 ? "file" : "files"} modified`);
+
   if (created) parts.push(`${created} ${created === 1 ? "artifact" : "artifacts"} created`);
+
   return parts.length ? `${parts.join(", ")}. Temporary changes cleaned up on close.` : "No file changes required.";
 }
 
@@ -45,21 +49,26 @@ export function ProjectSetup({ discovery, plan, busy, onSelectPlan, onChooseProj
   useLayoutEffect(() => {
     const screen = root.current!.closest(".launch-screen") ?? root.current!;
     motion.enter([...screen.querySelectorAll<HTMLElement>(".launch-brand, .guided-intro, .configure-trigger, .guided-integration, .confirmation-actions")]);
+
     return motion.cancel;
   }, []);
 
   function transition(next: View, keyboard = false) {
     const screen = root.current!.closest(".launch-screen")!;
+
     if (next === "overview") {
       const closingPanel = document.getElementById(configuring ? configId : reviewId);
+
       if (closingPanel?.contains(document.activeElement)) (configuring ? configureTrigger : reviewTrigger).current?.focus({ preventScroll: true });
     }
+
     motion.change({
       moving: [...screen.querySelectorAll<HTMLElement>(".launch-brand, .guided-intro, .project-setup .confirmation-actions")],
       layers: [...root.current!.querySelectorAll<HTMLElement>("[data-guided-layer]")],
       update: () => { setView(next); setSelectorState({ open: false, keyboard }); }, opening: next !== "overview", keyboard,
     });
   }
+
   function toggle(target: View, event: MouseEvent<HTMLButtonElement>) { transition(view === target ? "overview" : target, event.detail === 0); }
 
   return <div ref={root} className="project-setup" data-view={view} data-expanded={configuring} onKeyDown={event => {

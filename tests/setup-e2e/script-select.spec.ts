@@ -148,6 +148,7 @@ test.describe("touch", () => {
   test("selection and detail restoration work on narrow touch screens", async ({ page }, testInfo) => {
     await openConfiguration(page);
     const trigger = page.getByRole("combobox", { name: /Application and script/ });
+
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       await trigger.tap();

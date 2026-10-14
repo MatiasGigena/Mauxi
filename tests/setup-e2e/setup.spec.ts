@@ -123,16 +123,20 @@ test("hover and nested transitions remain reversible, accessible and responsive"
   await expect(page.locator(".change-project-intent")).toHaveCSS("transition-duration", "0s");
   await page.locator(".review-trigger").click();
   await settle(page);
+
   for (let i = 0; i < 4; i++) {
     const sample = await page.evaluate(() => {
       const trigger = document.querySelector<HTMLButtonElement>('[data-file-index="3"]')!;
       trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
       const panel = document.getElementById(trigger.getAttribute("aria-controls")!)!;
       const a = panel.getAnimations()[0]; a.pause(); a.currentTime = 75;
+
       return { opacity: Number(getComputedStyle(panel).opacity), duration: Number(a.effect!.getTiming().duration) + (a.effect!.getTiming().delay ?? 0) };
     });
+
     expect(sample.opacity).toBeGreaterThan(0); expect(sample.opacity).toBeLessThan(1); expect(sample.duration).toBeLessThanOrEqual(220);
   }
+
   await page.locator('[data-file-index="3"]').focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
@@ -143,6 +147,7 @@ test("hover and nested transitions remain reversible, accessible and responsive"
   await page.locator(".configure-trigger").click();
   await expect(page.locator(".guided-integration")).toHaveAttribute("inert", "");
   await page.locator(".configure-trigger").click();
+
   for (const width of [375, 320]) {
     await page.setViewportSize({ width, height: 812 });
     await page.locator(".review-trigger").click();

@@ -5,6 +5,7 @@ async function openActions(page: Page) {
   await mockDesktop(page);
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
+
   return page.getByRole("dialog", { name: "Mobile actions", exact: true });
 }
 
@@ -29,6 +30,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await expect(dialog.getByRole("button", { name: "Apply viewport" })).toHaveCSS("background-color", "rgb(24, 27, 34)");
     expect(await dialog.evaluate(node => {
       const rect = node.getBoundingClientRect();
+
       return { overflow: node.scrollWidth > node.clientWidth, contained: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight };
     })).toEqual({ overflow: false, contained: true });
     await page.screenshot({ path: testInfo.outputPath("preview-actions.png") });
@@ -43,11 +45,13 @@ test("Apply viewport shares Send's primary styling and respects reduced motion",
   await dialog.getByRole("spinbutton", { name: "Width", exact: true }).fill("420");
   await expect(apply).toBeEnabled();
   await expect(apply.locator("svg.lucide-arrow-up-right")).toHaveAttribute("aria-hidden", "true");
+
   const appearance = await apply.evaluate(node => {
     const send = document.querySelector(".send-action")!;
     const surface = send.querySelector(".send-action-surface")!;
     const before = getComputedStyle(node, "::before");
     const sendBefore = getComputedStyle(surface, "::before");
+
     return {
       fontSize: getComputedStyle(node).fontSize === getComputedStyle(send).fontSize,
       fontWeight: getComputedStyle(node).fontWeight === getComputedStyle(send).fontWeight,
@@ -56,6 +60,7 @@ test("Apply viewport shares Send's primary styling and respects reduced motion",
       animation: before.animationName === sendBefore.animationName && before.animationDuration === sendBefore.animationDuration,
     };
   });
+
   expect(appearance).toEqual({ fontSize: true, fontWeight: true, fill: true, gradient: true, animation: true });
   expect(await apply.evaluate(node => getComputedStyle(node, "::before").animationName)).toBe("launch-border-spin");
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -115,18 +120,22 @@ test("viewport edits validate empty, fractional and out-of-range values before a
   const width = dialog.getByRole("spinbutton", { name: "Width", exact: true });
   const height = dialog.getByRole("spinbutton", { name: "Height", exact: true });
   const apply = dialog.getByRole("button", { name: "Apply viewport" });
+
   for (const value of ["", "239", "3841", "390.5"]) {
     await width.fill(value); await apply.click();
     await expect(dialog).toBeVisible();
     expect(await width.evaluate(node => (node as HTMLInputElement).validity.valid)).toBe(false);
     await expect(page.getByTestId("mobile-preview")).toHaveAttribute("width", "390");
   }
+
   await width.fill("420");
+
   for (const value of ["", "239", "2161", "844.5"]) {
     await height.fill(value); await apply.click();
     await expect(dialog).toBeVisible();
     expect(await height.evaluate(node => (node as HTMLInputElement).validity.valid)).toBe(false);
   }
+
   await height.fill("900"); await height.press("Enter");
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId("mobile-preview")).toHaveAttribute("width", "420");

@@ -42,6 +42,7 @@ async function proveFixture(fixture: "Vite" | "Next.js", sourceName: string, map
   const header = artboard.locator(".artboard-header");
   const beforeDrag = await artboard.boundingBox();
   const headerBounds = await header.boundingBox();
+
   if (!beforeDrag || !headerBounds) throw new Error("Desktop artboard is not visible");
   await page.mouse.move(headerBounds.x + 80, headerBounds.y + 18);
   await page.mouse.down();
@@ -87,6 +88,7 @@ test("Vite: scaled picking, source provenance, viewport invariance, capture and 
   const desktop = page.frameLocator('[data-testid="desktop-preview"]');
   const sourcePath = path.resolve("fixtures/vite/src/components/ProofCard.tsx");
   const original = await readFile(sourcePath, "utf8");
+
   try {
     await writeFile(sourcePath, original.replace("Run action", "Run changed action"));
     await expect(desktop.getByText("Run changed action")).toBeVisible({ timeout: 20_000 });
@@ -116,6 +118,7 @@ test("Next App Router/Webpack: server-client fixture has precise source picking"
 
   const sourcePath = path.resolve("fixtures/next/app/components/ProofCard.tsx");
   const original = await readFile(sourcePath, "utf8");
+
   try {
     await writeFile(sourcePath, original.replace("Run action", "Run changed action"));
     await expect(desktop.getByText("Run changed action")).toBeVisible({ timeout: 30_000 });
@@ -125,6 +128,7 @@ test("Next App Router/Webpack: server-client fixture has precise source picking"
   } finally {
     await writeFile(sourcePath, original);
   }
+
   await expect(page.frameLocator('[data-testid="mobile-preview"]').getByText("Run action", { exact: true })).toBeVisible();
 });
 
@@ -137,7 +141,11 @@ test("Next Link client navigation reaches the peer once without remounting the s
   const peer = page.frames().find((frame) => frame.url().includes("mauxiPreview=mobile"));
   const peerNavigations: string[] = [];
   page.on("framenavigated", (frame) => { if (frame === peer) peerNavigations.push(frame.url()); });
-  const marker = await desktop.locator("body").evaluate(() => { document.body.dataset.instance = crypto.randomUUID(); return document.body.dataset.instance; });
+
+  const marker = await desktop.locator("body").evaluate(() => { document.body.dataset.instance = crypto.randomUUID();
+
+ return document.body.dataset.instance; });
+
   await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
   await desktop.getByRole("link", { name: "Next client route", exact: true }).click();
   await expect.poll(() => peer?.url()).toBe("http://127.0.0.1:45000/?view=linked");

@@ -17,7 +17,9 @@ for (const width of [1500, 390]) {
       };
       const emit = () => state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot: state.modelsSnapshot }));
       window.mauxi!.agentSelectModel = async ({ modelKey }) => { state.modelsSnapshot.selectedModel = modelKey; emit(); };
+
       window.mauxi!.agentSetThinking = async ({ level }) => { state.modelsSnapshot.thinkingLevel = level; emit(); };
+
       emit();
     });
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();
@@ -27,9 +29,11 @@ for (const width of [1500, 390]) {
     const details = settings.locator(".model-details");
     await expect(settings.locator(".script-select-caption")).toHaveCount(0);
     const thinking = settings.getByRole("group", { name: "Thinking level" });
+
     for (const level of ["off", "low"]) {
       await expect(thinking.getByRole("button", { name: level, exact: true })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     }
+
     await thinking.getByRole("button", { name: "low", exact: true }).click();
     await expect(thinking.getByRole("button", { name: "low", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(thinking.getByRole("button", { name: "low", exact: true })).toHaveCSS("box-shadow", "none");

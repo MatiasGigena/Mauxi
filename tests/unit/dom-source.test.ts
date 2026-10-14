@@ -8,6 +8,7 @@ it("returns bounded static source candidates, not invented runtime provenance or
   const temp = await mkdtemp(path.join(os.tmpdir(), "mauxi-dom-source-"));
   const root = path.join(temp, "project"); await mkdir(root);
   const signal = new AbortController().signal;
+
   try {
     await writeFile(path.join(root, "Card.tsx"), 'export const Card = () => <button data-testid="known">Test</button>;');
     const result = await inspectDomSource(root, "button", "known", signal);
@@ -26,11 +27,13 @@ it("returns bounded static source candidates, not invented runtime provenance or
 it("maps nested JSX within its anchor, never a nearby sibling, comment or string", async () => {
   const { resolveWorkspaceSource } = await import("../../src/infrastructure/project/source-resolver");
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-jsx-source-"));
+
   try {
     const source = `const decoy = '<span data-testid="button">not JSX</span>';
 export const Card = () => <article><span>Badge</span>
   <button data-testid="button" title={">"} onClick={() => true}><span>Actual text</span></button>
 </article>;`;
+
     await writeFile(path.join(root, "Card.tsx"), source);
     const anchor = '<span>Actual text';
     const offset = source.indexOf(anchor); const prefix = source.slice(0, offset);

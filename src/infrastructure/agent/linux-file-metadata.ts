@@ -67,27 +67,39 @@ type DesiredMetadata = Pick<LinuxFileMetadata, "uid" | "gid" | "mode"> & Partial
 async function trustedPython(): Promise<string> {
   if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) throw new Error("Managed metadata requires 64-bit Linux.");
   const executable = await realpath("/usr/bin/python3");
+
   if (path.dirname(executable) !== "/usr/bin") throw new Error("Untrusted system Python location.");
+
   for (const item of ["/", "/usr", "/usr/bin", executable]) {
     const info = await stat(item);
+
     if (info.uid !== 0 || (info.mode & 0o022) !== 0 || (item === executable ? !info.isFile() : !info.isDirectory())) throw new Error("System Python and its ancestors must be root-owned and not group/world-writable.");
   }
+
   return executable;
 }
 
 export async function inspectLinuxMetadata(file: FileHandle, desired?: DesiredMetadata, creation = false): Promise<LinuxFileMetadata> {
   const executable = await trustedPython();
+
   const metadata = await new Promise<LinuxFileMetadata>((resolve, reject) => {
     const child = spawn(executable, ["-I", "-S", "-c", SCRIPT, ...(creation ? ["create", ...(desired ? [JSON.stringify(desired)] : [])] : desired ? [JSON.stringify(desired)] : [])], {
       cwd: "/", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe", file.fd],
     });
+
     let output = ""; let errorOutput = ""; let bytes = 0; let done = false;
+
     const finish = (error?: Error) => {
       if (done) return; done = true; clearTimeout(timer);
       child.stdout!.destroy(); child.stderr!.destroy();
-      if (error) { child.kill("SIGKILL"); reject(error); return; }
+
+      if (error) { child.kill("SIGKILL"); reject(error);
+
+ return; }
+
       try {
         const value = JSON.parse(output) as LinuxFileMetadata;
+
         if (![value.mode, value.uid, value.gid].every(Number.isSafeInteger)
           || ![value.atimeNs, value.mtimeNs].every((item) => typeof item === "string" && /^\d+$/.test(item))
           || typeof value.identity !== "string" || !/^\d+(?::\d+){6}$/.test(value.identity)
@@ -96,35 +108,48 @@ export async function inspectLinuxMetadata(file: FileHandle, desired?: DesiredMe
         resolve(value);
       } catch (error) { reject(error); }
     };
+
     const timer = setTimeout(() => finish(new Error("Linux metadata helper exceeded its 5-second deadline")), 5_000);
+
     const append = (chunk: Buffer, stderr: boolean) => {
       bytes += chunk.length;
-      if (bytes > 8_192) { finish(new Error("Linux metadata helper exceeded its output limit")); return; }
+
+      if (bytes > 8_192) { finish(new Error("Linux metadata helper exceeded its output limit"));
+
+ return; }
+
       if (stderr) errorOutput += chunk.toString("utf8"); else output += chunk.toString("utf8");
     };
+
     child.stdout!.on("data", (chunk: Buffer) => append(chunk, false));
     child.stderr!.on("data", (chunk: Buffer) => append(chunk, true));
     child.once("error", (error) => finish(error));
     child.once("close", (code) => finish(code === 0 ? undefined : new Error(errorOutput || "Linux metadata helper failed")));
   });
+
   if (!creation) {
     const info = await file.stat({ bigint: true });
     const identity = [info.dev, info.ino, info.mode, info.uid, info.gid, info.size, info.mtimeNs, info.ctimeNs].join(":");
+
     if (identity !== metadata.changeIdentity || Number(info.mode) !== metadata.mode || Number(info.uid) !== metadata.uid || Number(info.gid) !== metadata.gid) throw new Error("Linux metadata helper result does not match the open inode (or metadata changed during inspection)");
   }
+
   return metadata;
 }
 
 export async function inspectLinuxPath(target: string, creation = false): Promise<LinuxFileMetadata> {
   const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+
   try { return await inspectLinuxMetadata(file, undefined, creation); } finally { await file.close(); }
 }
 
 export async function exchangeLinuxFiles(target: string, displaced: string): Promise<void> {
   const executable = await trustedPython();
   const parent = await open(path.dirname(target), constants.O_RDONLY | constants.O_DIRECTORY);
+
   try {
     const vault = await open(path.dirname(displaced), constants.O_RDONLY | constants.O_DIRECTORY);
+
     try {
       await new Promise<void>((resolve, reject) => {
         const child = spawn(executable, ["-I", "-S", "-c", `
@@ -138,6 +163,7 @@ os.fsync(4)
 `, path.basename(target), path.basename(displaced)], {
           cwd: "/", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, stdio: ["ignore", "ignore", "pipe", parent.fd, vault.fd],
         });
+
         let errors = "";
         const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
         child.stderr!.on("data", chunk => { errors = (errors + String(chunk)).slice(-4096); });

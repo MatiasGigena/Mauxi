@@ -10,12 +10,15 @@ describe("canvas background trail", () => {
     expect(result.edges.length).toBeGreaterThanOrEqual(4);
     expect(result.total).toBe(result.edges.reduce((sum, edge) => sum + edge.length, 0));
     let distance = 0;
+
     for (const [index, edge] of result.edges.entries()) {
       expect((edge.x - .5) % CANVAS_GRID_SIZE).toBe(0);
       expect((edge.y - .5) % CANVAS_GRID_SIZE).toBe(0);
       expect(edge.x).toBeGreaterThanOrEqual(0); expect(edge.x).toBeLessThan(width + CANVAS_GRID_SIZE);
       expect(edge.y).toBeGreaterThanOrEqual(0); expect(edge.y).toBeLessThan(height + CANVAS_GRID_SIZE);
+
       if (width > CANVAS_GRID_SIZE) expect(edge.x).toBeLessThan(width);
+
       if (height > CANVAS_GRID_SIZE) expect(edge.y).toBeLessThan(height);
       expect(edge.length).toBeGreaterThan(0);
       expect(edge.length % CANVAS_GRID_SIZE).toBe(0);
@@ -26,6 +29,7 @@ describe("canvas background trail", () => {
       expect(edge.x + Math.cos(edge.angle * Math.PI / 180) * edge.length).toBeCloseTo(next.x);
       expect(edge.y + Math.sin(edge.angle * Math.PI / 180) * edge.length).toBeCloseTo(next.y);
     }
+
     expect(result.trailLength).toBe(CANVAS_TRAIL_LENGTH);
     expect(result.initialHead).toBeLessThan(result.total);
   });
@@ -43,6 +47,7 @@ describe("canvas background trail", () => {
     const result = canvasTrailGeometry(1600, 1200, [
       { x: 20, y: 20, width: 600, height: 600 }, { x: 650, y: 20, width: 250, height: 260 },
     ])!;
+
     expect(result.edges).toHaveLength(6);
     expect(result.edges.map(({ x, y }) => [x, y])).toContainEqual([640.5, 320.5]);
     expect(result.edges.map(({ x, y }) => [x, y])).not.toContainEqual([960.5, 640.5]);

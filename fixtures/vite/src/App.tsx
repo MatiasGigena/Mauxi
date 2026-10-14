@@ -9,10 +9,12 @@ export function App() {
   const [submissions, setSubmissions] = useState(0);
   const [items, setItems] = useState(["Alpha", "Beta"]);
   const [listGeneration, setListGeneration] = useState(0);
+
   function signIn() {
     document.cookie = "mauxi-proof-auth=1; Path=/; SameSite=Lax";
     setAuthenticated(true);
   }
+
   return (
     <main>
       <header className="sticky"><span>React + Vite fixture</span><output data-testid="viewport">{innerWidth} × {innerHeight}</output></header>

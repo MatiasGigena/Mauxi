@@ -64,6 +64,7 @@ for (const remaining of [0, 1]) test(`deleted badge stays invisible at exit comp
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (frames, options) {
       const animation = animate.call(this, frames, options);
+
       if (this.matches('.selection-ghost')) {
         const ghost = this;
         animation.addEventListener('finish', () => {
@@ -71,6 +72,7 @@ for (const remaining of [0, 1]) test(`deleted badge stays invisible at exit comp
           document.documentElement.dataset.exitFinishConnected = String(ghost.isConnected);
         });
       }
+
       return animation;
     };
   });
@@ -96,15 +98,18 @@ test('keyboard selection/removal is instant and focus returns to the editor', as
 test('reduced motion, wrapping, and live preference changes settle cleanly', async ({ page }) => {
   await page.setViewportSize({ width: 420, height: 850 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
+
   for (let index = 0; index < 8; index++) await attach(page, `target-${index}`);
   await expect(active(page)).toHaveCount(8);
   expect(await active(page).first().evaluate(node => node.getAnimations().length)).toBe(0);
   const bounds = await page.locator('.chat-dock').boundingBox();
+
   for (const badge of await active(page).all()) {
     const box = await badge.boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(bounds!.x);
     expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
   }
+
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await active(page).first().getByRole('button').click();
   await page.emulateMedia({ reducedMotion: 'reduce' });

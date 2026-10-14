@@ -11,7 +11,9 @@ const root = path.resolve(".");
 const configPath = path.resolve("fixtures/vite/vite.config.ts");
 
 async function portIsFree(): Promise<boolean> {
-  try { await fetch("http://127.0.0.1:45173", { signal: AbortSignal.timeout(500) }); return false; }
+  try { await fetch("http://127.0.0.1:45173", { signal: AbortSignal.timeout(500) });
+
+ return false; }
   catch { return true; }
 }
 
@@ -34,6 +36,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await application?.close().catch(() => undefined);
+
   if (originalConfig) await writeFile(configPath, originalConfig);
 });
 
@@ -53,10 +56,12 @@ test("confirms, starts, connects, and safely closes one project", async () => {
   page = await workspaceWindow;
   await page.waitForLoadState("domcontentloaded");
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 45_000 });
+
   const storage = await application.evaluate(({ BrowserWindow, session }) => ({
     workspace: BrowserWindow.getAllWindows()[0].webContents.session.getStoragePath(),
     shellDefault: session.defaultSession.getStoragePath(),
   }));
+
   expect(storage.workspace).not.toBe(storage.shellDefault);
   expect(await portIsFree()).toBe(false);
 

@@ -5,25 +5,37 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { classifyDesignRequest } from "../../src/application/design-guidance";
 import { DesignResources } from "../../src/infrastructure/agent/design-resources";
+
 const roots: string[] = [];
+
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
 async function setup() {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-resources-")); roots.push(root);
   const resources = new DesignResources(path.join(root, "profile")); await resources.initialize();
   const source = path.join(root, "source"); await mkdir(source);
+
   return { root, resources, source };
 }
+
 async function skill(source: string, name = "apple-design", body = "Preserve project conventions.") {
   const file = path.join(source, "SKILL.md");
-  await writeFile(file, `---\nname: ${name}\ndescription: UI guidance\ndisable-model-invocation: true\n---\n${body}`); return file;
+  await writeFile(file, `---\nname: ${name}\ndescription: UI guidance\ndisable-model-invocation: true\n---\n${body}`);
+
+ return file;
 }
+
 const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+
 async function catalog(source: string) {
   const bytes = Buffer.from("RIFF0000WEBPtest"); await mkdir(path.join(source, "images"));
   await writeFile(path.join(source, "images", "pricing.webp"), bytes);
   const entry = { id: "calm-pricing", family: "pricing", cue: "Quiet subscription tiers", source: "https://example.com", tags: ["light", "serif"], reviewStatus: "reviewed", imagePath: "images/pricing.webp", mobileImagePath: "images/pricing.webp", sha256: { imagePath: digest(bytes), mobileImagePath: digest(bytes) } };
-  const file = path.join(source, "catalog.json"); await writeFile(file, JSON.stringify({ version: 1, references: [entry] })); return { file, entry };
+  const file = path.join(source, "catalog.json"); await writeFile(file, JSON.stringify({ version: 1, references: [entry] }));
+
+ return { file, entry };
 }
+
 describe("reviewed local design resources", () => {
   it("uses native skills, copies only approved Markdown, leaves manual originals untouched, and persists enablement", async () => {
     const { source, resources, root } = await setup();
@@ -70,12 +82,14 @@ describe("reviewed local design resources", () => {
   });
   it("bounds aggregate guidance bytes across skills and never silently omits dependencies", async () => {
     const { resources, source } = await setup();
+
     for (const name of ["apple-design", "prototype"]) {
       const directory = path.join(source, name); await mkdir(directory);
       const file = await skill(directory, name, `${"a".repeat(60_000)}\nSee [details](DETAILS.md).`);
       await writeFile(path.join(directory, "DETAILS.md"), "é".repeat(50_000));
       await resources.importSkill(await resources.prepareSkill(file));
     }
+
     await expect(resources.guidance("Show UI variants")).rejects.toThrow(/guidance.*budget/i);
     await resources.setEnabled("prototype", false);
     const guidance = await resources.guidance("Improve UI");
@@ -150,10 +164,13 @@ describe("reviewed local design resources", () => {
     expect(resources.snapshot().catalog).toMatchObject({ path: file, count: 10, enabled: true });
     expect(resources.search("light serif hero", "mobile").length).toBeGreaterThan(0);
     const entries = JSON.parse(await readFile(file, "utf8")).references;
+
     for (const entry of entries.filter((item: { reviewStatus: string }) => item.reviewStatus === "reviewed")) {
       expect((await resources.image(entry.id, "desktop", true)).data.length).toBeGreaterThan(100);
+
       if (entry.mobileImagePath) expect((await resources.image(entry.id, "mobile", true)).data.length).toBeGreaterThan(100);
     }
+
     await expect(readFile(path.join(directory, "resources.json"))).rejects.toMatchObject({ code: "ENOENT" });
     const reopened = new DesignResources(directory, file); await reopened.initialize();
     expect(reopened.search("light serif hero", "mobile")).toEqual(resources.search("light serif hero", "mobile"));
@@ -192,6 +209,7 @@ describe("reviewed local design resources", () => {
     expect((await resources.image(result[0].id, "mobile", true)).data.length).toBeGreaterThan(100);
   });
 });
+
 describe("request classification", () => {
   it.each([
     ["Improve responsive layout on phone", ["apple-design", "mobile-native"]],

@@ -19,9 +19,12 @@ export function App() {
   useEffect(() => {
     if (!window.mauxi) {
       setBootstrap({ mode: "proof", active: null, recoveryConflicts: [] });
+
       return;
     }
+
     void window.mauxi.getBootstrap().then(setBootstrap).catch((reason) => setError(errorMessage(reason)));
+
     return window.mauxi.onWorkspaceEvent((event) => {
       setBootstrap((current) => ({ mode: current?.mode ?? "project", ...event }));
     });
@@ -32,8 +35,10 @@ export function App() {
   async function openProject() {
     if (!window.mauxi) return;
     setBusy(true); setError("");
+
     try {
       const result = await window.mauxi.openProject();
+
       if (!result) return;
       setDiscovery(result);
       setSelectedPlanId(result.rememberedPlanId ?? result.plans[0]?.id ?? "");
@@ -44,6 +49,7 @@ export function App() {
   async function confirm() {
     if (!window.mauxi || !discovery || !selectedPlan) return;
     setBusy(true); setError("");
+
     try {
       const active = await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode: "start", startPath: "/" });
       setBootstrap((current) => ({ mode: current?.mode ?? "project", active, recoveryConflicts: current?.recoveryConflicts ?? [] }));
@@ -54,7 +60,9 @@ export function App() {
   }
 
   if (!bootstrap && !error) return <main className="launch-screen is-empty"><img className="launch-logo" src={logoText} alt="Mauxi" /><p>Checking recovery records…</p></main>;
+
   if (bootstrap?.mode === "proof") return <Workspace />;
+
   if (bootstrap?.active) return (
     <>
       <Workspace active={bootstrap.active} onClose={async () => { if (!window.mauxi) return; const result = await window.mauxi.closeProject(); setDiscovery(null); setBusy(false); setError(""); setBootstrap(current => ({ mode: current?.mode ?? "project", ...result })); }} />

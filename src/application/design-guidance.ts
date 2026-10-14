@@ -1,5 +1,7 @@
 export const DESIGN_SKILLS = ["apple-design", "mobile-native", "emil-design-eng", "prototype"] as const;
+
 export type DesignSkillName = typeof DESIGN_SKILLS[number];
+
 export const WORKING_MESSAGES = ["Tinkering...", "Noodling...", "Percolating...", "Imagining...", "Combobulating...", "Brewing..."] as const;
 export const REQUEST_PREFIX = "[Mauxi request]\n";
 export const GUIDANCE_MARKER = "\n\n<mauxi_guidance>";
@@ -7,11 +9,17 @@ export const GUIDANCE_MARKER = "\n\n<mauxi_guidance>";
 export function classifyDesignRequest(text: string, mobileSelection = false): DesignSkillName[] {
   const result = new Set<DesignSkillName>();
   const explicit = /^\/(?:skill:)?([a-z-]+)(?:\s|$)/.exec(text)?.[1];
+
   if (explicit && DESIGN_SKILLS.includes(explicit as DesignSkillName)) result.add(explicit as DesignSkillName);
+
   if (/\b(ui|ux|layout|design|interface|polish|spacing|typography|button|card|header|hero|footer|pricing|navigation|responsive|redesign|diseño|interfaz|espaciado)\b/i.test(text)) result.add("apple-design");
+
   if (mobileSelection || /\b(mobile|phone|touch|responsive|pwa|safe.area|notch|keyboard|viewport|móvil|celular)\b/i.test(text)) result.add("mobile-native");
+
   if (/\b(animat\w*|motion|transition\w*|spring\w*|gesture\w*|hover|swipe|drag|reduced.motion|polish|animación|movimiento)\b/i.test(text)) result.add("emil-design-eng");
+
   if (/\b(variants?|alternatives?|directions?|prototype|versions?|variantes|alternativas)\b/i.test(text)) result.add("prototype");
+
   return [...result];
 }
 
@@ -25,5 +33,6 @@ Before changes inspect existing behavior and define observable success. Verify d
 export function visibleUserText(text: string): string {
   if (text.startsWith(REQUEST_PREFIX)) text = text.slice(REQUEST_PREFIX.length);
   const end = [text.indexOf(GUIDANCE_MARKER), text.indexOf("\n\n<selected_context>")].filter((index) => index >= 0);
+
   return end.length ? text.slice(0, Math.min(...end)) : text;
 }

@@ -8,6 +8,7 @@ import { isBridgeMessage, isShellMessage, BRIDGE_PROTOCOL } from "../../src/appl
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
 
 const origin = "http://127.0.0.1:45173";
+
 describe("canvas geometry", () => {
   it.each([.25, .5, 1, 2])("tracks the grab offset 1:1 at %s without resizing viewports", (zoom) => {
     const board = defaultCanvas().boards.mobile;
@@ -18,6 +19,7 @@ describe("canvas geometry", () => {
   });
   it("keeps the world point under the zoom anchor and clamps camera range", () => {
     const camera = { x: 25, y: -72, zoom: .5 }; const anchor = { x: 320, y: 150 };
+
     for (const requested of [0, .25, 1, 2, 8]) {
       const next = zoomAt(camera, requested, anchor);
       expect((anchor.x - next.x) / next.zoom).toBe((anchor.x - camera.x) / camera.zoom);
@@ -28,6 +30,7 @@ describe("canvas geometry", () => {
   it("fits displaced boards including fixed-height headers into the canvas, not the chat", () => {
     const boards = [{ x: -120, y: 84, width: 1440, height: 900 }, { x: 1430, y: -250, width: 390, height: 844 }];
     const area = { width: 1280, height: 550 }; const camera = fitCamera(boards, area);
+
     for (const b of boards) {
       const x = camera.x + b.x * camera.zoom; const y = camera.y + b.y * camera.zoom;
       expect(x).toBeGreaterThanOrEqual(24 - .001); expect(y).toBeGreaterThanOrEqual(24 - .001);
@@ -60,6 +63,7 @@ describe("canvas geometry", () => {
     const fitted = fitBoards(focused, ["desktop", "mobile"], area);
     expect(fitted.focus).toBeNull(); expect(fitted.boards.desktop).toMatchObject({ x: 0, y: 0 });
     expect(fitted.camera).toEqual(fitCamera(Object.values(unfocus(focused).boards), area));
+
     for (const b of Object.values(fitted.boards)) {
       expect(fitted.camera.x + b.x * fitted.camera.zoom).toBeGreaterThanOrEqual(24 - .001);
       expect(fitted.camera.x + (b.x + b.width) * fitted.camera.zoom).toBeLessThanOrEqual(area.width - 24 + .001);

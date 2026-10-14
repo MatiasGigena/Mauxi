@@ -11,16 +11,19 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
   await writeFile(path.join(project, "vite.config.ts"), 'import { defineConfig } from "vite"; export default defineConfig({ plugins: [] });');
   await writeFile(path.join(project, "index.html"), '<html><body><h1>Login test workspace</h1></body></html>');
   await symlink(path.resolve("node_modules"), path.join(project, "node_modules"), "dir");
+
   const app = await electron.launch({
     args: [path.resolve("dist-electron/main.js")],
     env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_PROOF: "0", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(temp, "recovery"), XDG_CONFIG_HOME: path.join(temp, "config") },
   });
+
   try {
     await app.evaluate(({ shell }) => {
       const state = { urls: [] as string[], failBrowser: false, tokenRequests: 0 };
       (globalThis as any).loginTest = state;
       Object.assign(shell, { openExternal: async (url: string) => {
         state.urls.push(url);
+
         if (state.failBrowser) throw new Error("No default browser");
       } });
       const originalFetch = globalThis.fetch;
@@ -28,8 +31,10 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
         if (String(url) === "https://auth.openai.com/oauth/token") {
           state.tokenRequests++;
           const access = `header.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "test-account" } })).toString("base64")}.signature`;
+
           return new Response(JSON.stringify({ access_token: access, refresh_token: "fake-refresh", expires_in: 3600 }), { status: 200 });
         }
+
         if (/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(String(url))) return originalFetch(url, init);
         throw new Error("External network disabled in login test");
       };
@@ -58,6 +63,7 @@ test("OpenAI browser login works through the real SDK, IPC and desktop UI", asyn
       callback.searchParams.set("code", "fake-code");
       callback.searchParams.set("state", auth.searchParams.get("state")!);
       const response = await fetch(callback);
+
       if (!response.ok) throw new Error("Callback failed");
       await response.text();
     });

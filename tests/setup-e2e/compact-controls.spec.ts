@@ -12,21 +12,33 @@ async function openWorkspace(page: Page) {
     s.ownerCalls = []; s.saves = []; s.closeCalls = 0;
     s.browser = { workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 24, evidence: [] };
     window.mauxi!.bridgeReady = async () => {};
+
     window.mauxi!.saveCanvas = async input => { s.saves.push(input.canvas); };
+
     window.mauxi!.browserState = async () => s.browser;
-    window.mauxi!.onBrowserState = listener => { s.browserListener = listener; return () => {}; };
+    window.mauxi!.onBrowserState = listener => { s.browserListener = listener;
+
+ return () => {}; };
+
     window.mauxi!.browserOwner = async input => {
       s.ownerCalls.push({ ...input, shielded: [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-testid]")].every(frame => frame.inert && frame.tabIndex === -1 && frame.parentElement!.querySelector("[data-browser-shield]")) });
+
       if (s.rejectGrant && input.owner === "agent") throw new Error("Handoff refused");
       s.browser = { ...s.browser, owner: input.owner, generation: s.browser.generation + 1 };
-      s.browserListener(s.browser); return s.browser;
+      s.browserListener(s.browser);
+
+ return s.browser;
     };
+
     window.mauxi!.closeProject = async () => {
       s.closeCalls++;
+
       if (s.rejectClose) throw new Error("Cleanup needs attention");
+
       if (s.holdClose) await new Promise<void>(resolve => { s.releaseClose = resolve; });
       const event = { active: null, recoveryConflicts: [] };
       s.workspaceListeners.forEach((listener: (event: unknown) => void) => listener(event));
+
       return event;
     };
   });

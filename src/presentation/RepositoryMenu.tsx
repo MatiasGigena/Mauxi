@@ -13,16 +13,21 @@ export function RepositoryMenu({ root, onClose }: { root: string; onClose: () =>
     if (!open) return;
     close.current?.focus();
     const dismiss = (event: PointerEvent) => { if (!pending && !container.current?.contains(event.target as Node)) setOpen(false); };
+
     document.addEventListener("pointerdown", dismiss);
+
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [open, pending]);
+
   async function closeProject() {
     if (pending) return;
     setPending(true); setError("");
+
     try { await onClose(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setPending(false); }
   }
+
   return <div className="repository-menu" ref={container} onKeyDown={event => {
     if (event.key === "Escape" && open && !pending) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
   }} onBlur={event => { if (!pending && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>

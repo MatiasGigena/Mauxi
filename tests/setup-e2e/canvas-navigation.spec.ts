@@ -19,6 +19,7 @@ test.beforeEach(async ({ page }) => {
   const bridge = await readFile("dist-electron/bridge-entry.js", "utf8");
   await page.route("http://127.0.0.1:5173/**", route => {
     if (new URL(route.request().url()).pathname === "/bridge.js") return route.fulfill({ contentType: "text/javascript", body: bridge });
+
     return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><body style="margin:0;height:4000px;background:linear-gradient(white,lightblue)">
       <button id="action" onclick="this.textContent='Actions: '+(++window.actions)">Actions: 0</button>
       <input aria-label="Preview text"><div contenteditable="true" aria-label="Editable text">Edit</div><p id="empty">Preview page</p>
@@ -27,7 +28,10 @@ test.beforeEach(async ({ page }) => {
   await mockDesktop(page);
   await page.evaluate(() => {
     window.mauxi!.bridgeReady = async () => {};
-    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener; return () => {}; };
+
+    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener;
+
+ return () => {}; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".bridge-ready")).toHaveCount(2);
@@ -71,6 +75,7 @@ test("canvas gesture keeps ownership across an already active preview and moment
   const first = await camera(page);
   const frame = (await page.getByTestId("desktop-preview").boundingBox())!;
   await page.mouse.move(frame.x + 100, frame.y + 100);
+
   for (const delta of [20, 12, 8, 3]) await page.mouse.wheel(0, delta);
   await expect.poll(() => camera(page)).not.toEqual(first);
   expect(await preview(page).locator("body").evaluate(() => scrollY)).toBe(0);
@@ -197,12 +202,14 @@ test("preview header uses Lucide icons and transparent chat-style controls", asy
   await expect(select.locator("svg.lucide-mouse-pointer-2")).toHaveAttribute("aria-hidden", "true");
   await expect(focus.locator("svg.lucide-maximize-2")).toBeVisible();
   await expect(header.locator("svg.lucide-ellipsis")).toBeVisible();
+
   for (const action of [select, focus]) {
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await action.hover();
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(action).toHaveCSS("color", action === select ? "rgb(20, 122, 122)" : "rgb(185, 78, 56)");
   }
+
   const before = await camera(page);
   await select.locator("svg").click();
   await expect(select).toHaveAttribute("aria-pressed", "true");
@@ -228,28 +235,34 @@ test("preview header uses Lucide icons and transparent chat-style controls", asy
 test("preview headers stay within the frame across zoom levels and narrow viewports", async ({ page }) => {
   const zoom = page.getByRole("slider", { name: "Camera zoom" });
   const dimensions = await page.getByTestId("mobile-preview").evaluate(node => [node.getAttribute("width"), node.getAttribute("height")]);
+
   for (const value of ["0.25", "0.4", "0.55", "0.62", "1", "2"]) {
     await zoom.fill(value);
+
     for (const id of ["desktop", "mobile"]) {
       const result = await board(page, id).evaluate(node => {
         const header = node.querySelector<HTMLElement>(".artboard-header")!;
         const rect = header.getBoundingClientRect();
         const frame = node.querySelector("iframe")!.getBoundingClientRect();
+
         return {
           width: rect.width, frameWidth: frame.width, left: rect.left, frameLeft: frame.left,
           overflow: header.scrollWidth > header.clientWidth,
           escaped: [...header.querySelectorAll("button")].filter(button => button.getClientRects().length).some(button => {
             const bounds = button.getBoundingClientRect();
+
             return bounds.left < rect.left || bounds.right > rect.right + .1;
           }),
         };
       });
+
       expect(result.width).toBeCloseTo(result.frameWidth, 1);
       expect(result.left).toBeCloseTo(result.frameLeft, 1);
       expect(result.overflow).toBe(false);
       expect(result.escaped).toBe(false);
     }
   }
+
   expect(await page.getByTestId("mobile-preview").evaluate(node => [node.getAttribute("width"), node.getAttribute("height")])).toEqual(dimensions);
   await zoom.focus(); await page.keyboard.press("Home");
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();

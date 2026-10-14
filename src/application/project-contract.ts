@@ -1,7 +1,9 @@
 import type { CanvasState } from "./canvas-state";
 
 export type SupportedFramework = "vite" | "next";
+
 export type SupportedPackageManager = "npm" | "pnpm" | "yarn";
+
 export type WorkspaceStatus =
   | "idle"
   | "preparing"

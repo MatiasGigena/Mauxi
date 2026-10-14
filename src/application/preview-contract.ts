@@ -1,7 +1,9 @@
 export const BRIDGE_PROTOCOL = "mauxi-preview-v1" as const;
 
 export type PreviewId = "desktop" | "mobile";
+
 export type SourceVerification = "unverified" | "verified" | "missing-or-ambiguous" | "library";
+
 export type SourceRole = "jsx-element" | "component-owner" | "caller" | "unknown";
 
 export interface SourceLocation {
@@ -99,6 +101,7 @@ function boundedString(value: unknown, limit: number): value is string {
 function finiteRecord(value: unknown, keys: string[]): boolean {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
+
   return keys.every((key) => typeof record[key] === "number" && Number.isFinite(record[key]));
 }
 
@@ -109,6 +112,7 @@ function nullableString(value: unknown, limit: number): boolean {
 function nullableNumber(value: unknown): boolean {
   return value === null || (typeof value === "number" && Number.isFinite(value));
 }
+
 function numberIn(value: unknown, min: number, max: number): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 }
@@ -116,12 +120,14 @@ function numberIn(value: unknown, min: number, max: number): boolean {
 function boundedStringRecord(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entries = Object.entries(value);
+
   return entries.length <= 64 && entries.every(([key, item]) => key.length <= 128 && boundedString(item, 2_048));
 }
 
 function validSource(source: unknown): boolean {
   if (!source || typeof source !== "object") return false;
   const value = source as Record<string, unknown>;
+
   return boundedString(value.filePath, 1_024)
     && (value.lineNumber === null || (numberIn(value.lineNumber, 1, 1_000_000) && Number.isInteger(value.lineNumber)))
     && (value.columnNumber === null || (numberIn(value.columnNumber, 0, 1_000_000) && Number.isInteger(value.columnNumber)))
@@ -136,6 +142,7 @@ function validSource(source: unknown): boolean {
 function validFingerprint(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const f = value as Record<string, unknown>;
+
   return nullableString(f.selector, 2_048) && boundedString(f.tag, 64) && nullableString(f.testId, 512)
     && boundedString(f.text, 4_096) && nullableString(f.sourceKey, 1_024) && boundedString(f.instanceKey, 128);
 }
@@ -144,6 +151,7 @@ function validScreenshot(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const shot = value as Record<string, unknown>;
   const crop = shot.crop as Record<string, unknown> | undefined;
+
   return ["pending", "captured", "unavailable"].includes(String(shot.status))
     && finiteRecord(crop, ["x", "y", "width", "height"])
     && numberIn(crop?.x, -10_000, 20_000) && numberIn(crop?.y, -10_000, 20_000)
@@ -159,30 +167,40 @@ function validScreenshot(value: unknown): boolean {
 export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
+
   if (record.protocol !== BRIDGE_PROTOCOL || typeof record.kind !== "string") return false;
+
   if (!boundedString(record.session, 128) || !boundedString(record.generation, 128)) return false;
+
   if (record.kind === "canvas-shortcut") return record.action === "exit" || record.action === "space" || record.action === "space-end";
+
   if (record.kind === "canvas-zoom") return numberIn(record.deltaY, -100_000, 100_000)
     && typeof record.deltaMode === "number" && [0, 1, 2].includes(record.deltaMode)
     && numberIn(record.clientX, 0, 10_000) && numberIn(record.clientY, 0, 10_000);
+
   if (record.kind === "selection-cancelled" || record.kind === "navigation-blocked") return true;
+
   if (record.kind === "route") return boundedString(record.url, 4096) && nullableString(record.navigationId, 128) && typeof record.safe === "boolean";
+
   if (record.kind === "ready") {
     return boundedString(record.url, 4_096)
       && finiteRecord(record.viewport, ["width", "height"])
       && typeof record.reactGrab === "boolean";
   }
+
   if (record.kind === "revalidation") {
     return boundedString(record.selectionId, 128)
       && (record.status === "valid" || record.status === "stale")
       && (record.reason === undefined || boundedString(record.reason, 1_024));
   }
+
   if (record.kind !== "selection" || !record.capture || typeof record.capture !== "object") return false;
   const capture = record.capture as Record<string, unknown>;
   const element = capture.element as Record<string, unknown> | undefined;
   const support = capture.support as Record<string, unknown> | undefined;
   const ancestry = capture.domAncestry;
   const owners = capture.componentOwners;
+
   return (record.interaction === undefined || record.interaction === "pointer" || record.interaction === "keyboard")
     && boundedString(capture.selectionId, 128)
     && boundedString(capture.documentGeneration, 128)
@@ -211,6 +229,7 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
     && Array.isArray(owners) && owners.length <= 16 && owners.every((owner) => {
       if (!owner || typeof owner !== "object") return false;
       const item = owner as Record<string, unknown>;
+
       return boundedString(item.componentName, 256) && nullableString(item.filePath, 1_024)
         && nullableNumber(item.lineNumber) && nullableNumber(item.columnNumber)
         && (item.role === "component-owner" || item.role === "caller")
@@ -219,6 +238,7 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
     && Array.isArray(ancestry) && ancestry.length <= 16 && ancestry.every((entry) => {
       if (!entry || typeof entry !== "object") return false;
       const item = entry as Record<string, unknown>;
+
       return boundedString(item.tag, 64) && boundedString(item.label, 256) && nullableString(item.selector, 2_048) && nullableString(item.testId, 512) && typeof item.selected === "boolean";
     })
     && !!support && (support.status === "supported" || support.status === "unsupported") && nullableString(support.reason, 1_024)
@@ -230,13 +250,21 @@ export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {
 export function isShellMessage(value: unknown): value is ShellToBridgeMessage {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
+
   if (r.protocol !== BRIDGE_PROTOCOL || !boundedString(r.session, 128) || !boundedString(r.generation, 128)) return false;
+
   if (r.kind === "selection-mode" || r.kind === "canvas-controls") return typeof r.enabled === "boolean";
+
   if (r.kind === "picker-visibility") return typeof r.hidden === "boolean";
+
   if (r.kind === "selection-markers") return Array.isArray(r.selectionIds) && r.selectionIds.length <= 8
     && r.selectionIds.every(id => boundedString(id, 128) && id.length > 0) && new Set(r.selectionIds).size === r.selectionIds.length;
+
   if (r.kind === "picker-refine") return ["parent", "child", "overlap-next", "overlap-previous", "attach"].includes(String(r.action));
+
   if (r.kind === "reload" || r.kind === "connect") return true;
+
   if (r.kind === "navigate") return boundedString(r.route, 4096) && boundedString(r.navigationId, 128);
+
   return r.kind === "revalidate" && boundedString(r.selectionId, 128) && validFingerprint(r.fingerprint);
 }

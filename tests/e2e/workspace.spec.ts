@@ -13,7 +13,9 @@ test.beforeAll(async ({}, testInfo) => {
   application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
   page = await application.firstWindow();
 });
+
 test.afterAll(async () => { await application?.close(); });
+
 test.beforeEach(async () => { await page.reload(); await expect(page.locator(".bridge-ready")).toHaveCount(2); await observeSelections(page); await button("Interact with Desktop preview").click(); });
 
 async function route(side: "desktop" | "mobile") {
@@ -21,13 +23,19 @@ async function route(side: "desktop" | "mobile") {
   const frame = await owner!.contentFrame();
   await owner!.dispose();
   const url = new URL(frame!.url());
+
   return url.pathname + url.search + url.hash;
 }
+
 async function actions(side = "Desktop") { await button(`${side} actions`).click(); }
 
 test("real viewport breakpoints, focus instance/form persistence, keyboard access and chat", async () => {
   await desktop().getByLabel("Persistent note").fill("Do not remount this form");
-  const marker = await desktop().locator("body").evaluate(() => { const id = crypto.randomUUID(); document.body.dataset.instance = id; return id; });
+
+  const marker = await desktop().locator("body").evaluate(() => { const id = crypto.randomUUID(); document.body.dataset.instance = id;
+
+ return id; });
+
   const before = await page.locator('[data-preview-id="desktop"]').boundingBox();
   await button("Focus Desktop").click();
   await expect(page.getByTestId("mobile-preview")).not.toBeVisible();
@@ -38,6 +46,7 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
   expect(await page.locator('[data-preview-id="desktop"]').boundingBox()).toEqual(before);
   await expect(desktop().getByLabel("Persistent note")).toHaveValue("Do not remount this form");
   expect(await desktop().locator("body").getAttribute("data-instance")).toBe(marker);
+
   for (const zoom of ["0.25", "0.5", "1", "2"]) {
     await page.getByLabel("Camera zoom").fill(zoom);
     expect(await desktop().locator("body").evaluate(() => [innerWidth, innerHeight, matchMedia("(max-width: 600px)").matches])).toEqual([1440, 900, false]);
@@ -45,6 +54,7 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
     await page.getByLabel("Message", { exact: true }).fill(`Typing at ${zoom}`);
     expect(await page.getByLabel("Message", { exact: true }).evaluate((node) => getComputedStyle(node).fontSize)).toBe("14px");
   }
+
   await fitCanvas(page);
   await actions("Mobile");
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -71,6 +81,7 @@ test("real viewport breakpoints, focus instance/form persistence, keyboard acces
 
 test("1:1 header dragging, pointer cancellation, independent wheel and hand/selection input", async () => {
   const board = page.locator('[data-preview-id="desktop"]');
+
   for (const zoom of [.25, .5, 1, 2]) {
     await resetCamera(page);
     const bounds = await page.getByTestId("canvas").boundingBox();
@@ -85,8 +96,10 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
     const after = await board.boundingBox();
     expect(after!.x - before!.x).toBeCloseTo(37, 0); expect(after!.y - before!.y).toBeCloseTo(29, 0);
   }
+
   await fitCanvas(page);
   await expect(page.getByTestId("canvas")).toHaveAttribute("data-navigation-gesture", "false");
+
   if (await button("Interact with Desktop preview").isVisible()) await button("Interact with Desktop preview").click();
   await expect(board).toHaveAttribute("data-interacting", "true");
   await desktop().locator("body").evaluate(() => scrollTo(0, 0));
@@ -127,10 +140,12 @@ test("1:1 header dragging, pointer cancellation, independent wheel and hand/sele
 test("picker refinement, scaled targets, instance identity, overlap and redaction", async () => {
   const target = desktop().getByTestId("known-icon");
   await button("Select in Desktop").click();
+
   for (const zoom of ["0.25", "0.5", "1", "2"]) {
     await page.getByLabel("Camera zoom").fill(zoom);
     const targetBounds = await target.boundingBox();
     const canvasBounds = await page.getByTestId("canvas").boundingBox();
+
     if (!targetBounds || !canvasBounds) throw new Error("Target geometry unavailable");
     await page.getByTestId("canvas").dispatchEvent("wheel", {
       deltaX: targetBounds.x + targetBounds.width / 2 - (canvasBounds.x + canvasBounds.width / 2),
@@ -142,6 +157,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
     await expect(page.locator(".selection-chip")).toHaveCount(1);
     await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
   }
+
   await page.getByLabel("Camera zoom").fill("0.5");
   await button("Select in Desktop").click();
 
@@ -171,6 +187,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
 
   await page.getByLabel("Camera zoom").fill("0.5");
+
   for (const fixtureTarget of ["scrolled-target", "viewport", "portal-target"] as const) {
     await button("Select in Desktop").click();
     await desktop().getByTestId(fixtureTarget).click();
@@ -178,6 +195,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
     await button("Select in Desktop").click();
     await page.locator(".selection-chip").getByRole("button", { name: /Remove selection/ }).click();
   }
+
   await button("Select in Desktop").click();
   await desktop().getByTestId("unsupported-canvas").click();
   const unsupported = await latestSelection(page);
@@ -190,6 +208,7 @@ test("picker refinement, scaled targets, instance identity, overlap and redactio
   await button("Select in Desktop").click();
   await expect(desktop().locator('[data-mauxi-frame-target="same-origin-frame"]')).toBeVisible();
   const childFrame = await desktop().getByTestId("same-origin-frame").boundingBox();
+
   if (!childFrame) throw new Error("Child-frame geometry unavailable");
   await page.mouse.click(childFrame.x + childFrame.width / 2, childFrame.y + childFrame.height / 2);
   await expect(page.locator(".selection-chip").first()).toContainText("Same-origin child frame fixture");
@@ -287,10 +306,13 @@ for (const submission of [
     const peer = page.frames().find((frame) => frame.url().includes("mauxiPreview=mobile"))!;
     const initialPeerUrl = peer.url();
     const requests: string[] = [];
+
     const onRequest = (request: import("@playwright/test").Request) => {
       if (request.isNavigationRequest() && new URL(request.url()).pathname === "/native-result") requests.push(request.url());
     };
+
     page.on("request", onRequest);
+
     try {
       await desktop().getByRole("button", { name: submission.control, exact: true }).click();
       await expect.poll(() => source.url()).toBe(`http://127.0.0.1:45173${submission.destination}`);
@@ -298,6 +320,7 @@ for (const submission of [
       await desktop().locator("body").evaluate(() => history.replaceState({ hydrated: true }, "", location.href));
       await actions(); await expect(button("Copy route to mobile")).toBeDisabled(); await button("Close actions").click();
       expect(peer.url()).toBe(initialPeerUrl);
+
       if (submission.destination.startsWith("/native-result")) expect(requests).toHaveLength(1);
       await desktop().getByRole("button", { name: "Independent router navigation", exact: true }).click();
       await expect.poll(() => peer.url()).toBe("http://127.0.0.1:45173/after-form");
@@ -308,19 +331,24 @@ for (const submission of [
 
 test("SPA route changes invalidate only that preview's selections and require a fresh pick", async () => {
   await toggleRoutes(page, true);
+
   for (const side of ["Mobile", "Desktop"]) {
     await button(`Select in ${side}`).click();
     await (side === "Desktop" ? desktop() : mobile()).getByTestId("known-target").click();
     await expect(page.locator(".selection-chip")).toHaveCount(side === "Desktop" ? 2 : 1);
   }
+
   await button("Select in Desktop").click();
   const sourceChip = page.locator('.selection-chip[data-selection-preview="desktop"]');
   const peerChip = page.locator('.selection-chip[data-selection-preview="mobile"]');
+
   const marker = await desktop().locator("body").evaluate(() => {
     document.body.dataset.instance = crypto.randomUUID();
     history.replaceState({ local: true }, "", location.href);
+
     return document.body.dataset.instance;
   });
+
   await expect(sourceChip).toHaveClass(/current/);
   await desktop().locator("body").evaluate(() => history.pushState(null, "", "/different-page"));
   await expect(sourceChip).toHaveClass(/stale/);

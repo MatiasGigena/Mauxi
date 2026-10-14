@@ -9,6 +9,7 @@ test("references load in the background without design setup or controls", async
   const config = path.resolve("fixtures/vite/vite.config.ts"); const before = await readFile(config, "utf8");
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", (chunk) => { stderr += String(chunk); });
+
   try {
     let page = await app.firstWindow();
     const discovery = await page.evaluate(async (root) => window.mauxi!.inspectProjectPath(root), path.resolve("."));
@@ -20,6 +21,7 @@ test("references load in the background without design setup or controls", async
 
     const agent = await page.evaluate(() => window.mauxi!.agentBootstrap());
     expect(agent.ready).toBe(true);
+
     for (const key of ["resources", "sessions", "changeSets", "tools"]) expect(agent).not.toHaveProperty(key);
     await expect(page.getByRole("dialog")).toHaveCount(0);
 

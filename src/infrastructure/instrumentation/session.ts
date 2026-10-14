@@ -56,46 +56,64 @@ child.on('exit', (code) => process.exit(code ?? 1));
 export async function addSessionIntegration(plan: IntegrationPlan): Promise<IntegrationPlan> {
   plan.runtimeDirectory = path.join(plan.workspaceRoot, ".mauxi/runtime");
   plan.createdFiles.push({ path: path.join(plan.workspaceRoot, ".mauxi/launcher.cjs"), content: sessionLauncher });
+
   if (plan.framework === "vite") {
     const cacheDirectory = JSON.stringify(path.join(plan.runtimeDirectory, "vite"));
     plan.patch = plan.patch!.replace('      apply: "serve",', () => `      apply: "serve",\n      config() { return { cacheDir: ${cacheDirectory} }; },`);
+
     return plan;
   }
+
   const names = ["next.config.ts", "next.config.mjs", "next.config.js"];
   const configs: string[] = [];
+
   for (const name of names) {
     try { await lstat(path.join(plan.workspaceRoot, name)); configs.push(name); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
+
   if (configs.length > 1) throw new Error("Multiple Next configurations were found; choose one before importing.");
   plan.createdFiles.push({ path: path.join(plan.workspaceRoot, ".mauxi/next-session.cjs"), content: helper });
+
   if (!configs.length) {
     plan.createdFiles.push({ path: path.join(plan.workspaceRoot, "next.config.mjs"), content: 'import session from "./.mauxi/next-session.cjs";\nexport default session({});\n' });
+
     return plan;
   }
+
   const configPath = path.join(plan.workspaceRoot, configs[0]);
   const info = await lstat(configPath);
+
   if (!info.isFile() || info.isSymbolicLink() || info.size > 524_288) throw new Error("Next configuration must be a bounded regular file.");
   const content = await readFile(configPath, "utf8");
+
   if (content.includes("__mauxiSession") || content.includes("mauxi-owned:")) throw new Error("Next configuration already contains Mauxi integration.");
   const ast = parse(content, { sourceType: "unambiguous", plugins: ["typescript"] });
+
   const exports = ast.program.body.flatMap(node => {
     if (node.type === "ExportDefaultDeclaration") return [{ expression: node.declaration, esm: true }];
+
     if (node.type === "ExpressionStatement" && node.expression.type === "AssignmentExpression") {
       const left = node.expression.left;
+
       if (left.type === "MemberExpression" && !left.computed && left.object.type === "Identifier" && left.object.name === "module" && left.property.type === "Identifier" && left.property.name === "exports") return [{ expression: node.expression.right, esm: false }];
     }
+
     return [];
   });
+
   if (exports.length !== 1) throw new Error("Next configuration needs one unambiguous default export or module.exports assignment.");
   const { expression, esm } = exports[0];
   const prefix = '/* mauxi-owned:session-open */__mauxiSession(';
   const suffix = ')/* mauxi-owned:session-close */';
+
   const declaration = '\n// mauxi-owned:start session-config\n// @ts-ignore -- temporary development adapter\n' + (esm
     ? 'import __mauxiSession from "./.mauxi/next-session.cjs";'
     : 'function __mauxiSession(value) { return require("./.mauxi/next-session.cjs")(value); }') + '\n// mauxi-owned:end session-config\n';
+
   const after = content.slice(0, expression.start!) + prefix + content.slice(expression.start!, expression.end!) + suffix + content.slice(expression.end!) + declaration;
   plan.sessionPatches = [{ path: configPath, before: content, after }];
   plan.sessionRemovals = [prefix, suffix, declaration];
+
   return plan;
 }

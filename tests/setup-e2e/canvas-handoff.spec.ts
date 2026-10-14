@@ -12,12 +12,15 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
   await writeFile(path.join(project, "vite.config.ts"), 'import { defineConfig } from "vite"; export default defineConfig({ plugins: [] });');
   await writeFile(path.join(project, "index.html"), '<html><body>Canvas handoff test</body></html>');
   await symlink(path.resolve("node_modules"), path.join(project, "node_modules"), "dir");
+
   const app = await electron.launch({
     args: [path.resolve("dist-electron/main.js")],
     env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_PROOF: "0", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(temp, "recovery"), XDG_CONFIG_HOME: path.join(temp, "config") },
   });
+
   let stderr = "";
   app.process().stderr?.on("data", chunk => { stderr += String(chunk); });
+
   try {
     const oldPage = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) => {
@@ -25,6 +28,7 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
       BrowserWindow.prototype.loadURL = async function (...args) {
         BrowserWindow.prototype.loadURL = original;
         await new Promise<void>(resolve => { (globalThis as any).releaseReplacement = resolve; });
+
         return original.apply(this, args);
       };
     });
@@ -47,11 +51,14 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
 
     const rejection = await app.evaluate(async ({ BrowserWindow }, { preload, input }) => {
       const rogue = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false } });
+
       try {
         await rogue.loadURL("data:text/html,<title>Untrusted renderer</title>");
+
         return await rogue.webContents.executeJavaScript(`window.mauxi.saveCanvas(${JSON.stringify(input)}).then(() => "accepted", error => error.message)`);
       } finally { rogue.destroy(); }
     }, { preload: path.resolve("dist-electron/preload.cjs"), input: { workspaceId: active.workspaceId, canvas: stale } });
+
     expect(rejection).toContain("Untrusted IPC sender");
   } finally {
     await app.evaluate(() => (globalThis as any).releaseReplacement?.()).catch(() => undefined);

@@ -14,6 +14,7 @@ it("preserves all non-embedding directives across repeated and comma-joined poli
     "Set-Cookie": ["session=fixture; HttpOnly; SameSite=Lax"],
     "X-Content-Type-Options": ["nosniff"],
   };
+
   const before = structuredClone(original);
   expect(previewHeaders(original, "http://127.0.0.1:1234")).toEqual({
     "Content-Security-Policy": [
@@ -36,6 +37,7 @@ it("replaces XFO-only restrictions with an explicit shell ancestor, without chan
 
 it("fails closed for missing frame identity, other windows/origins, nested frames and inactive workspaces", () => {
   type HeaderListener = (details: OnHeadersReceivedListenerDetails, callback: (response: unknown) => void) => void;
+
   let listener: HeaderListener | null = null;
   const session = { webRequest: { onHeadersReceived(value: typeof listener) { listener = value; } } };
   const main = { url: "http://127.0.0.1:1234/ui", frames: [] as object[] };
@@ -46,11 +48,14 @@ it("fails closed for missing frame identity, other windows/origins, nested frame
   const options = { workspaceId: "workspace", projectOrigin: "http://127.0.0.1:3000", rendererUrl: main.url, isActive: () => active };
   installPreviewHeaders(window as unknown as BrowserWindow, options);
   const request = { resourceType: "subFrame", webContentsId: 1, frame, url: "http://127.0.0.1:3000/route", responseHeaders: { "X-Frame-Options": ["DENY"] } };
+
   const response = (change: object = {}) => {
     let result: unknown;
     listener!({ ...request, ...change } as unknown as OnHeadersReceivedListenerDetails, value => { result = value; });
+
     return result;
   };
+
   for (const change of [
     { resourceType: "xhr" }, { webContentsId: 2 }, { url: "http://127.0.0.1:3001" },
     { frame: null }, { frame: { ...frame, detached: true } },

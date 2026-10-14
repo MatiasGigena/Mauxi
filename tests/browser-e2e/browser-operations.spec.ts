@@ -10,6 +10,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
   const config = path.resolve("fixtures/vite/vite.config.ts"), before = await readFile(config, "utf8");
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: fixture === "next" ? "" : "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", data => { stderr += String(data); });
+
   try {
     let page = await app.firstWindow();
     const discovery = await page.evaluate(root => window.mauxi!.inspectProjectPath(root), path.resolve("."));
@@ -29,27 +30,35 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       lab.querySelector("button")!.addEventListener("mouseover", () => { lab.dataset.hovered = "yes"; });
       lab.querySelector("input")!.addEventListener("input", () => { lab.dataset.typed = "yes"; }); document.body.prepend(lab);
     });
+
     const grant = async () => {
       await expect(page.getByRole("dialog", { name: "Approve browser action" })).toHaveCount(0);
       await page.getByRole("button", { name: "Give agent control", exact: true }).click();
       await expect(page.getByRole("button", { name: "Take back control", exact: true })).toBeVisible().catch(async error => {
-        await writeFile(testInfo.outputPath(`${fixture}-target-debug.json`), JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger; return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
+        await writeFile(testInfo.outputPath(`${fixture}-target-debug.json`), JSON.stringify({ info: await page.evaluate(() => window.mauxi!.browserTest("targets")), tree: await app.evaluate(async ({ BrowserWindow }) => { const d=BrowserWindow.getAllWindows()[0].webContents.debugger;
+
+ return { tree: await d.sendCommand("Page.getFrameTree"), targets: await d.sendCommand("Target.getTargets") }; }) }, null, 2)); throw error;
       });
       await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).owner)).toBe("agent");
       const info = await page.evaluate(() => window.mauxi!.browserTest("targets")) as { state: BrowserState; targets: BrowserTarget[] };
       expect(info.state.owner).toBe("agent");
+
       return { ...info.targets.find(t => t.previewId === "desktop")!, generation: info.state.generation };
     };
+
     const target = await grant();
     const run = (r: BrowserRequest) => page.evaluate(request => window.mauxi!.browserTest(request), r) as Promise<BrowserResult>;
     await frame.evaluate(() => history.replaceState(history.state, "", location.href));
     await expect.poll(() => page.evaluate(async () => (await window.mauxi!.browserState()).generation)).toBe(target.generation);
+
     const action = async (r: BrowserRequest, approve = true) => {
       const pending = run(r).then(value => ({ value, error: "" }), error => ({ value: undefined, error: String(error) }));
       await expect(page.getByRole("dialog", { name: "Approve browser action" })).toBeVisible();
       await page.getByRole("button", { name: approve ? "Approve once" : "Deny", exact: true }).click();
+
       return pending;
     };
+
     const inspect = await run({ ...target, operation: "inspect" });
     expect(inspect.text).not.toContain("private-original"); expect(inspect.text).not.toContain("must-not-leak");
     const nodes = JSON.parse(inspect.text).entries;
@@ -70,6 +79,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     await writeFile(testInfo.outputPath(`${fixture}-operations.png`), Buffer.from(capture.image!, "base64"));
     await page.getByRole("button", { name: "Take back control", exact: true }).click();
     await expect(frame.locator("#hover-probe")).toHaveCSS("background-color", "rgb(200, 200, 200)");
+
     for (const change of ["label", "bounds"]) {
       const changedTarget = await grant();
       const entries = JSON.parse((await run({ ...changedTarget, operation: "inspect" })).text).entries;
@@ -80,6 +90,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       await expect(approval).toContainText('"testId": "hover-probe"');
       await frame.evaluate(change => {
         const node = document.getElementById("hover-probe")!;
+
         if (change === "label") node.setAttribute("aria-label", "Delete fixture records");
         else node.style.transform = "translateX(15px)";
       }, change);
@@ -88,6 +99,7 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       expect(await frame.locator("#verification-lab").getAttribute("data-clicked")).toBeNull();
       await frame.evaluate(() => { const node = document.getElementById("hover-probe")!; node.removeAttribute("aria-label"); node.style.transform = ""; });
     }
+
     const deniedTarget = await grant(); const denied = await action({ ...deniedTarget, operation: "scroll", y: 100 }, false);
     expect(denied.error).toBeTruthy(); await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
     const navTarget = await grant();

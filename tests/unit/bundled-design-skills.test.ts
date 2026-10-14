@@ -7,12 +7,15 @@ import { DesignResources } from "../../src/infrastructure/agent/design-resources
 
 const roots: string[] = [];
 const bundle = path.resolve("design-skills");
+
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
 async function setup() {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-bundled-skills-")); roots.push(root);
   const profile = path.join(root, "profile");
   const resources = new DesignResources(profile, undefined, bundle);
   await resources.initialize();
+
   return { root, profile, resources };
 }
 
@@ -22,9 +25,11 @@ describe("bundled design guidance", () => {
     expect(resources.loadedSkills.map((skill) => skill.name).sort()).toEqual([...DESIGN_SKILLS].sort());
     expect(resources.snapshot().skills.every((skill) => skill.loaded && skill.enabled && !skill.error)).toBe(true);
     expect(resources.loadedSkills.every((skill) => !skill.disableModelInvocation)).toBe(true);
+
     for (const name of DESIGN_SKILLS) {
       expect(await resources.readSkill(name)).toBe(await readFile(path.join(bundle, name, "SKILL.md"), "utf8"));
     }
+
     const picker = await readFile(path.join(bundle, "prototype/PICKER.md"), "utf8");
     expect(await resources.readSkill("prototype", "PICKER.md")).toBe(picker);
     const guidance = await resources.guidance("I need you to give me 3 variants of this header.");

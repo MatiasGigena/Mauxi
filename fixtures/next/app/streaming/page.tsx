@@ -6,6 +6,7 @@ import { ProofCard } from "../components/ProofCard";
 async function DelayedCard() {
   await connection();
   await new Promise(resolve => setTimeout(resolve, 1500));
+
   return <div data-testid="streamed-content"><ProofCard initialAuthenticated={false} /></div>;
 }
 

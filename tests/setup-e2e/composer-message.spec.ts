@@ -15,10 +15,12 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
       const animate = HTMLElement.prototype.animate;
       HTMLElement.prototype.animate = function (frames, options) {
         if (this.classList.contains("composer-message")) state.messageAnimations.push({ frames, options });
+
         return animate.call(this, frames, options);
       };
     });
     const toggle = page.getByRole("button", { name: "Models & providers", exact: true });
+
     if (mode === "keyboard") {
       await toggle.focus();
       await toggle.press("Enter");
@@ -30,6 +32,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await expect(page.locator(".composer button[type=submit]")).toBeDisabled();
 
     const close = page.getByRole("button", { name: "Close models and providers" });
+
     if (mode === "keyboard") {
       await close.focus();
       await close.press("Enter");
@@ -40,6 +43,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     await expect(page.locator(".chat-settings")).toHaveCount(0);
     expect(await page.evaluate(() => document.querySelector("#chat-message") === (window as any).setupTest.messageNode)).toBe(true);
     const animations = await page.evaluate(() => (window as any).setupTest.messageAnimations);
+
     if (mode === "pointer") {
       expect(animations.map((animation: any) => animation.options.duration)).toEqual([110, 160]);
       expect(animations[0].frames.at(-1)).toMatchObject({ opacity: 0, transform: "translateY(-12%) scale(.97)" });
@@ -48,6 +52,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
 
     await page.evaluate(async () => {
       const button = document.querySelector<HTMLButtonElement>(".model-picker")!;
+
       for (let i = 0; i < 4; i++) {
         button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
         button.click();

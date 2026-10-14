@@ -6,7 +6,10 @@ async function openWorkspace(page: Page) {
   await page.evaluate(() => {
     (window as any).savedCanvas = [];
     window.mauxi!.saveCanvas = async input => { (window as any).savedCanvas.push(input); };
-    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener; return () => {}; };
+
+    window.mauxi!.onBrowserState = listener => { (window as any).emitBrowserState = listener;
+
+ return () => {}; };
   });
   await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
   await expect(page.locator(".topbar")).toBeVisible();
@@ -25,11 +28,13 @@ for (const width of [320, 768, 1440]) {
     await expect(header).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(header).toHaveCSS("border-width", "0px");
     await expect(header).toHaveCSS("box-shadow", "none");
+
     for (const island of [header.locator(".brand"), header.locator(".zoom")]) {
       await expect(island).toHaveCSS("background-color", "rgb(255, 255, 255)");
       await expect(island).toHaveCSS("border-color", "rgb(232, 229, 225)");
       await expect(island).toHaveCSS("border-radius", "999px");
     }
+
     await expect(header.locator("input")).toHaveCSS("accent-color", "rgb(33, 143, 144)");
     const headerBounds = (await header.boundingBox())!;
     const backgroundBounds = (await page.locator(".canvas-background").boundingBox())!;
@@ -40,13 +45,16 @@ for (const width of [320, 768, 1440]) {
     const brandBounds = (await header.locator(".brand").boundingBox())!;
     const zoomBounds = (await header.locator(".zoom").boundingBox())!;
     expect(zoomBounds.x - brandBounds.x - brandBounds.width).toBeGreaterThanOrEqual(12);
+
     if (width >= 768) expect(brandBounds.width).toBeLessThan(200);
     await expect(header.locator(".connection, .browser-control, .fixture-switch")).toHaveCount(0);
     await header.locator("strong").evaluate(node => { node.textContent = "a-very-long-repository-name-that-must-not-displace-the-zoom-control"; });
     expect(await header.evaluate(node => {
       const rect = node.getBoundingClientRect();
+
       return node.scrollWidth <= node.clientWidth && [...node.querySelectorAll("img, strong, input")].every(child => {
         const bounds = child.getBoundingClientRect();
+
         return bounds.left >= rect.left && bounds.right <= rect.right;
       });
     })).toBe(true);
@@ -58,9 +66,11 @@ test("pills, previews and chat share the same subtle shadow", async ({ page }) =
   await openWorkspace(page);
   const shadow = await page.locator(".brand").evaluate(node => getComputedStyle(node).boxShadow);
   expect(shadow).not.toBe("none");
+
   for (const selector of [".zoom", '[data-preview-id="desktop"]', '[data-preview-id="mobile"]', ".chat-surface"]) {
     await expect(page.locator(selector)).toHaveCSS("box-shadow", shadow);
   }
+
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Shadow check");
   const focused = await page.locator(".chat-surface").evaluate(node => getComputedStyle(node).boxShadow);
   expect(focused.endsWith(shadow)).toBe(true);
@@ -86,6 +96,7 @@ test("previews remain visible and clickable between the floating pills", async (
   await expect(board).toHaveAttribute("data-interacting", "true");
   expect(await page.locator(".brand").evaluate(node => {
     const rect = node.getBoundingClientRect();
+
     return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
   })).toBe(true);
 });
@@ -93,16 +104,20 @@ test("previews remain visible and clickable between the floating pills", async (
 test("zoom updates both previews and persists; keyboard supports the complete range", async ({ page }) => {
   await openWorkspace(page);
   const zoom = page.getByRole("slider", { name: "Camera zoom" });
+
   for (const value of ["0.25", "0.73", "1", "2"]) {
     await zoom.fill(value);
     const percentage = `${Math.round(Number(value) * 100)}%`;
     await expect(page.locator(".zoom span")).toHaveText(percentage);
     await expect(zoom).toHaveAttribute("aria-valuetext", percentage);
+
     for (const id of ["desktop", "mobile"]) {
       await expect.poll(() => page.getByTestId(`${id}-preview`).evaluate(node => node.style.transform)).toBe(`scale(${Number(value)})`);
     }
+
     await expect.poll(() => page.evaluate(() => (window as any).savedCanvas.at(-1)?.canvas.camera.zoom)).toBe(Number(value));
   }
+
   await zoom.focus();
   await page.keyboard.press("Home");
   await expect(zoom).toHaveValue("0.25");

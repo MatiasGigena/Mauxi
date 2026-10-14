@@ -5,14 +5,19 @@ import { isBridgeMessage, isShellMessage } from "../../src/application/preview-c
 
 const target: BrowserTarget = { workspaceId: "workspace", previewId: "desktop", documentId: "document", url: "http://localhost:3000/" };
 const actionTarget: BrowserActionTarget = { tag: "button", text: "Delete fixture record", label: "Delete fixture record", role: "button", testId: "delete-record", type: "button", bounds: { x: 20, y: 30, width: 100, height: 40 } };
+
 function setup(approve: (request: BrowserRequest, signal: AbortSignal, target?: BrowserActionTarget) => Promise<boolean> = async () => true) {
   const adapter: VisibleBrowserAdapter = { targets: vi.fn(async () => [target]), describeTarget: vi.fn(async () => structuredClone(actionTarget)), execute: vi.fn(async () => ({ text: "actual observation" })) };
   const control = new BrowserControl("workspace", adapter, vi.fn(approve));
   control.grant();
   const request = (operation: BrowserRequest["operation"] = "inspect"): BrowserRequest => ({ ...target, generation: control.state().generation, operation, ...(operation === "click" ? { target: "node-1" } : {}) });
+
   return { adapter, control, request };
 }
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
+
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; });
+
+ return { promise, resolve }; }
 
 describe("visible browser host ownership", () => {
   it("serializes both previews and records only completed actual checks", async () => {
@@ -96,6 +101,7 @@ describe("visible browser host ownership", () => {
   });
   it("bounds verification calls and never resets spend on a new handoff", async () => {
     const { control, request } = setup();
+
     for (let n = 0; n < 24; n++) await control.run(request());
     control.revoke("done"); control.grant();
     await expect(control.run(request())).rejects.toThrow(/budget/);
@@ -104,6 +110,7 @@ describe("visible browser host ownership", () => {
   });
   it("rejects evaluation, extra authority flags, oversize and forged page permission messages", () => {
     const { request } = setup();
+
     for (const value of [{ ...request(), operation: "evaluate" }, { ...request(), approved: true }, { ...request(), resolvedTarget: actionTarget }, { ...request(), operation: "describe-target" }, { ...request(), text: "x".repeat(4097) }, { ...request(), x: Infinity }]) expect(() => assertBrowserRequest(value)).toThrow();
     const forged = { protocol: "mauxi-preview-v1", session: "session", generation: "gen", kind: "grant", owner: "agent" };
     expect(isBridgeMessage(forged)).toBe(false); expect(isShellMessage(forged)).toBe(false);

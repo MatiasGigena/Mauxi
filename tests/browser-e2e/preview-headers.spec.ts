@@ -17,6 +17,7 @@ test("only the two approved previews may override embedding headers", async ({},
   await new Promise<void>(resolve => reserve.close(() => resolve()));
   const origin = `http://127.0.0.1:${port}`;
   const csp = "object-src 'none'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'";
+
   const config = `export default { plugins: [{ name: 'blocking-headers', configureServer(server) {
     server.middlewares.use((req, res, next) => {
       res.setHeader('X-Frame-Options', 'DENY');
@@ -28,14 +29,18 @@ test("only the two approved previews may override embedding headers", async ({},
       next();
     });
   }}] };`;
+
   await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "header-fixture", private: true, type: "module", scripts: { dev: `vite --host 127.0.0.1 --port ${port} --strictPort` }, dependencies: { vite: "7.3.6", react: "19.3.0" } }));
   await symlink(path.resolve("node_modules"), path.join(root, "node_modules"), "dir");
   await writeFile(path.join(root, "vite.config.mjs"), config);
   await writeFile(path.join(root, "index.html"), '<html><body><h1 data-testid="loaded">APP LOADED</h1></body></html>');
+
   const app = await electron.launch({ chromiumSandbox: true,
     ...(process.env.MAUXI_APPIMAGE ? { executablePath: process.env.MAUXI_APPIMAGE, args: [] } : { args: [path.resolve("dist-electron/main.js")] }),
     env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: "1", MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "profile") } });
+
   let stderr = ""; app.process().stderr?.on("data", chunk => { stderr += String(chunk); });
+
   try {
     let page = await app.firstWindow();
     const discovery = await page.evaluate(root => window.mauxi!.inspectProjectPath(root), root);
@@ -54,9 +59,12 @@ test("only the two approved previews may override embedding headers", async ({},
     expect(await desktop.evaluate(async () => (await fetch('/')).headers.get('content-security-policy'))).toBe(csp);
     expect(await desktop.evaluate(() => {
       const script = document.createElement('script'); script.textContent = 'window.inlineCodeRan = true'; document.body.append(script);
+
       return (window as any).inlineCodeRan === true;
     })).toBe(false);
-    expect(await desktop.evaluate(async url => { try { await fetch(url, { mode: 'no-cors' }); return true; } catch { return false; } }, foreignOrigin)).toBe(false);
+    expect(await desktop.evaluate(async url => { try { await fetch(url, { mode: 'no-cors' });
+
+ return true; } catch { return false; } }, foreignOrigin)).toBe(false);
     expect(await desktop.evaluate(() => typeof (window as any).mauxi)).toBe("undefined");
 
     await desktop.evaluate(() => { location.href = '/redirect-local'; });

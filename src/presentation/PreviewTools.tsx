@@ -20,12 +20,17 @@ export function PreviewTools({ id, board, ready, linked, onToggleLinked, canCopy
     const node = dialog.current!;
     const opener = document.activeElement as HTMLElement | null;
     node.showModal();
-    return () => { node.close(); if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
+
+    return () => { node.close();
+
+ if (opener?.isConnected && !opener.closest("[inert]")) opener.focus({ preventScroll: true }); };
   }, []);
+
   return <dialog ref={dialog} className="preview-tools action-modal" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => {
     if (event.key !== "Tab") return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
     const first = controls[0]; const last = controls.at(-1);
+
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }}>
@@ -52,7 +57,9 @@ export function PreviewTools({ id, board, ready, linked, onToggleLinked, canCopy
       </button>
       {!canCapture && <p className="preview-tools-hint" id={captureHintId}>Fit the full preview to capture it in the desktop app.</p>}
     </div>
-    <form className="viewport-settings" onSubmit={event => { event.preventDefault(); if (dimensionsChanged) onResize(Number(width), Number(height)); }}>
+    <form className="viewport-settings" onSubmit={event => { event.preventDefault();
+
+ if (dimensionsChanged) onResize(Number(width), Number(height)); }}>
       <fieldset>
         <legend>Viewport <span>px</span></legend>
         <div className="viewport-fields">

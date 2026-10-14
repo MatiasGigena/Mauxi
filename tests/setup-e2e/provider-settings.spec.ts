@@ -13,8 +13,11 @@ for (const width of [1280, 390]) {
         state.actions.push({ action: "login", ...request });
         await new Promise<void>(resolve => { state.finishLogin = resolve; });
       };
+
       window.mauxi!.agentLogout = async (request) => { state.actions.push({ action: "logout", ...request }); };
+
       window.mauxi!.agentRefreshCatalog = async () => { state.actions.push({ action: "refresh" }); };
+
       const snapshot = {
         ready: true, workspaceId: "test-workspace",
         providers: [
@@ -24,6 +27,7 @@ for (const width of [1280, 390]) {
         models: [], sessions: [{ id: "old-session", name: "Previous conversation", active: true, updatedAt: Date.now() }],
         messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
       };
+
       state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "snapshot", snapshot }));
     });
     await page.getByRole("button", { name: "Models & providers", exact: true }).click();
@@ -33,10 +37,12 @@ for (const width of [1280, 390]) {
     await expect(settings.getByText("Previous conversation")).toHaveCount(0);
     await expect(settings.locator(".session-list, .rename-row, .primary")).toHaveCount(0);
     await expect(settings.locator(".settings-action")).toHaveCount(5);
+
     for (const action of await settings.locator(".settings-action").all()) {
       await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(action).toHaveCSS("box-shadow", "none");
     }
+
     const login = settings.getByRole("button", { name: "Anthropic (Claude Pro/Max)", exact: true });
     await login.hover();
     await expect(login).toHaveCSS("color", "rgb(20, 122, 122)");

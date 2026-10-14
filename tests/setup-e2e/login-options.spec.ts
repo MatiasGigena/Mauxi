@@ -14,6 +14,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
         state.responses.push(response);
         await new Promise<void>(resolve => { state.finishResponse = resolve; });
       };
+
       state.agentListeners.forEach((listener: (event: unknown) => void) => listener({ type: "dialog", dialog: {
         id: "radius-choice", kind: "select", title: "Radius", message: "Sign in to Radius:", options: [
           { id: "browser", label: "Sign in with browser (recommended)" },
@@ -23,6 +24,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     });
     const dialog = page.getByRole("dialog", { name: "Radius", exact: true });
     await expect(dialog).toBeVisible();
+
     if (mode === "short") await page.setViewportSize({ width: 1280, height: 280 });
     await expect(dialog.getByText("Sign in to Radius:", { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole("group", { name: "Sign in to Radius:", exact: true })).toBeVisible();
@@ -30,6 +32,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     const second = dialog.getByRole("button", { name: /Sign in with device code/ });
     const proceed = dialog.getByRole("button", { name: "Continue", exact: true });
     await expect(proceed).toBeDisabled();
+
     for (const choice of [first, second]) {
       await expect(choice).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(choice).toHaveCSS("box-shadow", "none");
@@ -37,6 +40,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
       await expect(choice.locator(".lucide-arrow-right")).toBeVisible();
       await expect(choice.locator("svg")).toHaveAttribute("aria-hidden", "true");
     }
+
     if (mode === "keyboard") { await first.focus(); await first.press("Space"); }
     else await first.click();
     await page.mouse.move(0, 0);
@@ -47,8 +51,10 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect.poll(() => first.locator("span").evaluate(node => getComputedStyle(node, "::after").transform)).toBe("matrix(1, 0, 0, 1, 0, 0)");
     await expect(proceed).toBeEnabled();
     expect(await page.evaluate(() => (window as any).setupTest.responses)).toEqual([]);
+
     if (mode === "keyboard") { await first.press("Tab"); await expect(second).toBeFocused(); await second.press("Enter"); }
     else { await second.hover(); await expect(second).toHaveCSS("background-color", "rgba(0, 0, 0, 0)"); await second.click(); }
+
     await page.mouse.move(0, 0);
     await expect(first).toHaveAttribute("aria-pressed", "false");
     await expect(first.locator(".lucide-arrow-right")).toBeVisible();
@@ -61,16 +67,20 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect(second.locator(".lucide-check")).toBeVisible();
     await expect(second.locator(".lucide-arrow-right")).toHaveCount(0);
     await expect(second.locator("small")).toHaveText("Complete sign-in on a different device.");
+
     if (mode === "keyboard" || mode === "reduced") await expect(second).toHaveCSS("transition-duration", "0s");
     expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+
     if (mode === "short") {
       for (const layer of [dialog, page.locator(".chat-content")]) {
         const { content, available } = await layer.evaluate(node => ({ content: node.scrollHeight, available: node.clientHeight }));
         expect(content).toBeLessThanOrEqual(available + 1);
       }
+
       const bounds = await proceed.boundingBox();
       expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(280);
     }
+
     await page.screenshot({ path: testInfo.outputPath("sign-in-choices.png") });
     await proceed.click();
     await expect(first).toBeDisabled();
@@ -82,6 +92,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await page.evaluate(() => (window as any).setupTest.finishResponse());
     await expect(page.locator(".agent-dialog-inline")).toHaveCount(0);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
+
     if (mode === "short") {
       await page.evaluate(() => {
         const state = (window as any).setupTest;

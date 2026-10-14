@@ -13,6 +13,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
   await writeFile(path.join(project, ".pi", "extensions", "unsafe.ts"), 'throw new Error("AMBIENT_EXTENSION_EXECUTED")');
   await writeFile(path.join(project, ".pi", "settings.json"), JSON.stringify({ packages: ["npm:mauxi-must-never-install-missing-package"], extensions: ["./extensions/unsafe.ts"] }));
   const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
+
   const server = createServer((request, response) => {
     let body = ""; request.on("data", (chunk) => { body += chunk; });
     request.on("end", () => {
@@ -20,6 +21,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
       const lastUser = parsed.messages.findLastIndex((message: { role: string; content: unknown }) => message.role === "user" && JSON.stringify(message.content).includes("[Mauxi request]"));
       const results = parsed.messages.slice(lastUser).filter((message: { role: string }) => message.role === "tool");
       const content = JSON.stringify(parsed.messages[lastUser]?.content);
+
       const tools = [
         { name: "design_search", arguments: JSON.stringify({ query: "light serif hero", viewport: "mobile" }) },
         { name: "design_image", arguments: JSON.stringify({ id: "meridian-01-hero", viewport: "mobile" }) },
@@ -31,37 +33,49 @@ it.each([false, true])("runs the automatic library and approved native guidance 
           { name: "design_read", arguments: JSON.stringify({ name: "prototype", file: "PICKER.md" }) },
         ] : []),
       ];
+
       response.writeHead(200, { "content-type": "text/event-stream" });
       const push = (delta: unknown, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 1, model: "fake", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
       push({ role: "assistant", content: "" });
+
       if (content.includes("inspect examples") && results.length < tools.length) {
         push({ content: "Loading mobile-native and design references." });
         push({ tool_calls: [{ index: 0, id: `tool-${results.length}`, type: "function", function: tools[results.length] }] });
         push({}, "tool_calls");
       } else { push({ content: "Layout checked. Real device behavior remains unverified." }); push({}, "stop"); }
+
       response.end("data: [DONE]\n\n");
     });
   });
+
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address(); if (!address || typeof address === "string") throw new Error("No server");
+  const address = server.address();
+
+ if (!address || typeof address === "string") throw new Error("No server");
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { fake: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "test", api: "openai-completions", models: [{ id: "fake", name: "Fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
   const host = new PiAgentHost("design", project, profile, path.join(root, "captures"), undefined, undefined, undefined, path.resolve("design-references/library/catalog.json"), bundled ? path.resolve("design-skills") : undefined);
   let latest: AgentSnapshot; let consent = false; let sawApproval = false;
+
   const off = host.subscribe((event) => {
     if (event.type === "snapshot") latest = event.snapshot;
+
     if (event.type === "dialog") { sawApproval = true; host.respondToDialog({ workspaceId: "design", dialogId: event.dialog.id, ...(consent ? { value: "approve" } : { cancelled: true }) }); }
   });
+
   const waitIdle = async () => {
     for (let n = 0; n < 500; n++) {
       if (latest?.runState === "idle" && latest.messages.some((message) => message.role === "assistant")) return;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+
     throw new Error("Agent did not settle");
   };
+
   try {
     await host.initialize();
     expect(host.diagnostics().resources?.catalog).toMatchObject({ count: 10, enabled: true });
     expect(sawApproval).toBe(false);
+
     if (bundled) {
       expect(host.diagnostics().resources?.skills.filter((skill) => skill.loaded)).toHaveLength(4);
       await host.selectModel({ workspaceId: "design", modelKey: "fake/fake" });
@@ -81,6 +95,7 @@ it.each([false, true])("runs the automatic library and approved native guidance 
       await host.newSession("design");
       requests.length = 0;
     }
+
     const source = path.join(root, "mobile-native"); await mkdir(source);
     const sourceFile = path.join(source, "SKILL.md");
     const original = "---\nname: mobile-native\ndescription: Mobile layout guidance\ndisable-model-invocation: true\n---\nUNIQUE_LOADED_BODY: Preserve the project tokens and never disable zoom.\nSee [details](DETAILS.md).\n";
@@ -146,6 +161,7 @@ it("rejects approval when there is no connected desktop and rejects unsupported 
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-no-ui-"));
   const project = path.join(root, "project"); await mkdir(project);
   const host = new PiAgentHost("none", project, path.join(root, "profile"), path.join(root, "captures"));
+
   try {
     await host.initialize();
     await expect(host.importResource({ workspaceId: "none", kind: "skill", path: "npm:unknown" })).rejects.toThrow(/unsupported/);

@@ -14,6 +14,7 @@ export function discovery(): ProjectDiscovery {
       { action: "create", path: ".mauxi/bridge.js", diff: "+ preview bridge" },
     ] },
   };
+
   return {
     discoveryId: "first-discovery", selectedRoot: "/projects/rondo", canonicalRoot: "/projects/rondo", packageJsonPath: "/projects/rondo/package.json",
     git: { repository: true, dirty: false }, rememberedPlanId: null, diagnostics: [], plans: [vite, {
@@ -36,8 +37,12 @@ export async function mockDesktop(page: Page) {
     (window as unknown as { setupTest: typeof state }).setupTest = state;
     window.mauxi = {
       getBootstrap: async () => ({ mode: "project", active: null, recoveryConflicts: [] }),
-      onWorkspaceEvent: (listener: (event: unknown) => void) => { state.workspaceListeners.push(listener); return () => { state.workspaceListeners = state.workspaceListeners.filter(item => item !== listener); }; },
-      onAgentEvent: (listener: (event: unknown) => void) => { state.agentListeners.push(listener); return () => { state.agentListeners = state.agentListeners.filter((item) => item !== listener); }; },
+      onWorkspaceEvent: (listener: (event: unknown) => void) => { state.workspaceListeners.push(listener);
+
+ return () => { state.workspaceListeners = state.workspaceListeners.filter(item => item !== listener); }; },
+      onAgentEvent: (listener: (event: unknown) => void) => { state.agentListeners.push(listener);
+
+ return () => { state.agentListeners = state.agentListeners.filter((item) => item !== listener); }; },
       agentBootstrap: () => new Promise(() => {}),
       onBrowserState: () => () => {},
       browserState: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
@@ -47,13 +52,18 @@ export async function mockDesktop(page: Page) {
       releaseCaptures: async () => {},
       openProject: async () => {
         state.calls++;
+
         if (state.pending) await new Promise<void>(resolve => { state.release = resolve; });
+
         return state.next;
       },
       confirmProject: async (request: unknown) => {
         state.confirms.push(request);
+
         if (state.confirmPending) await new Promise<void>(resolve => { state.confirmRelease = resolve; });
+
         if (state.confirmError) throw new Error("Setup failed");
+
         return {
           workspaceId: "test-workspace", projectRoot: "/projects/rondo", appRoot: "/projects/rondo",
           framework: "vite", packageManager: "npm", commandDisplay: "npm run dev", origin: "http://127.0.0.1:5173",

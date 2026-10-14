@@ -9,23 +9,30 @@ import { CaptureCache, CAPTURE_RETENTION } from "../../src/infrastructure/storag
 const roots: string[] = [];
 const limits = structuredClone(ARTIFACT_LIMITS);
 const now = Date.now();
+
 function setup() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "mauxi-captures-")); roots.push(dir);
   const root = path.join(dir, "captures"); mkdirSync(root);
+
   return { dir, root, cache: new CaptureCache(root, () => now) };
 }
+
 function seed(root: string, name: string, age = 0, content = "png"): string {
   const file = path.join(root, name); writeFileSync(file, content);
   utimesSync(file, new Date(now - age), new Date(now - age));
+
   return file;
 }
+
 afterEach(() => {
   Object.assign(ARTIFACT_LIMITS, structuredClone(limits));
+
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 it("reclaims the observed 325 legacy orphaned selections on startup, even over the file limit", () => {
   const { root, cache } = setup();
+
   for (let i = 0; i < 325; i++) seed(root, `desktop-selection-pick-${i}-${now + i}.png`);
   const preview = seed(root, `mobile-${now}.png`);
   expect(cache.cleanup()).toEqual({ removedFiles: 325, removedBytes: 975 });
@@ -68,13 +75,17 @@ it("protects in-flight inputs after chip removal/window replacement, with indepe
 
 it("retains a draft for retry when a send is rejected or throws", async () => {
   const { cache } = setup(); const file = cache.write("desktop", Buffer.from("retry"), "retry");
+
   for (const fails of [false, true]) {
     const release = cache.protectInputs([file]);
+
     try {
       const result = await (fails ? Promise.reject(new Error("provider refused")) : Promise.resolve({ accepted: false }));
+
       if (result.accepted) cache.releaseDrafts([file]);
     } catch (error) { expect((error as Error).message).toBe("provider refused"); }
     finally { release(); cache.cleanup(); }
+
     expect(readFileSync(file, "utf8")).toBe("retry");
   }
 });
@@ -96,11 +107,13 @@ it("reserves the new file before pruning oldest previews to 75% of the count lim
   ARTIFACT_LIMITS.captures = { files: 4, bytes: 1000 };
   const old = seed(root, `desktop-${now - 1}.png`, 10);
   const saved: string[] = [];
+
   for (let i = 0; i < 30; i++) {
     const file = cache.write("desktop", Buffer.from("png"));
     utimesSync(file, new Date(time), new Date(time)); saved.push(file);
     expect(readdirSync(root).length).toBeLessThanOrEqual(3);
   }
+
   expect(existsSync(old)).toBe(false);
   expect(saved.slice(-3).every(file => existsSync(file))).toBe(true);
   expect(saved.slice(0, -3).every(file => !existsSync(file))).toBe(true);
@@ -141,6 +154,7 @@ it("preserves unknown filenames, nested files and files outside the capture root
   const outside = seed(dir, `desktop-selection-outside-${now}.png`);
   const draft = cache.write("desktop", Buffer.from("draft"), "current");
   cache.releaseDrafts([outside, path.join(root, "..", path.basename(draft))]); cache.cleanup();
+
   for (const file of [unknown, nested, outside, draft]) expect(existsSync(file)).toBe(true);
   expect(() => cache.write("mobile", Buffer.from("more"), "more")).toThrow(/Storage capacity/);
 });
@@ -158,6 +172,7 @@ it("refuses symlinks before deleting any recognized capture", () => {
 
 it("bounds a complete cleanup scan before removing anything", () => {
   const { root, cache } = setup(); const orphan = seed(root, `desktop-selection-orphan-${now}.png`);
+
   for (let i = 0; i < 4096; i++) seed(root, `unknown-${i}.txt`);
   expect(() => cache.cleanup()).toThrow(/4,096 entries/);
   expect(existsSync(orphan)).toBe(true);
@@ -167,6 +182,7 @@ it("reports deletion failures without writing past the budget or deleting protec
   const { root, cache } = setup(); const draft = cache.write("desktop", Buffer.from("draft"), "active");
   const orphan = seed(root, `mobile-selection-orphan-${now}.png`);
   chmodSync(root, 0o500);
+
   try {
     expect(() => cache.write("mobile", Buffer.from("new"))).toThrow();
     expect(existsSync(draft)).toBe(true); expect(existsSync(orphan)).toBe(true);

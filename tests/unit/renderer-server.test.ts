@@ -8,6 +8,7 @@ import { startRendererServer } from "../../src/infrastructure/electron/renderer-
 it("serves only packaged assets on loopback, rejecting filesystem paths, writes and foreign hosts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mauxi-renderer-"));
   let server: Awaited<ReturnType<typeof startRendererServer>> | undefined;
+
   try {
     const directory = path.join(root, "ui"); await mkdir(path.join(directory, "assets"), { recursive: true });
     await writeFile(path.join(root, "secret.txt"), "must stay private");
@@ -22,13 +23,17 @@ it("serves only packaged assets on loopback, rejecting filesystem paths, writes 
     expect(await (await fetch(asset)).text()).toBe("globalThis.fixture = true;");
     expect(await (await fetch(asset, { method: "HEAD" })).text()).toBe("");
     expect((await fetch(asset, { method: "POST", body: "overwrite" })).status).toBe(405);
+
     const foreignHost = await new Promise<number | undefined>((resolve, reject) => {
       get(server!.url, { headers: { Host: "attacker.invalid" } }, response => { response.resume(); resolve(response.statusCode); }).on("error", reject);
     });
+
     expect(foreignHost).toBe(403);
+
     for (const name of ["../secret.txt", "assets/%2e%2e%2f%2e%2e%2fsecret.txt", "file:///etc/passwd", "unknown.html"]) {
       expect((await fetch(new URL(name.replace(/^file:/, "file%3A"), server.url))).status).toBe(404);
     }
+
     await server.close(); server = undefined;
     await expect(fetch(asset)).rejects.toThrow();
   } finally { await server?.close(); await rm(root, { recursive: true, force: true }); }

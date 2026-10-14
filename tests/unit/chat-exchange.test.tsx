@@ -20,6 +20,7 @@ describe("latest chat exchange", () => {
     expect(html.indexOf("New prompt")).toBeLessThan(html.indexOf("New output"));
     expect(html).toContain('aria-label="User prompt"');
     expect(html).toContain('aria-label="Agent response"');
+
     for (const old of ["Old prompt", "Old output", "Internal status"]) expect(html).not.toContain(old);
     expect(messages).toHaveLength(5);
   });

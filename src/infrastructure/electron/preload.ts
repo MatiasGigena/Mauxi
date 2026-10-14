@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("mauxi", {
   onBrowserState(callback: (state: BrowserState) => void) {
     const listener = (_event: Electron.IpcRendererEvent, state: BrowserState) => callback(state);
     ipcRenderer.on("mauxi:browser-state", listener);
+
     return () => ipcRenderer.removeListener("mauxi:browser-state", listener);
   },
   getBootstrap() { return ipcRenderer.invoke("mauxi:get-bootstrap"); },
@@ -44,11 +45,13 @@ contextBridge.exposeInMainWorld("mauxi", {
   onAgentEvent(callback: (event: AgentEvent) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AgentEvent) => callback(value);
     ipcRenderer.on("mauxi:agent-event", listener);
+
     return () => ipcRenderer.removeListener("mauxi:agent-event", listener);
   },
   onWorkspaceEvent(callback: (event: WorkspaceEvent) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: WorkspaceEvent) => callback(value);
     ipcRenderer.on("mauxi:workspace-event", listener);
+
     return () => ipcRenderer.removeListener("mauxi:workspace-event", listener);
   },
 });

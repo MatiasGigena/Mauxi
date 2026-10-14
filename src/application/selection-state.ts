@@ -22,8 +22,11 @@ export function selectionCapturePaths(selections: readonly StoredSelection[]): s
 
 export function fingerprintsMatch(original: ElementFingerprint, current: ElementFingerprint): boolean {
   if (original.instanceKey !== current.instanceKey || original.tag !== current.tag) return false;
+
   if (original.sourceKey !== current.sourceKey) return false;
+
   if (original.testId || current.testId) return original.testId === current.testId && original.text === current.text;
+
   return original.text === current.text;
 }
 
