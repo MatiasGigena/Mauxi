@@ -27,7 +27,7 @@ function allowAncestor(value: string, origin: string, addMissing: boolean): stri
 }
 
 export function previewHeaders(headers: Headers, rendererOrigin: string): Headers {
-  const result: Headers = {};
+  const entries: Array<[string, string[]]> = [];
   let hasCsp = false;
 
   for (const [key, values] of Object.entries(headers)) {
@@ -37,15 +37,15 @@ export function previewHeaders(headers: Headers, rendererOrigin: string): Header
 
     if (name === "content-security-policy") {
       hasCsp ||= values.length > 0;
-      result[key] = values.map(value => allowAncestor(value, rendererOrigin, true));
+      entries.push([key, values.map(value => allowAncestor(value, rendererOrigin, true))]);
     } else if (name === "content-security-policy-report-only") {
-      result[key] = values.map(value => allowAncestor(value, rendererOrigin, false));
-    } else result[key] = values;
+      entries.push([key, values.map(value => allowAncestor(value, rendererOrigin, false))]);
+    } else entries.push([key, values]);
   }
 
-  if (!hasCsp) result["Content-Security-Policy"] = [`frame-ancestors ${rendererOrigin}`];
+  if (!hasCsp) entries.push(["Content-Security-Policy", [`frame-ancestors ${rendererOrigin}`]]);
 
-  return result;
+  return Object.fromEntries(entries);
 }
 
 const owners = new WeakMap<Session, () => void>();

@@ -1,14 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { BrowserOwner, BrowserState } from "../../application/browser-contract";
+import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../../application/browser-contract";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
+
+type BrowserTestRequest = "targets" | BrowserRequest | (Omit<BrowserRequest, "operation"> & { operation: string; expression?: string });
 
 contextBridge.exposeInMainWorld("mauxi", {
   browserState(): Promise<BrowserState> { return ipcRenderer.invoke("mauxi:browser-state"); },
   browserOwner(input: { workspaceId: string; owner: BrowserOwner }): Promise<BrowserState> { return ipcRenderer.invoke("mauxi:browser-owner", input); },
   browserHeartbeat(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:browser-heartbeat", workspaceId); },
-  browserTest(input: unknown): Promise<unknown> { return ipcRenderer.invoke("mauxi:browser-test", input); },
+  browserTest(input: BrowserTestRequest): Promise<{ state: BrowserState; targets: BrowserTarget[] } | BrowserResult> { return ipcRenderer.invoke("mauxi:browser-test", input); },
   onBrowserState(callback: (state: BrowserState) => void) {
     const listener = (_event: Electron.IpcRendererEvent, state: BrowserState) => callback(state);
     ipcRenderer.on("mauxi:browser-state", listener);

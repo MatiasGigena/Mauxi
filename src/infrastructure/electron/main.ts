@@ -3,13 +3,14 @@ import { installPreviewHeaders } from "./preview-headers";
 import { CaptureCache, CAPTURE_RETENTION } from "../storage/capture-cache";
 import { selectionCapturePaths } from "../../application/selection-state";
 import { app, BrowserWindow, dialog, ipcMain, shell, type Rectangle } from "electron";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
-import type { ConfirmProjectRequest } from "../../application/project-contract";
-import { assertShortString, isThinkingLevel, type AgentDialogResponse, type AgentLoginRequest, type AgentModelRequest, type AgentSendRequest, type AgentThinkingRequest } from "../../application/agent-contract";
+import { THINKING_LEVELS } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
@@ -20,6 +21,106 @@ import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const boundedString = (max: number) => Type.Refine(Type.String(), value => value.length <= max);
+const nullableString = Type.Union([Type.String(), Type.Null()]);
+const nullableInteger = Type.Union([Type.Integer(), Type.Null()]);
+const nullableNumber = Type.Union([Type.Number(), Type.Null()]);
+const PreviewIdInput = Type.Union([Type.Literal("desktop"), Type.Literal("mobile")]);
+const WorkspaceIdInput = boundedString(128);
+const SourceLineInput = Type.Optional(nullableInteger);
+const ownershipInput = Type.Union([Type.Literal("application"), Type.Literal("library"), Type.Literal("unknown")]);
+const cssPixels = Type.Literal("preview-css-pixels");
+
+const SourceLocatorInput = Type.Object({
+  tag: Type.Refine(Type.String(), tag => /^[a-z][\w:-]{0,63}$/i.test(tag)),
+  testIds: Type.Array(Type.Refine(Type.String(), item => item.length > 0 && item.length <= 512), { maxItems: 12 }),
+});
+
+const SourceRequestInput = Type.Object({ workspaceId: Type.String(), hint: boundedString(1_024), lineNumber: SourceLineInput, columnNumber: SourceLineInput, locator: Type.Optional(SourceLocatorInput) });
+const FixtureSourceRequestInput = Type.Object({ fixture: Type.Union([Type.Literal("vite"), Type.Literal("next")]), hint: boundedString(1_024), lineNumber: SourceLineInput, columnNumber: SourceLineInput, locator: Type.Optional(SourceLocatorInput) });
+
+const CaptureRequestInput = Type.Object({
+  workspaceId: Type.Optional(Type.String()),
+  previewId: PreviewIdInput,
+  selectionId: Type.Optional(Type.Refine(Type.String(), id => /^[\w-]{1,128}$/.test(id))),
+  x: Type.Number(),
+  y: Type.Number(),
+  width: Type.Number(),
+  height: Type.Number(),
+});
+
+const BrowserOwnerInput = Type.Object({ workspaceId: Type.String(), owner: Type.Union([Type.Literal("agent"), Type.Literal("human"), Type.Literal("picker")]) });
+const ProjectPathInput = boundedString(4_096);
+const ConfirmProjectInput = Type.Object({ discoveryId: boundedString(128), planId: boundedString(128), mode: Type.Union([Type.Literal("start"), Type.Literal("attach")]), startPath: Type.Optional(Type.String()) });
+const SaveCanvasInput = Type.Object({ workspaceId: WorkspaceIdInput, canvas: Type.Unknown() });
+const BridgeReadyInput = Type.Object({ workspaceId: WorkspaceIdInput, previewId: PreviewIdInput, generation: boundedString(128), url: boundedString(4_096) });
+const AgentLoginInput = Type.Object({ workspaceId: WorkspaceIdInput, providerId: boundedString(200), type: Type.Union([Type.Literal("api_key"), Type.Literal("oauth")]) });
+const AgentLogoutInput = Type.Object({ workspaceId: WorkspaceIdInput, providerId: boundedString(200) });
+const AgentModelInput = Type.Object({ workspaceId: WorkspaceIdInput, modelKey: boundedString(500) });
+const AgentThinkingInput = Type.Object({ workspaceId: WorkspaceIdInput, level: Type.Union(THINKING_LEVELS.map(level => Type.Literal(level))) });
+const AgentDialogInput = Type.Object({ workspaceId: WorkspaceIdInput, dialogId: boundedString(128), value: Type.Optional(boundedString(8_000)), cancelled: Type.Optional(Type.Boolean()) });
+const AuthUrlInput = boundedString(4_096);
+const CaptureReleaseInput = Type.Array(Type.Refine(Type.String(), file => file.length > 0 && file.length <= 4_096), { maxItems: 8 });
+
+const SelectionInput = Type.Object({
+  capture: Type.Object({
+    selectionId: Type.String(),
+    workspaceId: Type.String(),
+    previewId: PreviewIdInput,
+    documentGeneration: Type.String(),
+    capturedAt: Type.String(),
+    url: Type.String(),
+    viewport: Type.Object({ width: Type.Number(), height: Type.Number(), deviceScaleFactor: Type.Number() }),
+    coordinates: Type.Object({ clientX: Type.Number(), clientY: Type.Number(), space: cssPixels }),
+    element: Type.Object({ tag: Type.String(), label: Type.String(), role: nullableString, text: Type.String(), html: Type.String() }),
+    bounds: Type.Object({ x: Type.Number(), y: Type.Number(), width: Type.Number(), height: Type.Number() }),
+    source: Type.Object({
+      filePath: Type.String(),
+      lineNumber: nullableNumber,
+      columnNumber: nullableNumber,
+      componentName: nullableString,
+      method: Type.Union([Type.Literal("react-grab"), Type.Literal("jsx-attribute"), Type.Literal("unresolved")]),
+      fileFingerprint: nullableString,
+      role: Type.Union([Type.Literal("jsx-element"), Type.Literal("component-owner"), Type.Literal("caller"), Type.Literal("unknown")]),
+      ownership: ownershipInput,
+      verification: Type.Union([Type.Literal("unverified"), Type.Literal("verified"), Type.Literal("missing-or-ambiguous"), Type.Literal("library")]),
+    }),
+    componentOwners: Type.Array(Type.Object({
+      componentName: Type.String(),
+      filePath: nullableString,
+      lineNumber: nullableNumber,
+      columnNumber: nullableNumber,
+      role: Type.Union([Type.Literal("component-owner"), Type.Literal("caller")]),
+      ownership: ownershipInput,
+    })),
+    domAncestry: Type.Array(Type.Object({ tag: Type.String(), label: Type.String(), selector: nullableString, testId: nullableString, selected: Type.Boolean() })),
+    support: Type.Object({ status: Type.Union([Type.Literal("supported"), Type.Literal("unsupported")]), reason: nullableString }),
+    fingerprint: Type.Object({ selector: nullableString, tag: Type.String(), testId: nullableString, text: Type.String(), sourceKey: nullableString, instanceKey: Type.String() }),
+    computedStyles: Type.Record(Type.String(), Type.String()),
+    screenshot: Type.Object({
+      status: Type.Union([Type.Literal("pending"), Type.Literal("captured"), Type.Literal("unavailable")]),
+      crop: Type.Object({ x: Type.Number(), y: Type.Number(), width: Type.Number(), height: Type.Number(), space: cssPixels }),
+      path: Type.Optional(Type.String()),
+      width: Type.Optional(Type.Number()),
+      height: Type.Optional(Type.Number()),
+      capturedAt: Type.Optional(Type.String()),
+      reason: Type.Optional(Type.String()),
+    }),
+  }),
+  status: Type.Union([Type.Literal("current"), Type.Literal("stale")]),
+  interaction: Type.Optional(Type.Union([Type.Literal("pointer"), Type.Literal("keyboard")])),
+  staleReason: Type.Optional(Type.String()),
+  requiresRepick: Type.Optional(Type.Boolean()),
+});
+
+const AgentSendInput = Type.Object({
+  workspaceId: WorkspaceIdInput,
+  text: boundedString(100_000),
+  behavior: Type.Union([Type.Literal("prompt"), Type.Literal("steer"), Type.Literal("followUp")]),
+  selections: Type.Array(SelectionInput, { maxItems: 8 }),
+});
+
 let mainWindow: BrowserWindow | null = null;
 const retiredCanvasSenders = new WeakMap<Electron.WebContents, Electron.WebFrameMain>();
 let packagedRenderer: Awaited<ReturnType<typeof startRendererServer>> | undefined;
@@ -86,33 +187,12 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-function sourceLocator(value: Record<string, unknown>): { tag: string; testIds: string[] } | undefined {
-  if (value.locator === undefined) return undefined;
-
-  if (!value.locator || typeof value.locator !== "object") throw new Error("Invalid source locator");
-  const locator = value.locator as Record<string, unknown>;
-
-  if (typeof locator.tag !== "string" || !/^[a-z][\w:-]{0,63}$/i.test(locator.tag)
-    || !Array.isArray(locator.testIds) || locator.testIds.length > 12
-    || !locator.testIds.every((item) => typeof item === "string" && item.length > 0 && item.length <= 512)) throw new Error("Invalid source locator");
-
-  return { tag: locator.tag, testIds: locator.testIds as string[] };
+function sourceLocator(locator: Static<typeof SourceLocatorInput> | undefined): { tag: string; testIds: string[] } | undefined {
+  return locator && { tag: locator.tag, testIds: locator.testIds };
 }
 
-function assertCaptureRect(value: unknown, bounds: Rectangle): asserts value is { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number } {
-  if (!value || typeof value !== "object") throw new Error("Invalid capture request");
-  const input = value as Record<string, unknown>;
-
-  if (!/^(desktop|mobile)$/.test(String(input.previewId))) throw new Error("Invalid preview ID");
-
-  if (input.selectionId !== undefined && (typeof input.selectionId !== "string" || !/^[\w-]{1,128}$/.test(input.selectionId))) throw new Error("Invalid selection ID");
-
-  for (const key of ["x", "y", "width", "height"] as const) {
-    if (typeof input[key] !== "number" || !Number.isFinite(input[key])) throw new Error(`Invalid ${key}`);
-  }
-
-  const x = Number(input.x); const y = Number(input.y);
-  const width = Number(input.width); const height = Number(input.height);
+function assertCaptureBounds(input: Static<typeof CaptureRequestInput>, bounds: Rectangle): void {
+  const { x, y, width, height } = input;
 
   if (width < 1 || height < 1 || width > bounds.width || height > bounds.height) throw new Error("Capture dimensions exceed the shell");
 
@@ -197,6 +277,17 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
   browserControl?.revoke("Visible window changed"); visibleBrowser?.dispose(); visibleBrowser = undefined; browserControl = undefined;
   currentWorkspaceRoot = workspaceRoot;
 
+  const webPreferences: Electron.WebPreferences = {
+    preload: path.join(__dirname, "preload.cjs"),
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    webSecurity: true,
+  };
+
+  if (partition) webPreferences.partition = partition;
+
   const window = new BrowserWindow({
     width: 1500,
     height: 1000,
@@ -204,15 +295,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
     minHeight: 700,
     backgroundColor: "#e9e8e5",
     show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      webSecurity: true,
-      ...(partition ? { partition } : {}),
-    },
+    webPreferences,
   });
 
   if (previous && !previous.isDestroyed()) retiredCanvasSenders.set(previous.webContents, previous.webContents.mainFrame);
@@ -242,12 +325,12 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
     captures.clearDrafts(); cleanupCaptureCache();
     browserControl?.revoke("Renderer disconnected");
 
- if (agentHost) void agentHost.stop(agentHost.workspaceId);
+    if (agentHost) void agentHost.stop(agentHost.workspaceId);
   });
   window.webContents.on("unresponsive", () => browserControl?.revoke("Renderer unresponsive"));
   window.webContents.setWindowOpenHandler(() => { browserControl?.revoke("Popup blocked; control suspended");
 
- return { action: "deny" }; });
+  return { action: "deny" }; });
   window.webContents.on("will-navigate", (event, target) => {
     const renderer = rendererLocation();
     const allowed = new URL(target).origin === new URL(renderer).origin;
@@ -293,34 +376,33 @@ function workspacePartition(root: string): string {
 function registerIpc(): void {
   ipcMain.handle("mauxi:browser-state", event => { assertTrustedSender(event);
 
- return activeBrowser().state(); });
-  ipcMain.handle("mauxi:browser-heartbeat", (event, workspaceId: unknown) => {
+  return activeBrowser().state(); });
+  ipcMain.handle("mauxi:browser-heartbeat", (event, workspaceId) => {
     assertTrustedSender(event);
 
-    if (workspaceId !== browserControl?.workspaceId) throw new Error("Stale browser workspace");
+    if (!Value.Check(Type.String(), workspaceId) || workspaceId !== browserControl?.workspaceId) throw new Error("Stale browser workspace");
     browserHeartbeat = Date.now();
   });
-  ipcMain.handle("mauxi:browser-owner", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:browser-owner", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid handoff");
-    const value = input as Record<string, unknown>; const browser = activeBrowser();
+    if (!Value.Check(BrowserOwnerInput, input)) throw new Error("Invalid handoff");
+    const browser = activeBrowser();
 
-    if (value.workspaceId !== browser.workspaceId) throw new Error("Stale browser workspace");
+    if (input.workspaceId !== browser.workspaceId) throw new Error("Stale browser workspace");
 
-    if (value.owner === "agent") {
+    if (input.owner === "agent") {
       const generation = browser.state().generation;
       const targets = await browser.targets();
       const shielded = await event.sender.executeJavaScript(`['desktop','mobile'].every(id => { const f=document.querySelector('[data-testid="'+id+'-preview"]'); return f && f.inert && f.tabIndex === -1 && !!f.parentElement.querySelector('[data-browser-shield]'); })`);
 
       if (!shielded || targets.length !== 2 || browser.state().generation !== generation) throw new Error("Handoff requires two ready, input-shielded visible previews");
       browserHeartbeat = Date.now(); browser.grant();
-    } else if (value.owner === "human" || value.owner === "picker") browser.humanOwner(value.owner);
-    else throw new Error("Invalid browser owner");
+    } else browser.humanOwner(input.owner);
 
     return browser.state();
   });
-  ipcMain.handle("mauxi:browser-test", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:browser-test", async (event, input) => {
     assertTrustedSender(event);
 
     if (process.env.MAUXI_TEST_MODE !== "1") throw new Error("Test API disabled");
@@ -329,7 +411,7 @@ function registerIpc(): void {
     if (input === "targets") return { state: browser.state(), targets: await browser.targets() };
     assertBrowserRequest(input);
 
- return browser.run(input);
+    return browser.run(input);
   });
   ipcMain.handle("mauxi:get-bootstrap", (event) => {
     assertTrustedSender(event);
@@ -350,24 +432,21 @@ function registerIpc(): void {
     return discovery;
   });
 
-  ipcMain.handle("mauxi:inspect-project-path", async (event, selectedPath: unknown) => {
+  ipcMain.handle("mauxi:inspect-project-path", async (event, selectedPath) => {
     assertTrustedSender(event);
 
-    if (process.env.MAUXI_TEST_MODE !== "1" || typeof selectedPath !== "string" || selectedPath.length > 4_096) throw new Error("Path inspection is test-only");
+    if (process.env.MAUXI_TEST_MODE !== "1" || !Value.Check(ProjectPathInput, selectedPath)) throw new Error("Path inspection is test-only");
 
     return manager.inspect(selectedPath);
   });
 
-  ipcMain.handle("mauxi:confirm-project", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:confirm-project", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid confirmation");
-    const value = input as Record<string, unknown>;
-
-    if (typeof value.discoveryId !== "string" || value.discoveryId.length > 128 || typeof value.planId !== "string" || value.planId.length > 128 || (value.mode !== "start" && value.mode !== "attach")) throw new Error("Invalid confirmation");
+    if (!Value.Check(ConfirmProjectInput, input)) throw new Error("Invalid confirmation");
 
     try {
-      const active = await manager.confirm(value as unknown as ConfirmProjectRequest);
+      const active = await manager.confirm(input);
       setTimeout(() => { void createWindow(workspacePartition(active.projectRoot), active.projectRoot); }, 100);
 
       return active;
@@ -379,15 +458,12 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle("mauxi:save-canvas", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:save-canvas", async (event, input) => {
     if (event.senderFrame && retiredCanvasSenders.get(event.sender) === event.senderFrame) return;
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid canvas request");
-    const value = input as Record<string, unknown>;
-
-    if (typeof value.workspaceId !== "string" || value.workspaceId.length > 128 || !isCanvasState(value.canvas)) throw new Error("Invalid canvas request");
-    await manager.saveCanvas(value.workspaceId, value.canvas);
+    if (!Value.Check(SaveCanvasInput, input) || !isCanvasState(input.canvas)) throw new Error("Invalid canvas request");
+    await manager.saveCanvas(input.workspaceId, input.canvas);
   });
 
   ipcMain.handle("mauxi:close-project", async (event) => {
@@ -399,45 +475,32 @@ function registerIpc(): void {
     return result;
   });
 
-  ipcMain.handle("mauxi:bridge-ready", (event, input: unknown) => {
+  ipcMain.handle("mauxi:bridge-ready", (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid bridge readiness");
-    const value = input as Record<string, unknown>;
-
-    if (typeof value.workspaceId !== "string" || value.workspaceId.length > 128 || (value.previewId !== "desktop" && value.previewId !== "mobile") || typeof value.generation !== "string" || value.generation.length > 128 || typeof value.url !== "string" || value.url.length > 4_096) throw new Error("Invalid bridge readiness");
-    manager.bridgeReady(value.workspaceId, value.previewId, value.generation, value.url);
+    if (!Value.Check(BridgeReadyInput, input)) throw new Error("Invalid bridge readiness");
+    manager.bridgeReady(input.workspaceId, input.previewId, input.generation, input.url);
   });
 
-  ipcMain.handle("mauxi:resolve-source", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:resolve-source", async (event, input) => {
     assertTrustedSender(event);
     const active = manager.snapshot().active;
 
-    if (!active || !input || typeof input !== "object") throw new Error("No active workspace");
-    const value = input as Record<string, unknown>;
+    if (!active) throw new Error("No active workspace");
 
-    if (value.workspaceId !== active.workspaceId || typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid source request");
+    if (!Value.Check(SourceRequestInput, input) || input.workspaceId !== active.workspaceId) throw new Error("Invalid source request");
 
-    if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
-
-    if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
-
-    return resolveWorkspaceSource(active.appRoot, value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
+    return resolveWorkspaceSource(active.appRoot, input.hint, input.lineNumber, input.columnNumber, sourceLocator(input.locator));
   });
 
-  ipcMain.handle("mauxi:resolve-fixture-source", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:resolve-fixture-source", async (event, input) => {
     assertTrustedSender(event);
 
-    if (process.env.MAUXI_PROOF !== "1" || !input || typeof input !== "object") throw new Error("Proof API disabled");
-    const value = input as Record<string, unknown>;
+    if (process.env.MAUXI_PROOF !== "1") throw new Error("Proof API disabled");
 
-    if ((value.fixture !== "vite" && value.fixture !== "next") || typeof value.hint !== "string" || value.hint.length > 1_024) throw new Error("Invalid fixture source request");
+    if (!Value.Check(FixtureSourceRequestInput, input)) throw new Error("Invalid fixture source request");
 
-    if (value.lineNumber !== undefined && value.lineNumber !== null && (typeof value.lineNumber !== "number" || !Number.isInteger(value.lineNumber))) throw new Error("Invalid source line");
-
-    if (value.columnNumber !== undefined && value.columnNumber !== null && (typeof value.columnNumber !== "number" || !Number.isInteger(value.columnNumber))) throw new Error("Invalid source column");
-
-    return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", value.fixture), value.hint, value.lineNumber as number | null | undefined, value.columnNumber as number | null | undefined, sourceLocator(value));
+    return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", input.fixture), input.hint, input.lineNumber, input.columnNumber, sourceLocator(input.locator));
   });
 
   ipcMain.handle("mauxi:agent-bootstrap", async (event) => {
@@ -446,72 +509,56 @@ function registerIpc(): void {
     return (await activeAgent()).snapshot();
   });
 
-  ipcMain.handle("mauxi:agent-login", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-login", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid provider setup request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.providerId, "provider ID", 200);
-
-    if (value.type !== "api_key" && value.type !== "oauth") throw new Error("Invalid authentication type");
-    await (await activeAgent()).login(value as unknown as AgentLoginRequest);
+    if (!Value.Check(AgentLoginInput, input)) throw new Error("Invalid provider setup request");
+    await (await activeAgent()).login(input);
   });
 
-  ipcMain.handle("mauxi:agent-logout", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-logout", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid provider logout request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.providerId, "provider ID", 200);
-    await (await activeAgent()).logout(value.workspaceId, value.providerId);
+    if (!Value.Check(AgentLogoutInput, input)) throw new Error("Invalid provider logout request");
+    await (await activeAgent()).logout(input.workspaceId, input.providerId);
   });
 
-  ipcMain.handle("mauxi:agent-refresh-catalog", async (event, workspaceId: unknown) => {
-    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+  ipcMain.handle("mauxi:agent-refresh-catalog", async (event, workspaceId) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(WorkspaceIdInput, workspaceId)) throw new Error("Invalid workspace ID");
     await (await activeAgent()).refreshCatalog(workspaceId);
   });
 
-  ipcMain.handle("mauxi:agent-select-model", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-select-model", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid model request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.modelKey, "model key", 500);
-    await (await activeAgent()).selectModel(value as unknown as AgentModelRequest);
+    if (!Value.Check(AgentModelInput, input)) throw new Error("Invalid model request");
+    await (await activeAgent()).selectModel(input);
   });
 
-  ipcMain.handle("mauxi:agent-set-thinking", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-set-thinking", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid thinking request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128);
-
-    if (!isThinkingLevel(value.level)) throw new Error("Invalid thinking level");
-    await (await activeAgent()).setThinking(value as unknown as AgentThinkingRequest);
+    if (!Value.Check(AgentThinkingInput, input)) throw new Error("Invalid thinking request");
+    await (await activeAgent()).setThinking(input);
   });
 
-  ipcMain.handle("mauxi:agent-send", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-send", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid agent request");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.text, "message", 100_000);
+    if (!Value.Check(AgentSendInput, input)) throw new Error("Invalid agent request");
 
-    if (value.behavior !== "prompt" && value.behavior !== "steer" && value.behavior !== "followUp") throw new Error("Invalid message behavior");
-
-    if (!Array.isArray(value.selections) || value.selections.length > 8) throw new Error("Invalid selections");
     let selectionSize = 0;
 
- try { selectionSize = JSON.stringify(value.selections).length; } catch { throw new Error("Invalid selections"); }
+    try { selectionSize = JSON.stringify(input.selections).length; } catch { throw new Error("Invalid selections"); }
 
     if (selectionSize > 256_000) throw new Error("Attached context is too large");
-    const request = value as unknown as AgentSendRequest;
-    const imagePaths = selectionCapturePaths(request.selections);
+    const imagePaths = selectionCapturePaths(input.selections);
     const release = captures.protectInputs(imagePaths);
 
     try {
-      const result = await (await activeAgent()).send(request);
+      const result = await (await activeAgent()).send(input);
 
       if (result.accepted) captures.releaseDrafts(imagePaths);
 
@@ -519,47 +566,46 @@ function registerIpc(): void {
     } finally { release(); cleanupCaptureCache(); }
   });
 
-  ipcMain.handle("mauxi:agent-stop", async (event, workspaceId: unknown) => {
-    assertTrustedSender(event); assertShortString(workspaceId, "workspace ID", 128);
+  ipcMain.handle("mauxi:agent-stop", async (event, workspaceId) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(WorkspaceIdInput, workspaceId)) throw new Error("Invalid workspace ID");
 
     if (browserControl?.workspaceId === workspaceId) browserControl.revoke("Stopped; browser control returned");
     await (await activeAgent()).stop(workspaceId);
   });
 
-  ipcMain.handle("mauxi:agent-dialog-response", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:agent-dialog-response", async (event, input) => {
     assertTrustedSender(event);
 
-    if (!input || typeof input !== "object") throw new Error("Invalid dialog response");
-    const value = input as Record<string, unknown>;
-    assertShortString(value.workspaceId, "workspace ID", 128); assertShortString(value.dialogId, "dialog ID", 128);
-
-    if (value.value !== undefined) assertShortString(value.value, "dialog value", 8_000);
-
-    if (value.cancelled !== undefined && typeof value.cancelled !== "boolean") throw new Error("Invalid dialog response");
-    (await activeAgent()).respondToDialog(value as unknown as AgentDialogResponse);
+    if (!Value.Check(AgentDialogInput, input)) throw new Error("Invalid dialog response");
+    (await activeAgent()).respondToDialog(input);
   });
 
-  ipcMain.handle("mauxi:open-auth-url", async (event, target: unknown) => {
-    assertTrustedSender(event); assertShortString(target, "authentication URL", 4_096);
+  ipcMain.handle("mauxi:open-auth-url", async (event, target) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(AuthUrlInput, target)) throw new Error("Invalid authentication URL");
     const url = new URL(target);
 
     if (url.protocol !== "https:" || !approvedAuthUrls.has(url.toString())) throw new Error("Unapproved authentication URL");
     await shell.openExternal(url.toString());
   });
 
-  ipcMain.handle("mauxi:release-captures", (event, input: unknown) => {
+  ipcMain.handle("mauxi:release-captures", (event, input) => {
     assertTrustedSender(event);
 
-    if (!Array.isArray(input) || input.length > 8 || !input.every(file => typeof file === "string" && file.length > 0 && file.length <= 4_096)) throw new Error("Invalid capture release");
+    if (!Value.Check(CaptureReleaseInput, input)) throw new Error("Invalid capture release");
     captures.releaseDrafts(input); cleanupCaptureCache();
   });
 
-  ipcMain.handle("mauxi:capture-preview", async (event, input: unknown) => {
+  ipcMain.handle("mauxi:capture-preview", async (event, input) => {
     assertTrustedSender(event);
 
     if (!mainWindow) throw new Error("Window unavailable");
-    const bounds = mainWindow.getContentBounds();
-    assertCaptureRect(input, bounds);
+
+    if (!Value.Check(CaptureRequestInput, input)) throw new Error("Invalid capture request");
+    assertCaptureBounds(input, mainWindow.getContentBounds());
     const active = manager.snapshot().active;
 
     if (process.env.MAUXI_PROOF !== "1" && (!active || input.workspaceId !== active.workspaceId)) throw new Error("Stale capture workspace");
