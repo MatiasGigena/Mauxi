@@ -2,6 +2,7 @@ import { parse } from "@babel/parser";
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { IntegrationPlan } from "./plan";
+import { hasErrorCode } from "../error-code";
 
 export interface SessionPatch { path: string; before: string; after: string; }
 
@@ -69,7 +70,7 @@ export async function addSessionIntegration(plan: IntegrationPlan): Promise<Inte
 
   for (const name of names) {
     try { await lstat(path.join(plan.workspaceRoot, name)); configs.push(name); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    catch (error) { if (!(hasErrorCode(error, "ENOENT"))) throw error; }
   }
 
   if (configs.length > 1) throw new Error("Multiple Next configurations were found; choose one before importing.");

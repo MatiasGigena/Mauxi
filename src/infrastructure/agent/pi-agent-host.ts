@@ -15,6 +15,7 @@ import {
   SessionManager,
   SettingsManager,
   type AgentSession,
+  type AgentToolResult,
   type AgentSessionEvent,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
@@ -47,6 +48,9 @@ import { DesignResources } from "./design-resources";
 import { DESIGN_WORKFLOW, visibleUserText, WORKING_MESSAGES, REQUEST_PREFIX } from "../../application/design-guidance";
 import type { ResourceImportRequest, ResourceToggleRequest } from "../../application/design-resource-contract";
 import { BROWSER_OPERATIONS, type BrowserPort, type BrowserRequest, type BrowserActionTarget } from "../../application/browser-contract";
+import { hasErrorCode } from "../error-code";
+
+type AgentMessage = AgentSession["messages"][number];
 
 type AgentDialogInput = AgentDialog extends infer Dialog ? Dialog extends AgentDialog ? Omit<Dialog, "id"> : never : never;
 
@@ -55,25 +59,20 @@ interface PendingDialog {
   reject: (error: Error) => void;
 }
 
-function messageText(message: unknown): string {
-  if (!message || typeof message !== "object") return "";
-  const content = (message as { content?: unknown }).content;
 
-  if (typeof content === "string") return content;
+function messageText(message: AgentMessage): string {
+  if (!("content" in message)) return "";
+  const content = message.content;
 
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) return content;
+  const texts: string[] = [];
 
-  return content.flatMap((block) => {
-    if (!block || typeof block !== "object") return [];
-    const value = block as { type?: string; text?: unknown; name?: unknown };
+  for (const block of content) if (block.type === "text") texts.push(block.text);
 
-    if (value.type === "text" && typeof value.text === "string") return [value.text];
-
-    return [];
-  }).join("\n");
+  return texts.join("\n");
 }
 
-function boundedJson(value: unknown, max = 12_000): string {
+function boundedJson(value: AgentToolResult | AgentToolResult["details"], max = 12_000): string {
   try {
     const text = JSON.stringify(value, (key, item) => /(?:api.?key|password|secret|token|credential)/i.test(key) ? "[redacted]" : item, 2);
 
@@ -83,8 +82,8 @@ function boundedJson(value: unknown, max = 12_000): string {
   }
 }
 
-function classifyError(error: unknown): NonNullable<AgentSnapshot["error"]> {
-  const raw = error instanceof Error ? error.message : String(error);
+function classifyError(cause: unknown): NonNullable<AgentSnapshot["error"]> {
+  const raw = cause instanceof Error ? cause.message : String(cause);
   const message = raw.replace(/(?:sk-|key-|token-)[A-Za-z0-9_.-]{8,}/g, "[redacted]").slice(0, 1_000);
 
   if (/rate.?limit|too many requests|\b429\b/i.test(message)) return { kind: "rate-limit", message: "The provider rate limit was reached. Wait and try again." };
@@ -132,11 +131,11 @@ export async function executeCommand(executable: string, args: string[], directo
 
       try { process.kill(-child.pid, signal);
 
- return true; }
+      return true; }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ESRCH") { groupGone = true;
+        if (hasErrorCode(error, "ESRCH")) { groupGone = true;
 
- return false; }
+        return false; }
 
         cleanupError = new Error(`Command process-group cleanup could not be confirmed: ${error instanceof Error ? error.message : String(error)}`);
 
@@ -151,7 +150,7 @@ export async function executeCommand(executable: string, args: string[], directo
       child.stdout.destroy(); child.stderr.destroy();
       let start = 0;
 
- while (start < output.length && (output[start] & 0xc0) === 0x80) start++;
+      while (start < output.length && (output[start] & 0xc0) === 0x80) start++;
       const text = output.subarray(start).toString("utf8");
 
       if (error || cleanupError) reject(error ?? cleanupError);
@@ -258,12 +257,12 @@ export class PiAgentHost {
   async initialize(): Promise<void> {
     if (this.initPromise) return this.initPromise;
 
-    const attempt = this.initializeOnce().catch((error: unknown) => {
-      if (!this.runtime && this.initPromise === attempt) this.initPromise = undefined;
-      throw error;
-    });
-
+    const attempt = this.initializeOnce();
     this.initPromise = attempt;
+
+    void attempt.catch(() => {
+      if (!this.runtime && this.initPromise === attempt) this.initPromise = undefined;
+    });
 
     return attempt;
   }
@@ -371,10 +370,10 @@ export class PiAgentHost {
 
             const info = await stat(target);
 
- if (info.size > 1_000_000) continue;
+            if (info.size > 1_000_000) continue;
             let text: string;
 
- try { text = await readFile(target, "utf8"); } catch { continue; }
+            try { text = await readFile(target, "utf8"); } catch { continue; }
 
             if (text.includes("\0")) continue;
             text.split("\n").forEach((line, index) => { if (results.length < 200 && line.includes(input.query)) results.push(`${path.relative(this.cwd, target)}:${index + 1}: ${line.slice(0, 500)}`); });
@@ -533,7 +532,7 @@ export class PiAgentHost {
         if (!this.browser) throw new Error("Visible browser unavailable");
 
         if (input.operation === "screenshot" && !this.runtime?.session.model?.input.includes("image")) throw new Error("Selected model cannot inspect screenshots; choose an image-capable model. Do not claim visual verification.");
-        const result = await this.browser.run(input as BrowserRequest, signal);
+        const result = await this.browser.run(input, signal);
 
         return { content: [{ type: "text" as const, text: result.text }, ...(result.image ? [{ type: "image" as const, data: result.image, mimeType: "image/png" }] : [])], details: { previewId: input.previewId, documentId: input.documentId, operation: input.operation } };
       },
@@ -598,7 +597,7 @@ export class PiAgentHost {
     if (["click", "type", "hover"].includes(request.operation) && !target) throw new Error("Browser action denied: no host-resolved target description");
     const description = target ? `\nTarget: <${target.tag}> ${target.label || target.text || "Unlabelled element"}` : "";
 
-    const answer = await this.requestDialog({ kind: "approval", title: "Approve browser action", message: `${request.operation} in ${request.previewId}${description}`, operation: JSON.stringify({ ...request, ...(target ? { resolvedTarget: target } : {}) }, null, 2), cwd: this.cwd, warnings: [
+    const answer = await this.requestDialog({ kind: "approval", title: "Approve browser action", message: `${request.operation} in ${request.previewId}${description}`, operation: JSON.stringify(target ? { ...request, resolvedTarget: target } : request, null, 2), cwd: this.cwd, warnings: [
       "Target details are observed from the original live DOM handle, not the agent's description. Page labels are untrusted; compare the text, identity and preview coordinates before approving. A changed target expires this approval.",
       "A local development page can call a production backend. Use development/test accounts.",
       "This approves only this exact action, target, document and control generation—not future actions. Route linking is paused; no peer action will be replayed.",
@@ -636,7 +635,7 @@ export class PiAgentHost {
 
     const candidates = [
       ...configurationDirectories.flatMap((directory) => configurationNames.map((name) => path.join(directory, name))),
-      ...[operation.executable, ...operation.args].filter((item) => item && !item.startsWith("-")).map((item) => path.resolve(operation.cwd, item)),
+      ...[operation.executable, ...operation.args].flatMap((item) => item && !item.startsWith("-") ? [path.resolve(operation.cwd, item)] : []),
     ];
 
     for (const target of candidates) {
@@ -644,7 +643,7 @@ export class PiAgentHost {
 
       try { canonical = await realpath(target); }
       catch (error) {
-        if (["ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "")) continue;
+        if (hasErrorCode(error, "ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP")) continue;
         throw error;
       }
 
@@ -709,7 +708,7 @@ export class PiAgentHost {
         break;
       case "agent_end": if (event.willRetry) { this.runState = "retrying"; this.status = "Retrying…"; }
 
- break;
+      break;
       case "agent_settled": {
         clearTimeout(this.runDeadline); this.browser?.revoke("Agent finished; you control the previews");
         const partial = this.runState === "stopping" || this.runState === "error" || this.runHadFailure;
@@ -730,16 +729,14 @@ export class PiAgentHost {
       case "auto_retry_start": this.runState = "retrying"; this.status = `Retrying (${event.attempt}/${event.maxAttempts})…`; break;
       case "auto_retry_end": if (!event.success && event.finalError) { this.runState = "error"; this.lastError = classifyError(event.finalError); }
 
- break;
+      break;
       case "queue_update":
         if (event.steering.length < this.queued.steering) this.dequeuedBehavior = "steer";
         else if (event.followUp.length < this.queued.followUp) this.dequeuedBehavior = "followUp";
         this.queued = { steering: event.steering.length, followUp: event.followUp.length };
         break;
       case "message_start": {
-        const value = event.message as unknown as { role?: string };
-
-        if (value.role === "user") {
+        if (event.message.role === "user") {
           const behavior = this.dequeuedBehavior; this.dequeuedBehavior = undefined;
 
           if (behavior === "followUp") {
@@ -787,7 +784,7 @@ export class PiAgentHost {
       }
 
       case "message_end": {
-        const value = event.message as unknown as { role?: string; stopReason?: string; errorMessage?: string };
+        const value = event.message;
 
         if (value.role === "assistant" && value.stopReason === "error") {
           this.browser?.revoke("Model failed; browser control returned");
@@ -846,29 +843,29 @@ export class PiAgentHost {
   private messageViews(): AgentMessageView[] {
     if (!this.runtime) return [];
     const session = this.runtime.session;
-    const messages: unknown[] = [...session.messages];
+    const messages = [...session.messages];
     const streaming = session.state.streamingMessage;
 
     if (streaming && !messages.includes(streaming)) messages.push(streaming);
 
-    return messages.flatMap((message, index) => {
-      const value = message as { role?: string; stopReason?: string; errorMessage?: string };
-
-      if (value.role !== "user" && value.role !== "assistant") return [];
+    return messages.flatMap((message, index): AgentMessageView[] => {
+      if (message.role !== "user" && message.role !== "assistant") return [];
       const text = messageText(message);
+      const errorMessage = message.role === "assistant" ? message.errorMessage : undefined;
+      const stopReason = message.role === "assistant" ? message.stopReason : undefined;
 
-      if (!text && !value.errorMessage && message !== streaming) return [];
+      if (!text && !errorMessage && message !== streaming) return [];
 
-      if (value.role === "assistant" && !value.errorMessage && value.stopReason === "toolUse") return [];
-      const visibleText = value.role === "user" ? visibleUserText(text) : text;
+      if (message.role === "assistant" && !errorMessage && stopReason === "toolUse") return [];
+      const visibleText = message.role === "user" ? visibleUserText(text) : text;
 
       return [{
         id: `${session.sessionId}:${message === streaming ? "streaming" : index}`,
-        role: value.role,
-        text: visibleText || value.errorMessage || (message === streaming ? "" : "No response text"),
+        role: message.role,
+        text: visibleText || errorMessage || (message === streaming ? "" : "No response text"),
         pending: message === streaming,
-        error: value.stopReason === "error",
-      } as AgentMessageView];
+        error: stopReason === "error",
+      }];
     });
   }
 
@@ -889,7 +886,7 @@ export class PiAgentHost {
       providers: this.providers,
       models: this.modelViews(),
       selectedModel: selectedAvailable ? selectedKey : undefined,
-      thinkingLevel: session.thinkingLevel as AgentThinkingLevel,
+      thinkingLevel: session.thinkingLevel,
       messages: this.messageViews(),
       runState: this.runState,
       queued: this.queued,
@@ -937,12 +934,12 @@ export class PiAgentHost {
       if (signal) {
         if (signal.aborted) { this.pendingDialogs.get(id)?.reject(new Error("Dialog cancelled"));
 
- return; }
+        return; }
 
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      for (const listener of this.listeners) listener({ type: "dialog", dialog: { ...dialog, id } as AgentDialog });
+      for (const listener of this.listeners) listener({ type: "dialog", dialog: { ...dialog, id } });
     });
   }
 
@@ -952,7 +949,7 @@ export class PiAgentHost {
 
     if (!pending) return;
 
-    if (response.cancelled || typeof response.value !== "string") pending.reject(new Error("User cancelled"));
+    if (response.cancelled || response.value === undefined) pending.reject(new Error("User cancelled"));
     else pending.resolve(response.value.slice(0, 8_000));
   }
 
@@ -992,12 +989,11 @@ export class PiAgentHost {
           const id = randomUUID();
           promptId = id;
 
-          const dialog = {
-            kind: prompt.type, title: provider.name, message: prompt.message, links, warning,
-            ...(prompt.type === "select" ? { options: [...prompt.options] } : { placeholder: prompt.placeholder }),
-          } as AgentDialogInput;
+          const dialog: AgentDialogInput = prompt.type === "select"
+            ? { kind: prompt.type, title: provider.name, message: prompt.message, links, warning, options: [...prompt.options] }
+            : { kind: prompt.type, title: provider.name, message: prompt.message, links, warning, placeholder: prompt.placeholder };
 
-          currentDialog = { ...dialog, id } as AgentDialog;
+          currentDialog = { ...dialog, id };
           const signal = prompt.signal ? AbortSignal.any([controller.signal, prompt.signal]) : controller.signal;
 
           try { return await this.requestDialog(dialog, signal, id); }
@@ -1152,7 +1148,7 @@ export class PiAgentHost {
 
     if (request.behavior === "steer") { await this.runtime!.session.steer(prompt, images);
 
- return { accepted: true }; }
+    return { accepted: true }; }
 
     if (request.behavior === "followUp") {
       const checkpointId = await this.changes!.prepare(text);

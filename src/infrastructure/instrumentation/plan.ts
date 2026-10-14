@@ -6,10 +6,20 @@ import type { Node } from "@babel/types";
 import { lstat, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { JournalStore, sha256, type InstrumentationJournal } from "./journal";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { hasErrorCode } from "../error-code";
 
 const MAX_CONFIG_BYTES = 524_288;
 const VITE_ANCHOR = "    // Mauxi development integration is inserted here.\n";
 const VITE_PATCH = `    // mauxi-owned:start preview-bridge\n    {\n      name: "mauxi-preview-bridge",\n      apply: "serve",\n      transformIndexHtml() {\n        const bridge = \`${"${process.cwd()}"}/.mauxi/bridge.js\`.replaceAll("\\\\", "/");\n        return [{ tag: "script", attrs: { type: "module", src: \`/@fs/\${bridge}\` }, injectTo: "head-prepend" }];\n      },\n    },\n    // mauxi-owned:end preview-bridge\n`;
+
+const AstNodeTagSchema = Type.Object({ type: Type.String() });
+
+function isAstNode(value: unknown): value is Node {
+  return Value.Check(AstNodeTagSchema, value);
+}
+
 
 function relativeModulePath(fromDirectory: string, target: string): string {
   const relative = path.relative(fromDirectory, target).split(path.sep).join("/");
@@ -79,7 +89,7 @@ export function createIntegrationPlan(workspaceRoot: string, framework: "vite" |
 async function exists(filePath: string): Promise<boolean> {
   try { await stat(filePath);
 
- return true; } catch { return false; }
+  return true; } catch { return false; }
 }
 
 async function firstExistingConfig(root: string): Promise<string | null> {
@@ -121,7 +131,7 @@ async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
 
       for (const value of Object.values(node)) {
         for (const child of Array.isArray(value) ? value : [value]) {
-          if (child && typeof child === "object" && typeof child.type === "string") pending.push(child as Node);
+          if (isAstNode(child)) pending.push(child);
         }
       }
     }
@@ -260,11 +270,11 @@ export async function applyIntegration(
     const info = await lstat(mauxiDirectory);
 
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Mauxi directory must not be a symlink or file.");
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  } catch (error) { if (!hasErrorCode(error, "ENOENT")) throw error; }
 
   if (plan.runtimeDirectory) {
     try { await lstat(plan.runtimeDirectory); throw new Error("Session cache already exists; recover it before opening this project."); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    catch (error) { if (!hasErrorCode(error, "ENOENT")) throw error; }
   }
 
   let originalContent: string | null = null;
@@ -314,8 +324,8 @@ export async function applyIntegration(
   const now = new Date().toISOString();
 
   const createdArtifacts = [
-    { path: plan.bridgePath, content: bridge as string | Buffer },
-    ...plan.createdFiles.map((artifact) => ({ path: artifact.path, content: artifact.content as string | Buffer })),
+    { path: plan.bridgePath, content: bridge },
+    ...plan.createdFiles,
   ];
 
   const journal: InstrumentationJournal = {
@@ -357,7 +367,7 @@ export async function applyIntegration(
 
         if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_CONFIG_BYTES) throw new Error("Unsupported Next type declaration file.");
         before = await readFile(typesPath, "utf8");
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      } catch (error) { if (!hasErrorCode(error, "ENOENT")) throw error; }
 
       journal.generatedTypes = { path: typesPath, before };
     }

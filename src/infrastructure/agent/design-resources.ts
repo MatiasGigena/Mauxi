@@ -5,11 +5,14 @@ import path from "node:path";
 import { loadSkills, type Skill } from "@earendil-works/pi-coding-agent";
 import { DESIGN_SKILLS, classifyDesignRequest, GUIDANCE_MARKER } from "../../application/design-guidance";
 import { BUNDLED_DESIGN_SKILLS } from "./bundled-design-skills";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 const MAX_MARKDOWN = 120_000;
 
 import type { ResourceView, SkillRecord } from "../../application/design-resource-contract";
+import { hasErrorCode } from "../error-code";
 
 export interface ResourceState {
   version: 1;
@@ -25,6 +28,32 @@ export interface Reference {
 }
 
 export interface PreparedSkill { record: SkillRecord; content: Record<string, string>; }
+
+const SkillRecordSchema = Type.Object({ name: Type.String(), source: Type.String(), digest: Type.String(), enabled: Type.Boolean(), files: Type.Record(Type.String(), Type.String()) });
+
+const ResourceStateSchema = Type.Object({
+  version: Type.Literal(1),
+  skills: Type.Array(SkillRecordSchema),
+  bundledSkillEnabled: Type.Optional(Type.Record(Type.String(), Type.Boolean())),
+  catalog: Type.Optional(Type.Object({ path: Type.String(), digest: Type.String(), enabled: Type.Boolean() })),
+});
+
+const CatalogSchema = Type.Object({ version: Type.Literal(1), references: Type.Array(Type.Unknown(), { maxItems: 1_000 }) });
+const CandidateReferenceSchema = Type.Object({ reviewStatus: Type.Literal("candidate") });
+
+const ReviewedReferenceSchema = Type.Object({
+  id: Type.String(), family: Type.String(), cue: Type.String(), source: Type.String(), tags: Type.Array(Type.String(), { maxItems: 40 }),
+  pairEvidence: Type.Optional(Type.String()), reviewStatus: Type.Literal("reviewed"), sha256: Type.Object({}),
+});
+
+const ReferenceImagesSchema = Type.Object({
+  imagePath: Type.String(), mobileImagePath: Type.Optional(Type.String()),
+  sha256: Type.Object({ imagePath: Type.String(), mobileImagePath: Type.Optional(Type.String()) }),
+});
+
+function isDesignSkill(name: string): boolean {
+  return DESIGN_SKILLS.some((skill) => skill === name);
+}
 
 async function boundedFile(file: string, maximum: number, root?: string): Promise<Buffer> {
   const canonical = await realpath(file);
@@ -64,8 +93,7 @@ function relativeMarkdown(file: string): boolean {
 }
 
 function validRecord(value: SkillRecord): boolean {
-  return !!value && DESIGN_SKILLS.includes(value.name as typeof DESIGN_SKILLS[number]) && typeof value.source === "string"
-    && /^[a-f0-9]{64}$/.test(value.digest) && typeof value.enabled === "boolean" && !!value.files && typeof value.files === "object"
+  return isDesignSkill(value.name) && /^[a-f0-9]{64}$/.test(value.digest)
     && Object.keys(value.files).length <= 16 && !!value.files["SKILL.md"]
     && Object.entries(value.files).every(([file, digest]) => relativeMarkdown(file) && /^[a-f0-9]{64}$/.test(digest));
 }
@@ -98,16 +126,15 @@ export class DesignResources {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
 
     try {
-      const candidate = JSON.parse((await boundedFile(path.join(this.directory, "resources.json"), 100_000)).toString()) as ResourceState;
+      const candidate: unknown = JSON.parse((await boundedFile(path.join(this.directory, "resources.json"), 100_000)).toString());
 
-      if (candidate.version !== 1 || !Array.isArray(candidate.skills) || candidate.skills.length > 4 || !candidate.skills.every(validRecord)
+      if (!Value.Check(ResourceStateSchema, candidate) || candidate.skills.length > 4 || !candidate.skills.every(validRecord)
         || new Set(candidate.skills.map((skill) => skill.name)).size !== candidate.skills.length
-        || (candidate.bundledSkillEnabled !== undefined && (!candidate.bundledSkillEnabled || typeof candidate.bundledSkillEnabled !== "object" || Array.isArray(candidate.bundledSkillEnabled)
-          || !Object.entries(candidate.bundledSkillEnabled).every(([name, enabled]) => DESIGN_SKILLS.includes(name as typeof DESIGN_SKILLS[number]) && typeof enabled === "boolean")))
-        || (candidate.catalog && (typeof candidate.catalog.path !== "string" || !path.isAbsolute(candidate.catalog.path) || !/^[a-f0-9]{64}$/.test(candidate.catalog.digest) || typeof candidate.catalog.enabled !== "boolean"))) throw new Error("Invalid resource configuration.");
+        || (candidate.bundledSkillEnabled !== undefined && !Object.keys(candidate.bundledSkillEnabled).every(isDesignSkill))
+        || (candidate.catalog && (!path.isAbsolute(candidate.catalog.path) || !/^[a-f0-9]{64}$/.test(candidate.catalog.digest)))) throw new Error("Invalid resource configuration.");
       this.state = candidate;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.configError = `Resource configuration could not be loaded. Repair resources.json before importing: ${String(error)}`;
+      if (!(hasErrorCode(error, "ENOENT"))) this.configError = `Resource configuration could not be loaded. Repair resources.json before importing: ${String(error)}`;
     }
 
     if (!this.configError && !this.state.catalog && this.bundledCatalogPath) {
@@ -134,7 +161,7 @@ export class DesignResources {
 
     if (!skill || parsed.diagnostics.length || parsed.skills.length !== 1) throw new Error(`Invalid skill: ${parsed.diagnostics.map((d) => d.message).join("; ")}`);
 
-    if (!DESIGN_SKILLS.includes(skill.name as typeof DESIGN_SKILLS[number])) throw new Error("This skill is not in the reviewed initial pack. Only apple-design, mobile-native, emil-design-eng and prototype can be imported.");
+    if (!isDesignSkill(skill.name)) throw new Error("This skill is not in the reviewed initial pack. Only apple-design, mobile-native, emil-design-eng and prototype can be imported.");
 
     if (this.state.skills.some((item) => item.name === skill.name)) throw new Error(`Skill ${skill.name} is already imported. Duplicate imports are not loaded.`);
     const frontmatter = /^---\r?\n[\s\S]*?\r?\n---/.exec(original)?.[0];
@@ -143,7 +170,7 @@ export class DesignResources {
     let normalized = original.replace(frontmatter, frontmatter.replace(/^disable-model-invocation:.*\r?\n/gm, ""));
 
     if (skill.name === "prototype") normalized = normalized.replace("Only runs when explicitly invoked; it does not trigger on its own.", "Use for requests for multiple UI variants or alternatives.");
-    const content: Record<string, string> = { "SKILL.md": normalized };
+    const content: PreparedSkill["content"] = { "SKILL.md": normalized };
 
     const visit = async (text: string, parent: string): Promise<void> => {
       for (const match of text.matchAll(/\]\(([^\s)#]+\.md)(?:#[^)]*)?\)/gi)) {
@@ -271,28 +298,26 @@ export class DesignResources {
     return `${prefix}${bodies.join("\n\n")}${suffix}`;
   }
   private parseCatalog(bytes: Buffer): Reference[] {
-    const value = JSON.parse(bytes.toString("utf8"));
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
 
-    if (value.version !== 1 || !Array.isArray(value.references) || value.references.length > 1_000) throw new Error("Unsupported or oversized catalog.");
+    if (!Value.Check(CatalogSchema, value)) throw new Error("Unsupported or oversized catalog.");
     const ids = new Set<string>();
+    const references: Reference[] = [];
 
-    return value.references.filter((item: { reviewStatus?: string } | null) => item?.reviewStatus !== "candidate").map((item: Reference & { reviewStatus?: string }) => {
-      if (!item || !/^[\w-]{1,160}$/.test(item.id) || ids.has(item.id) || typeof item.family !== "string" || typeof item.cue !== "string" || item.cue.length > 2_000
-        || typeof item.source !== "string" || !Array.isArray(item.tags) || item.tags.length > 40 || !item.tags.every((tag) => typeof tag === "string" && tag.length <= 100)
-        || item.reviewStatus !== "reviewed" || !item.sha256) throw new Error("Catalog contains malformed, duplicate or unreviewed entries.");
+    for (const item of value.references) {
+      if (Value.Check(CandidateReferenceSchema, item)) continue;
 
-      for (const field of ["imagePath", "mobileImagePath"] as const) {
-        const file = item[field];
+      if (!Value.Check(ReviewedReferenceSchema, item) || !/^[\w-]{1,160}$/.test(item.id) || ids.has(item.id) || item.cue.length > 2_000
+        || !item.tags.every((tag) => tag.length <= 100)) throw new Error("Catalog contains malformed, duplicate or unreviewed entries.");
 
-        if (field === "mobileImagePath" && file === undefined) continue;
-
-        if (typeof file !== "string" || !/^images\/[\w-]+\.webp$/.test(file) || !/^[a-f0-9]{64}$/.test(item.sha256[field] ?? "")) throw new Error("Catalog image path or digest is invalid.");
-      }
+      if (!Value.Check(ReferenceImagesSchema, item) || !/^images\/[\w-]+\.webp$/.test(item.imagePath) || !/^[a-f0-9]{64}$/.test(item.sha256.imagePath)
+        || (item.mobileImagePath !== undefined && (!/^images\/[\w-]+\.webp$/.test(item.mobileImagePath) || !/^[a-f0-9]{64}$/.test(item.sha256.mobileImagePath ?? "")))) throw new Error("Catalog image path or digest is invalid.");
 
       ids.add(item.id);
+      references.push(item);
+    }
 
- return item;
-    });
+    return references;
   }
   search(query: string, viewport: "desktop" | "mobile" = "desktop"): Array<Reference & { score: number }> {
     if (!this.catalog?.enabled || this.view.catalog?.error) throw new Error(`Visual library unavailable. ${this.view.catalog?.error ?? this.view.diagnostics.join(" ")}`.trim());
@@ -312,7 +337,7 @@ export class DesignResources {
     const field = viewport === "mobile" ? "mobileImagePath" : "imagePath";
     const file = reference[field];
 
- if (!file) throw new Error("No matching viewport image.");
+    if (!file) throw new Error("No matching viewport image.");
     const root = path.dirname(this.catalog.path);
     const bytes = await boundedFile(path.join(root, file), 8 * 1024 * 1024, root);
 

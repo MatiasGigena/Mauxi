@@ -1,25 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
+import { hasErrorCode } from "../error-code";
 
-interface ModelPreference {
-  defaultProvider: string;
-  defaultModel: string;
-}
+const ModelPreferenceSchema = Type.Object({ defaultProvider: Type.String(), defaultModel: Type.String() });
+
+type ModelPreference = Static<typeof ModelPreferenceSchema>;
 
 export async function loadModelPreference(profileDir: string): Promise<Partial<ModelPreference>> {
   try {
     const value: unknown = JSON.parse(await readFile(path.join(profileDir, "model-preference.json"), "utf8"));
 
-    if (value && typeof value === "object" && "defaultProvider" in value && "defaultModel" in value
-      && typeof value.defaultProvider === "string" && value.defaultProvider.trim()
-      && typeof value.defaultModel === "string" && value.defaultModel.trim()) {
+    if (Value.Check(ModelPreferenceSchema, value) && value.defaultProvider.trim() && value.defaultModel.trim()) {
       return { defaultProvider: value.defaultProvider, defaultModel: value.defaultModel };
     }
 
     return {};
   } catch (error) {
-    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if (error instanceof SyntaxError || (hasErrorCode(error, "ENOENT"))) return {};
     throw error;
   }
 }

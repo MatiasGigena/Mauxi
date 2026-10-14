@@ -3,12 +3,19 @@ import { randomUUID } from "node:crypto";
 import { lstat, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { InstrumentationJournal, JournalStore } from "./journal";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { hasErrorCode } from "../error-code";
+
+const ProcessReceiptSchema = Type.Object({ pid: Type.Integer({ minimum: 2 }), start: Type.String() });
+const ExpectedTypesSchema = Type.Tuple([Type.String(), Type.String()]);
+
 
 async function missing(file: string): Promise<boolean> {
   try { await lstat(file);
 
- return false; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
+  return false; }
+  catch (error) { if (hasErrorCode(error, "ENOENT")) return true; throw error; }
 }
 
 async function liveGroup(pid: number): Promise<boolean> {
@@ -20,7 +27,7 @@ async function liveGroup(pid: number): Promise<boolean> {
       const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
 
       if (Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X") return true;
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    } catch (error) { if (!hasErrorCode(error, "ENOENT", "ESRCH")) throw error; }
   }
 
   return false;
@@ -42,9 +49,10 @@ export async function stopSessionProcess(journal: InstrumentationJournal): Promi
   const receiptInfo = await lstat(receiptPath);
 
   if (!receiptInfo.isFile() || receiptInfo.isSymbolicLink()) throw new Error("Session process receipt changed.");
-  const { pid, start } = JSON.parse(await readFile(receiptPath, "utf8"));
+  const receipt: unknown = JSON.parse(await readFile(receiptPath, "utf8"));
 
-  if (!Number.isInteger(pid) || pid <= 1 || typeof start !== "string") throw new Error("Invalid session process receipt.");
+  if (!Value.Check(ProcessReceiptSchema, receipt)) throw new Error("Invalid session process receipt.");
+  const { pid, start } = receipt;
   const statPath = `/proc/${pid}/stat`;
 
   if (!(await missing(statPath))) {
@@ -63,8 +71,8 @@ export async function stopSessionProcess(journal: InstrumentationJournal): Promi
   const signal = (value: NodeJS.Signals | 0) => {
     try { process.kill(-pid, value);
 
- return true; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return false; throw error; }
+    return true; }
+    catch (error) { if (hasErrorCode(error, "ESRCH")) return false; throw error; }
   };
 
   if (!signal("SIGTERM")) return;
@@ -103,8 +111,8 @@ export async function cleanSessionFiles(journal: InstrumentationJournal, store: 
         } else {
           const variants: unknown = JSON.parse(await readFile(path.join(runtime.path, "expected-types.json"), "utf8"));
 
-          if (!Array.isArray(variants) || variants.length !== 2 || !variants.every(value => typeof value === "string" && value.length < 524_288)) throw new Error("Invalid generated types receipt.");
-          const expected = variants[current.includes(".mauxi/runtime/next/dev/") ? 1 : 0] as string;
+          if (!Value.Check(ExpectedTypesSchema, variants) || !variants.every(value => value.length < 524_288)) throw new Error("Invalid generated types receipt.");
+          const expected = variants[current.includes(".mauxi/runtime/next/dev/") ? 1 : 0];
 
           try { cleaned = removeGeneratedChanges(current, expected, record.before ?? ""); }
           catch { throw new Error("Next type declarations overlap with session-generated changes; preserved for manual recovery."); }

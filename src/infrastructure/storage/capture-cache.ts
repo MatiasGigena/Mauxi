@@ -13,6 +13,8 @@ const uniqueSuffix = "(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?";
 const selectionName = new RegExp(`^(desktop|mobile)-selection-[\\w-]{1,128}-\\d+${uniqueSuffix}\\.png$`);
 const previewName = new RegExp(`^(desktop|mobile)-\\d+${uniqueSuffix}\\.png$`);
 
+export interface CaptureCleanup { removedFiles: number; removedBytes: number }
+
 export class CaptureCache {
   readonly root: string;
   private readonly drafts = new Set<string>();
@@ -59,7 +61,7 @@ export class CaptureCache {
     };
   }
 
-  cleanup(added: ArtifactBudget = { files: 0, bytes: 0 }): { removedFiles: number; removedBytes: number } {
+  cleanup(added: ArtifactBudget = { files: 0, bytes: 0 }): CaptureCleanup {
     const artifacts = scanArtifacts(this.root);
     let files = artifacts.length; let bytes = artifacts.reduce((sum, item) => sum + item.size, 0);
 

@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
-import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { sha256 } from "../instrumentation/journal";
 import type { AgentChangeFileView, AgentChangeSetView } from "../../application/agent-contract";
-import { exchangeLinuxFiles, inspectLinuxMetadata, inspectLinuxPath, METADATA_LIMITATION, type LinuxFileMetadata } from "./linux-file-metadata";
+import { exchangeLinuxFiles, inspectLinuxMetadata, inspectLinuxPath, LinuxFileMetadataSchema, METADATA_LIMITATION, type DesiredMetadata, type LinuxFileMetadata } from "./linux-file-metadata";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { hasErrorCode } from "../error-code";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_SET_BYTES = 10 * 1024 * 1024;
@@ -51,8 +54,10 @@ interface StoredChangeSet {
   unexpectedPaths: string[];
   coverageWarnings: string[];
   errors: string[];
-  recoveries?: Array<{ path: string; directory: string; status: "prepared" | "retained" }>;
+  recoveries?: RecoveryRecord[];
 }
+
+interface RecoveryRecord { path: string; directory: string; status: "prepared" | "retained" }
 
 interface ChangeStore {
   version: 1;
@@ -62,6 +67,54 @@ interface ChangeStore {
   changeSets: StoredChangeSet[];
   blockedReason?: string;
 }
+
+const NullableString = Type.Union([Type.String(), Type.Null()]);
+
+const FileRecordSchema = Type.Object({
+  path: Type.String(),
+  kind: Type.Union([Type.Literal("create"), Type.Literal("modify"), Type.Literal("delete")]),
+  beforeContent: NullableString,
+  afterContent: NullableString,
+  beforeHash: NullableString,
+  afterHash: NullableString,
+  mode: Type.Optional(Type.Number()),
+  beforeMetadata: Type.Optional(LinuxFileMetadataSchema),
+  installedMetadata: Type.Optional(Type.Union([LinuxFileMetadataSchema, Type.Null()])),
+  attribution: Type.Union([Type.Literal("managed"), Type.Literal("command")]),
+  pending: Type.Boolean(),
+  commandPending: Type.Optional(Type.Boolean()),
+  reviewWarning: Type.Optional(Type.String()),
+  nonUndoable: Type.Optional(Type.Boolean()),
+});
+
+const StoredChangeSetSchema = Type.Object({
+  id: Type.String(),
+  label: Type.String(),
+  state: Type.Union([Type.Literal("prepared"), Type.Literal("active"), Type.Literal("settled"), Type.Literal("failed"), Type.Literal("undoing"), Type.Literal("undone"), Type.Literal("conflicted")]),
+  createdAt: Type.String(),
+  updatedAt: Type.String(),
+  files: Type.Array(FileRecordSchema),
+  baseline: Type.Optional(Type.Record(Type.String(), Type.String())),
+  baselineIncomplete: Type.Optional(Type.Boolean()),
+  unexpectedPaths: Type.Array(Type.String()),
+  coverageWarnings: Type.Array(Type.String()),
+  errors: Type.Array(Type.String()),
+  recoveries: Type.Optional(Type.Array(Type.Object({ path: Type.String(), directory: Type.String(), status: Type.Union([Type.Literal("prepared"), Type.Literal("retained")]) }))),
+});
+
+const ChangeStoreIdentitySchema = Type.Object({ version: Type.Literal(1), workspaceRoot: Type.String(), changeSets: Type.Array(Type.Unknown()) });
+
+const ChangeStoreSchema = Type.Object({
+  version: Type.Literal(1),
+  workspaceId: Type.String(),
+  workspaceRoot: Type.String(),
+  activeId: Type.Optional(Type.String()),
+  changeSets: Type.Array(StoredChangeSetSchema),
+  blockedReason: Type.Optional(Type.String()),
+});
+
+
+interface ProjectPath { absolute: string; relative: string }
 
 interface FileSnapshot {
   path: string;
@@ -154,6 +207,17 @@ export function changeDiff(before: string | null, after: string | null): string 
   return output.join("\n");
 }
 
+export interface ChangeFileSystem {
+  open(target: string, flags: string | number, mode?: number): Promise<FileHandle>;
+  rename(from: string, to: string): Promise<void>;
+  link(from: string, to: string): Promise<void>;
+  writeFile(target: string, data: string, options: { flag: string; mode: number }): Promise<void>;
+  stat(target: string): Promise<Stats>;
+  exchangeLinuxFiles(target: string, displaced: string): Promise<void>;
+}
+
+const nodeFileSystem: ChangeFileSystem = { open, rename, link, writeFile, stat, exchangeLinuxFiles };
+
 export class ChangeCoordinator {
   private store: ChangeStore;
   private tail: Promise<unknown> = Promise.resolve();
@@ -163,19 +227,20 @@ export class ChangeCoordinator {
     readonly root: string,
     private readonly filePath: string,
     private readonly repositoryBoundary: string,
+    private readonly files: ChangeFileSystem,
     initial?: ChangeStore,
   ) {
     this.store = initial ?? { version: 1, workspaceId, workspaceRoot: root, changeSets: [] };
   }
 
-  static async create(workspaceId: string, workspaceRoot: string, directory: string): Promise<ChangeCoordinator> {
+  static async create(workspaceId: string, workspaceRoot: string, directory: string, files: ChangeFileSystem = nodeFileSystem): Promise<ChangeCoordinator> {
     const root = await realpath(workspaceRoot);
     let repositoryBoundary = root;
 
     for (let ancestor = root; ; ancestor = path.dirname(ancestor)) {
-      const git = await lstat(path.join(ancestor, ".git")).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
-        throw error;
+      const git = await lstat(path.join(ancestor, ".git")).catch((cause) => {
+        if (hasErrorCode(cause, "ENOENT", "ENOTDIR")) return undefined;
+        throw cause;
       });
 
       if (git) { repositoryBoundary = ancestor; break; }
@@ -192,14 +257,17 @@ export class ChangeCoordinator {
     let initial: ChangeStore | undefined;
 
     try {
-      const parsed = JSON.parse(await readFile(filePath, "utf8")) as ChangeStore;
+      const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
 
-      if (parsed.version === 1 && parsed.workspaceRoot === root && Array.isArray(parsed.changeSets)) { parsed.workspaceId = workspaceId; initial = parsed; }
+      if (Value.Check(ChangeStoreIdentitySchema, parsed) && parsed.workspaceRoot === root) {
+        if (!Value.Check(ChangeStoreSchema, parsed)) throw new Error("Stored checkpoints are malformed.");
+        parsed.workspaceId = workspaceId; initial = parsed;
+      }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`Checkpoint recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      if (!hasErrorCode(error, "ENOENT")) throw new Error(`Checkpoint recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const coordinator = new ChangeCoordinator(workspaceId, root, filePath, repositoryBoundary, initial);
+    const coordinator = new ChangeCoordinator(workspaceId, root, filePath, repositoryBoundary, files, initial);
     await coordinator.reconcileInterruptedState();
 
     return coordinator;
@@ -215,14 +283,14 @@ export class ChangeCoordinator {
   private async persist(): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
-    const temporaryFile = await open(temporary, "wx", 0o600);
+    const temporaryFile = await this.files.open(temporary, "wx", 0o600);
 
     try {
       try { await temporaryFile.writeFile(`${JSON.stringify(this.store, null, 2)}\n`); await temporaryFile.sync(); }
       finally { await temporaryFile.close(); }
 
-      await rename(temporary, this.filePath);
-      const directory = await open(path.dirname(this.filePath), "r");
+      await this.files.rename(temporary, this.filePath);
+      const directory = await this.files.open(path.dirname(this.filePath), "r");
 
       try { await directory.sync(); } finally { await directory.close(); }
     } finally {
@@ -315,7 +383,7 @@ export class ChangeCoordinator {
       const retainedRecoveries = [];
 
       for (const recovery of set.recoveries ?? []) {
-        const exists = await lstat(path.resolve(this.root, recovery.directory)).then(() => true, (error: NodeJS.ErrnoException) => error.code !== "ENOENT");
+        const exists = await lstat(path.resolve(this.root, recovery.directory)).then(() => true, (cause) => !hasErrorCode(cause, "ENOENT"));
 
         if (recovery.status === "prepared" || exists) retainedRecoveries.push(recovery);
       }
@@ -446,7 +514,7 @@ export class ChangeCoordinator {
     });
   }
 
-  private lexicalPath(input: string): { absolute: string; relative: string } {
+  private lexicalPath(input: string): ProjectPath {
     if (!input || input.includes("\0") || path.isAbsolute(input)) throw new Error("Use a relative path inside the open project.");
     const absolute = path.resolve(this.root, input);
 
@@ -463,11 +531,11 @@ export class ChangeCoordinator {
     const parent = path.dirname(resolved.absolute);
     let directory;
 
-    try { directory = await open(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
+    try { directory = await this.files.open(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`Parent directory does not exist for ${resolved.relative}. Create directories outside the managed write tool first.`);
+      if (hasErrorCode(error, "ENOENT")) throw new Error(`Parent directory does not exist for ${resolved.relative}. Create directories outside the managed write tool first.`);
 
-      if ((error as NodeJS.ErrnoException).code === "ELOOP" || (error as NodeJS.ErrnoException).code === "ENOTDIR") throw new Error(`Agent writes require a real, non-symbolic-link parent directory: ${resolved.relative}`);
+      if (hasErrorCode(error, "ELOOP", "ENOTDIR")) throw new Error(`Agent writes require a real, non-symbolic-link parent directory: ${resolved.relative}`);
       throw error;
     }
 
@@ -487,11 +555,11 @@ export class ChangeCoordinator {
     return this.withAnchoredParent(resolved.relative, async (target) => {
       let file;
 
-      try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+      try { file = await this.files.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
       catch (error) {
-        if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") return { path: resolved.relative, content: null, hash: null };
+        if (allowMissing && hasErrorCode(error, "ENOENT")) return { path: resolved.relative, content: null, hash: null };
 
-        if ((error as NodeJS.ErrnoException).code === "ELOOP") throw new Error(`Agent writes cannot follow symbolic links: ${resolved.relative}`);
+        if (hasErrorCode(error, "ELOOP")) throw new Error(`Agent writes cannot follow symbolic links: ${resolved.relative}`);
         throw error;
       }
 
@@ -540,14 +608,14 @@ export class ChangeCoordinator {
 
       try {
         await mkdir(this.vaultPath, { mode: 0o700, recursive: true });
-        directory = await open(this.vaultPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        directory = await this.files.open(this.vaultPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
         const descriptor = `/proc/self/fd/${directory.fd}`;
         const canonical = await realpath(descriptor);
 
         if (inside(this.repositoryBoundary, canonical)) throw new Error("Recovery vault must be outside the project and its repository; no in-project fallback is allowed.");
-        const vaultInfo = await stat(descriptor);
+        const vaultInfo = await this.files.stat(descriptor);
 
-        if (vaultInfo.dev !== (await stat(path.dirname(target))).dev) {
+        if (vaultInfo.dev !== (await this.files.stat(path.dirname(target))).dev) {
           throw new Error(`The recovery vault (${canonical}) and target are on different filesystems. Atomic no-clobber recovery is unavailable. Move the app-owned checkpoint storage to the project filesystem; this file was not mutated and no in-project fallback is allowed.`);
         }
 
@@ -614,10 +682,13 @@ export class ChangeCoordinator {
 
       const preserved = metadata ?? (content === null ? expectedMetadata : undefined);
 
-      const desired = preserved ? {
-        mode: preserved.mode, uid: preserved.uid, gid: preserved.gid, atimeNs: preserved.atimeNs,
-        ...(restoreTimestamps ? { mtimeNs: preserved.mtimeNs } : {}),
-      } : { mode: creationMetadata?.mode ?? 0, uid: creationMetadata?.uid ?? 0, gid: creationMetadata?.gid ?? 0 };
+      let desired: DesiredMetadata;
+
+      if (preserved) {
+        desired = { mode: preserved.mode, uid: preserved.uid, gid: preserved.gid, atimeNs: preserved.atimeNs };
+
+        if (restoreTimestamps) desired.mtimeNs = preserved.mtimeNs;
+      } else desired = { mode: creationMetadata?.mode ?? 0, uid: creationMetadata?.uid ?? 0, gid: creationMetadata?.gid ?? 0 };
 
       const name = `${sha256(this.root).slice(0, 24)}-${randomUUID()}`;
       const intent = JSON.stringify({ workspaceRoot: this.root, path: relative, expectedHash, expectedIdentity, afterHash: content === null ? null : sha256(content), changeSetId: set.id });
@@ -625,28 +696,28 @@ export class ChangeCoordinator {
 
       return this.withRecoveryVault(target, reservedBytes, async (vault, canonicalVault) => {
         const directory = path.join(vault, name);
-        const recovery = { path: relative, directory: path.join(canonicalVault, name), status: "prepared" as "prepared" | "retained" };
+        const recovery: RecoveryRecord = { path: relative, directory: path.join(canonicalVault, name), status: "prepared" };
 
-        const sync = async (file: string) => { const handle = await open(file, "r");
+        const sync = async (file: string) => { const handle = await this.files.open(file, "r");
 
- try { await handle.sync(); } finally { await handle.close(); } };
+        try { await handle.sync(); } finally { await handle.close(); } };
 
         const backup = path.join(directory, "displaced"); const staged = path.join(directory, "replacement");
         let created = false; let preparedMetadata: LinuxFileMetadata | undefined;
 
         try {
           await mkdir(directory, { mode: 0o700 }); created = true;
-          await writeFile(path.join(directory, "intent.json"), intent, { flag: "wx", mode: 0o600 });
+          await this.files.writeFile(path.join(directory, "intent.json"), intent, { flag: "wx", mode: 0o600 });
           await sync(path.join(directory, "intent.json"));
 
           if (content !== null) {
-            await writeFile(staged, content, { mode: 0o600, flag: "wx" });
-            const replacement = await open(staged, constants.O_RDONLY | constants.O_NOFOLLOW);
+            await this.files.writeFile(staged, content, { mode: 0o600, flag: "wx" });
+            const replacement = await this.files.open(staged, constants.O_RDONLY | constants.O_NOFOLLOW);
 
             try { preparedMetadata = await inspectLinuxMetadata(replacement, desired); await replacement.sync(); }
             finally { await replacement.close(); }
           } else if (preserved) {
-            const probeParent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+            const probeParent = await this.files.open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
 
             try { await inspectLinuxMetadata(probeParent, desired, true); }
             finally { await probeParent.close(); }
@@ -672,11 +743,11 @@ export class ChangeCoordinator {
         try {
           if (expectedHash !== null) {
             if (content !== null) {
-              await link(staged, backup);
-              await exchangeLinuxFiles(target, backup);
-            } else await rename(target, backup);
+              await this.files.link(staged, backup);
+              await this.files.exchangeLinuxFiles(target, backup);
+            } else await this.files.rename(target, backup);
             await sync(directory); await sync(path.dirname(target));
-            const displaced = await open(backup, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+            const displaced = await this.files.open(backup, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 
             try {
               const info = await displaced.stat();
@@ -691,16 +762,16 @@ export class ChangeCoordinator {
           await checkParent();
 
           if (content !== null) {
-            if (expectedHash === null) await link(staged, target);
+            if (expectedHash === null) await this.files.link(staged, target);
           } else {
             try { await lstat(target); throw new Error("File arrived during deletion"); }
-            catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+            catch (error) { if (!hasErrorCode(error, "ENOENT")) throw error; }
           }
 
           await sync(path.dirname(target));
 
           if (expectedHash !== null) {
-            const displaced = await open(backup, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+            const displaced = await this.files.open(backup, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 
             try {
               const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
@@ -725,7 +796,7 @@ export class ChangeCoordinator {
 
           return installed;
         } catch (error) {
-          if (expectedHash !== null && content === null) await link(backup, target).catch(() => undefined);
+          if (expectedHash !== null && content === null) await this.files.link(backup, target).catch(() => undefined);
           await sync(path.dirname(target));
           set.state = "conflicted";
           set.errors.push(`Mutation stopped safely for ${relative}: ${error instanceof Error ? error.message : String(error)}. Review ${recovery.directory}; displaced/replacement data was retained.`);
@@ -762,7 +833,7 @@ export class ChangeCoordinator {
         if (existing && previousRecord) Object.assign(existing, previousRecord);
         else { const index = set.files.indexOf(record);
 
- if (index >= 0) set.files.splice(index, 1); }
+        if (index >= 0) set.files.splice(index, 1); }
       };
 
       record.afterContent = content; record.afterHash = afterHash; record.pending = true;
@@ -821,7 +892,7 @@ export class ChangeCoordinator {
         if (existing && previousRecord) Object.assign(existing, previousRecord);
         else { const index = set.files.indexOf(record);
 
- if (index >= 0) set.files.splice(index, 1); }
+        if (index >= 0) set.files.splice(index, 1); }
       };
 
       record.kind = record.beforeContent === null ? "create" : "delete"; record.afterContent = null; record.afterHash = null; record.pending = true;
@@ -855,7 +926,7 @@ export class ChangeCoordinator {
 
     const walk = async (directory: string, relative: string): Promise<void> => {
       if (files >= MAX_SCAN_FILES || bytes >= MAX_SCAN_BYTES) return;
-      const parent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      const parent = await this.files.open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
 
       try {
         const descriptor = `/proc/self/fd/${parent.fd}`;
@@ -874,7 +945,7 @@ export class ChangeCoordinator {
 
           if (!entry.isFile()) continue;
           files++;
-          const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+          const file = await this.files.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 
           try {
             const info = await file.stat();

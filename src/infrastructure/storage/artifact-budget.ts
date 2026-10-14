@@ -1,5 +1,7 @@
 import { lstatSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { hasErrorCode } from "../error-code";
+
 
 export interface ArtifactBudget { files: number; bytes: number }
 
@@ -20,7 +22,7 @@ export function scanArtifacts(root: string): StorageArtifact[] {
     try {
       if (!lstatSync(directory).isDirectory()) throw new Error(`Unexpected storage directory at ${directory}; review it manually before writing.`);
       entries = readdirSync(directory);
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && directory === root) return; throw error; }
+    } catch (error) { if (hasErrorCode(error, "ENOENT") && directory === root) return; throw error; }
 
     for (const name of entries) {
       if (++visited > 4096) throw new Error(`Storage capacity scan at ${root} exceeds 4,096 entries; review it manually before writing.`);

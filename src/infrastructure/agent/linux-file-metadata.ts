@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 export interface LinuxFileMetadata {
   mode: number;
@@ -12,6 +14,16 @@ export interface LinuxFileMetadata {
   identity: string;
   changeIdentity: string;
 }
+
+export const LinuxFileMetadataSchema = Type.Object({
+  mode: Type.Integer(),
+  uid: Type.Integer(),
+  gid: Type.Integer(),
+  atimeNs: Type.String(),
+  mtimeNs: Type.String(),
+  identity: Type.String(),
+  changeIdentity: Type.String(),
+});
 
 export const METADATA_LIMITATION = "Managed files preserve ordinary Linux ownership and permissions; caller-visible xattrs/ACLs/security labels and unsupported filesystem flags are refused. Linux hides trusted.* xattrs from unprivileged users: their absence cannot be verified. This is not an OS sandbox.";
 
@@ -62,7 +74,7 @@ except Exception as error:
     sys.exit(1)
 `;
 
-type DesiredMetadata = Pick<LinuxFileMetadata, "uid" | "gid" | "mode"> & Partial<Pick<LinuxFileMetadata, "atimeNs" | "mtimeNs">>;
+export type DesiredMetadata = Pick<LinuxFileMetadata, "uid" | "gid" | "mode"> & Partial<Pick<LinuxFileMetadata, "atimeNs" | "mtimeNs">>;
 
 async function trustedPython(): Promise<string> {
   if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) throw new Error("Managed metadata requires 64-bit Linux.");
@@ -95,15 +107,16 @@ export async function inspectLinuxMetadata(file: FileHandle, desired?: DesiredMe
 
       if (error) { child.kill("SIGKILL"); reject(error);
 
- return; }
+      return; }
 
       try {
-        const value = JSON.parse(output) as LinuxFileMetadata;
+        const value: unknown = JSON.parse(output);
 
-        if (![value.mode, value.uid, value.gid].every(Number.isSafeInteger)
-          || ![value.atimeNs, value.mtimeNs].every((item) => typeof item === "string" && /^\d+$/.test(item))
-          || typeof value.identity !== "string" || !/^\d+(?::\d+){6}$/.test(value.identity)
-          || typeof value.changeIdentity !== "string" || !/^\d+(?::\d+){7}$/.test(value.changeIdentity)
+        if (!Value.Check(LinuxFileMetadataSchema, value)
+          || ![value.mode, value.uid, value.gid].every(Number.isSafeInteger)
+          || ![value.atimeNs, value.mtimeNs].every((item) => /^\d+$/.test(item))
+          || !/^\d+(?::\d+){6}$/.test(value.identity)
+          || !/^\d+(?::\d+){7}$/.test(value.changeIdentity)
           || !value.changeIdentity.startsWith(`${value.identity}:`)) throw new Error("Invalid metadata helper response");
         resolve(value);
       } catch (error) { reject(error); }
@@ -116,7 +129,7 @@ export async function inspectLinuxMetadata(file: FileHandle, desired?: DesiredMe
 
       if (bytes > 8_192) { finish(new Error("Linux metadata helper exceeded its output limit"));
 
- return; }
+      return; }
 
       if (stderr) errorOutput += chunk.toString("utf8"); else output += chunk.toString("utf8");
     };
@@ -168,7 +181,12 @@ os.fsync(4)
         const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
         child.stderr!.on("data", chunk => { errors = (errors + String(chunk)).slice(-4096); });
         child.once("error", error => { clearTimeout(timer); reject(error); });
-        child.once("close", code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`Atomic Linux exchange failed: ${errors || code}`)); });
+        child.once("close", code => {
+          clearTimeout(timer);
+
+          if (code === 0) resolve();
+          else reject(new Error(`Atomic Linux exchange failed: ${errors || code}`));
+        });
       });
     } finally { await vault.close(); }
   } finally { await parent.close(); }
