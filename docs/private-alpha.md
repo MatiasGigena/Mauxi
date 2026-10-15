@@ -1,6 +1,6 @@
 # Private-alpha candidate: setup and recovery
 
-**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete, with remaining real-project and live-provider evidence gaps. This is Linux-only private validation, not a public release or general compatibility promise.
+**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete: the real-project live run exists, but the founder's design-quality assessment and tester-delivery approval are missing. This is Linux-only private validation, not a public release or general compatibility promise.
 
 ## Artifact and setup
 
@@ -51,8 +51,8 @@ Inherited SDK behavior at pin 0.86.1:
 - Mauxi creates `ModelRuntime` with `allowModelNetwork: false` (no initial model-catalog network refresh). The explicit **Refresh catalog** action requests network access. Authentication/login/token refresh and provider availability checks may still contact the configured providers; disabling catalog refresh is not an offline firewall.
 - The SDK can discover credentials from the process environment/provider-supported sources in addition to Mauxi's profile. Launch with a clean environment for isolated testing; Mauxi does not import/mutate the terminal's pi profile automatically.
 - SDK install/update telemetry is a CLI interactive-mode path, not a path Mauxi invokes. SDK provider-attribution headers are enabled by its default settings; `PI_TELEMETRY=0` disables the optional attribution governed by that flag. Provider protocol/client/session headers (for example OpenCode) may remain. Do not describe that flag as disabling all provider-side telemetry.
-- SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 16 model turns/five minutes, and browser verification to 24 calls/four screenshots per run. These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
-- Default tests use local fakes and incur no model credits. For this acceptance run the founder authorized **$0** and deferred all live-provider tests. A future run needs separate provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
+- SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 40 model turns/five minutes, and browser verification to 24 calls/four screenshots per run. These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
+- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) used `openai-codex` / `gpt-6-luna` through the founder's ChatGPT OAuth subscription, as authorized; its usage is in the private receipt. Each further live run needs its own provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
 
 ## Capacity and explicit cleanup
 
