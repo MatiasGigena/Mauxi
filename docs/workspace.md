@@ -80,7 +80,7 @@ Route linking is paused on handoff and stays paused after return. Approve each p
 - Captures reject hidden, clipped, overlay-obscured, or changing geometry instead of substituting an offscreen browser.
 - Click/type/hover use synthetic events; native trusted-event and OS input fidelity are not guaranteed. Password, file, and hidden-field typing are unsupported.
 - Console observations include at most 40 entries of 1,200 characters from the connected document. An empty log does not prove an error-free page.
-- Each run permits 24 browser calls, 4 screenshots, 16 model turns, a five-minute deadline, and at most one provider retry. Images are capped at 5 MiB/1,600 pixels wide; DOM inspection visits at most 2,000 elements and returns 80 entries. These are execution bounds, not an exact spending cap.
+- Each run permits 24 browser calls, 4 screenshots, 40 model turns, a five-minute deadline, and at most one provider retry. Images are capped at 5 MiB/1,600 pixels wide; DOM inspection visits at most 2,000 elements and returns 80 entries. These are execution bounds, not an exact spending cap.
 - Stale documents, replaced nodes, foreign identities, denied actions, errors, Stop, and disconnect revoke control. Loss of the shell heartbeat also stops an active agent.
 
 Desktop emulation does not establish real-device behavior, general internet automation, third-party frame support, or real-model design quality. Review the result yourself, including accessibility and any remote effects.
