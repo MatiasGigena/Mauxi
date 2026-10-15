@@ -185,7 +185,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (message.generation !== runtimeRef.current[id].generation) return;
 
-      if (browserLocked.current && ["selection", "selection-cancelled", "revalidation"].includes(message.kind)) return;
+      if (browserLocked.current && ["selection", "selection-cancelled"].includes(message.kind)) return;
 
       if (message.kind === "canvas-shortcut" || message.kind === "canvas-zoom") {
         const nav = navigationRef.current;

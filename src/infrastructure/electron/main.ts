@@ -14,7 +14,7 @@ import { THINKING_LEVELS } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
-import { assertBrowserRequest } from "../../application/browser-contract";
+import { assertBrowserRequest, type BrowserPort } from "../../application/browser-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { ProjectPickerLocation } from "../project/project-picker-location";
@@ -199,6 +199,26 @@ function assertCaptureBounds(input: Static<typeof CaptureRequestInput>, bounds: 
   if (x < 0 || y < 0 || x + width > bounds.width + 1 || y + height > bounds.height + 1) throw new Error("Capture rectangle is outside the shell");
 }
 
+function agentBrowser(workspaceId: string): BrowserPort {
+  const current = () => {
+    const control = activeBrowser();
+
+    if (control.workspaceId !== workspaceId) throw new Error("Stale agent workspace");
+
+    return control;
+  };
+
+  const existing = () => browserControl?.workspaceId === workspaceId ? browserControl : undefined;
+
+  return {
+    state: () => current().state(),
+    targets: () => current().targets(),
+    run: (request, signal) => current().run(request, signal),
+    revoke: reason => existing()?.revoke(reason),
+    resetBudget: () => existing()?.resetBudget(),
+  };
+}
+
 async function activeAgent(): Promise<PiAgentHost> {
   const active = manager.snapshot().active;
 
@@ -221,7 +241,7 @@ async function activeAgent(): Promise<PiAgentHost> {
     const userData = app.getPath("userData");
     const captureRoot = captures.root;
 
-    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, activeBrowser(), async (target) => {
+    const created = new PiAgentHost(active.workspaceId, active.appRoot, path.join(userData, "pi-profile"), captureRoot, undefined, agentBrowser(active.workspaceId), async (target) => {
       const url = new URL(target);
 
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
