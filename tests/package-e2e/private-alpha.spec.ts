@@ -125,7 +125,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
   }
 
   const requests: ChatRequest[] = [];
-  let workspaceId = ""; let editingNext = false;
+  let editingNext = false;
   let providerError = "";
 
   const server = createServer((request, response) => {
@@ -147,7 +147,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
         }) };
 
         if (verify) {
-          if (!results.length) tool = { name: "browser_targets", arguments: JSON.stringify({ workspaceId }) };
+          if (!results.length) tool = { name: "browser_targets", arguments: "{}" };
           else if (results.length <= 4) {
             const content = results[0].content;
             const text = Array.isArray(content) ? content.find(part => part.type === "text")?.text : content;
@@ -216,7 +216,6 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
 
       for (let cycle = 0; cycle < 2; cycle++) {
         page = await openProject(app, page, project);
-        workspaceId = (await page.evaluate(() => window.mauxi!.getBootstrap())).active!.workspaceId;
         const desktop = page.frameLocator('[data-testid="desktop-preview"]');
         const mobile = page.frameLocator('[data-testid="mobile-preview"]');
         const pids = await projectProcesses(project); expect(pids.length).toBeGreaterThan(0);
@@ -230,6 +229,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
         await expect.poll(() => mobile.locator("body").evaluate(() => localStorage.getItem("alpha-workspace"))).toBe(name);
 
         if (cycle === 0 && name !== "vite-isolated") {
+          await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
           await desktop.getByText("Use local test account", { exact: true }).click();
           const authLabel = editingNext ? "Authenticated on server" : "Authenticated locally";
           await expect(desktop.getByTestId("auth-state")).toHaveText(authLabel);
@@ -248,7 +248,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           await page.locator('input[type="password"]').fill("fake-alpha-secret");
           await page.getByRole("button", { name: "Continue", exact: true }).click();
           await page.getByRole("combobox", { name: /^Model/ }).click();
-          await page.getByRole("option").filter({ hasText: "alpha-local" }).first().click();
+          await page.getByRole("option").filter({ hasText: "Alpha local fake" }).first().click();
 
           for (const [side, color] of [["desktop", "rgb(230, 20, 30)"], ["mobile", "rgb(10, 80, 230)"]] as const) {
             const frame = page.frameLocator(`[data-testid="${side}-preview"]`);
@@ -335,6 +335,7 @@ for (const fixture of ["vite", "next"] as const) test(`${fixture}: AppImage with
           expect(pixels[1].red).toBeGreaterThan(0.1); expect(pixels[1].blue).toBeLessThan(0.01);
           expect(pixels.every(image => image.width > 10 && image.height > 10)).toBe(true);
           report[`${name}DualCaptures`] = pixels;
+          await expect.poll(async () => (await page.evaluate(() => window.mauxi!.agentBootstrap())).runState).toBe("idle");
           await page.getByRole("button", { name: "Give agent control", exact: true }).click();
           await page.getByLabel("Message", { exact: true }).fill("Verify both visible previews");
           await page.getByRole("button", { name: "Send", exact: true }).click();
