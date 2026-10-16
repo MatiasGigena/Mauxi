@@ -28,6 +28,7 @@
     "test:package-e2e": "playwright test --config playwright.package.config.ts",
     "test:session-e2e": "vitest run tests/session-e2e",
     "test:release-gates": "vitest run tests/release-gates",
+    "test:live-acceptance": "playwright test --config playwright.live.config.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

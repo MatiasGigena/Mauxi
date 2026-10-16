@@ -30,6 +30,7 @@ Run suites sequentially: they share fixture files and local ports.
 | `npm run build && npx playwright test --config playwright.resources.config.ts` | Automatic background reference loading with no design setup or controls |
 | `npm run test:release-gates` | Moved-hook recovery conflicts, owned descendant cleanup (#12), and bounded newline-free logs (#13) |
 | `npm run dist:linux && npm run test:package-e2e` | Actual AppImage, external Node/npm without pi on PATH, Chromium sandbox enabled, local fake provider, dual capture pixels, cookie/IPC boundaries, selected editing/visible checks/undo and reopen isolation for Vite and Next (#11) |
+| `MAUXI_LIVE_PLAN=/private/plan.json npm run test:live-acceptance` | Opt-in only; uses a real provider. Drives the AppImage through live-model design tasks on nominated real projects, then close/reopen/restart cleanup. Plan format and results: [real-project run](real-project-acceptance.md) |
 
 The workspace/Turbopack scripts install temporary fixture instrumentation and clean it through shell traps. Other integration suites exercise project setup directly. The shell uses port 44173, Vite uses 45173, Next Webpack uses 45000, and the Turbopack suite uses 45001. Do not run them against personal projects or unrelated servers.
 
@@ -55,7 +56,7 @@ Both folders are ignored and disposable when no test is running. Do not commit g
 
 ## Release gate
 
-See the [acceptance table](alpha-acceptance.md) and [candidate usage notes](private-alpha.md). `npm run check` remains the fast deterministic owner-test suite, not release certification. Release gates and package checks assert actual required behavior; missing real-project/live-provider evidence still blocks acceptance even when these suites pass. Build packaging uses pinned `electron-builder` 26.15.3 with `--publish never`. This includes the AppImage runtime search-path fix described in [GHSA-7g7r-gx96-252g](https://github.com/electron-userland/electron-builder/security/advisories/GHSA-7g7r-gx96-252g). `MAUXI_APPIMAGE=/absolute/path` can select a candidate for `test:package-e2e`; otherwise it tests `release/Mauxi-0.1.0-x86_64.AppImage`. Rebuild before claiming evidence for source changes.
+See the [acceptance table](alpha-acceptance.md) and [candidate usage notes](private-alpha.md). `npm run check` remains the fast deterministic owner-test suite, not release certification. Release gates and package checks assert actual required behavior; missing human assessment of the real-project run still blocks acceptance even when these suites pass. Build packaging uses pinned `electron-builder` 26.15.3 with `--publish never`. This includes the AppImage runtime search-path fix described in [GHSA-7g7r-gx96-252g](https://github.com/electron-userland/electron-builder/security/advisories/GHSA-7g7r-gx96-252g). `MAUXI_APPIMAGE=/absolute/path` can select a candidate for `test:package-e2e`; otherwise it tests `release/Mauxi-0.1.0-x86_64.AppImage`. Rebuild before claiming evidence for source changes.
 
 ## What these checks do not establish
 
