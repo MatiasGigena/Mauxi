@@ -199,6 +199,13 @@ function assertCaptureBounds(input: Static<typeof CaptureRequestInput>, bounds: 
   if (x < 0 || y < 0 || x + width > bounds.width + 1 || y + height > bounds.height + 1) throw new Error("Capture rectangle is outside the shell");
 }
 
+/** Test mode may shorten the model stream idle timeout so stall recovery is testable without waiting 90 seconds. */
+function testStreamIdleMs(): number | undefined {
+  const value = Number(process.env.MAUXI_TEST_STREAM_IDLE_MS);
+
+  return process.env.MAUXI_TEST_MODE === "1" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 function agentBrowser(workspaceId: string): BrowserPort {
   const current = () => {
     const control = activeBrowser();
@@ -247,7 +254,7 @@ async function activeAgent(): Promise<PiAgentHost> {
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
     }, path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-references", "library", "catalog.json"),
-    path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-skills"));
+    path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-skills"), testStreamIdleMs());
 
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
