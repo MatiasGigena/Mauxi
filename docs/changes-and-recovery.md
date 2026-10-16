@@ -27,6 +27,8 @@ The coordinator:
 - bounds files to 2 MiB, change sets to 10 MiB, scans to 2,000 files/20 MiB, and retained records to 64;
 - excludes Git internals, Mauxi integration, dependencies, build output, and known generated directories from source coverage.
 
+A run that ends by Stop, a provider failure, or a host budget (40 model turns or five minutes) settles its active set as partial: changes already written remain for review and undo, and chat names the cause (for example "Stopped: the request reached its 5-minute limit; partial changes were kept for review."). Tool calls rejected for malformed arguments never reach the coordinator and do not mark the run as failed. A provider error that the single automatic retry recovers from does not mark it as failed either.
+
 Records use stable project identity, so an interrupted active set is labeled failed on the next open. Completed managed changes remain reviewable/undoable; interrupted command observations remain reviewable but never automatically undoable. Mauxi never commits, stashes, resets, or changes the Git index.
 
 ### Race-safe mutation and durable recovery

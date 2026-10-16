@@ -103,8 +103,14 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
     const deniedTarget = await grant(); const denied = await action({ ...deniedTarget, operation: "scroll", y: 100 }, false);
     expect(denied.error).toBeTruthy(); await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
     const navTarget = await grant();
+    // The shell keeps showing the old document as ready until the new one loads, so wait for the
+    // new document's own bridge announcement; a handoff before it commits is invalidated.
+    await page.evaluate(() => addEventListener("message", event => {
+      if (event.data?.kind === "ready" && String(event.data.url).includes("verification=next")) document.documentElement.dataset.navigatedBridgeReady = "yes";
+    }));
     const navigation = await action({ ...navTarget, operation: "navigate", route: "/?verification=next" });
     expect(navigation.error).toBe("");
+    await expect(page.locator("html[data-navigated-bridge-ready]")).toHaveCount(1, { timeout: 30_000 });
     await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
     await expect(run({ ...navTarget, operation: "inspect" })).rejects.toThrow();
     await expect(page.getByRole("button", { name: "Give agent control", exact: true })).toBeVisible();
