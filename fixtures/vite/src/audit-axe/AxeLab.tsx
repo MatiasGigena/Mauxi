@@ -9,7 +9,7 @@ export function AxeLab() {
       <header className="axe-header">
         <strong className="axe-logo">Harbor Bikes</strong>
         {/* Planted: icon-only menu toggle, shown only below 600px, with no accessible name (4.1.2). */}
-        <button type="button" className="axe-mobile-only axe-icon" data-testid="menu-toggle"><Icon path="M4 7h16M4 12h16M4 17h16" /></button>
+        <button type="button" className="axe-mobile-only axe-icon" data-testid="mobile-menu-toggle"><Icon path="M4 7h16M4 12h16M4 17h16" /></button>
         {/* Not a finding: icon-only search toggle, shown only below 600px, named with aria-label. */}
         <button type="button" className="axe-mobile-only axe-icon" aria-label="Search" data-testid="search-toggle"><Icon path="M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Zm5-2 4 4" /></button>
         <nav className="axe-nav" aria-label="Primary"><a href="#bikes">Bikes</a><a href="#service">Service</a><a href="#rentals">Rentals</a></nav>

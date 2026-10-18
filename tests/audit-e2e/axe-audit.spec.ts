@@ -39,7 +39,7 @@ test("runs axe-core at every width profile and reports layout-specific violation
   expect(report.durationMs).toBeLessThan(30_000);
 
   // Mobile-only problems: present at 320 and 390px, gone from the tablet layout up.
-  const toggle = only(report, "menu-toggle");
+  const toggle = only(report, "mobile-menu-toggle");
   expect(toggle).toMatchObject({ kind: "axe", classification: "bug", severity: "serious", criterion: { id: "4.1.2" }, rule: { id: "button-name" }, ranges: [[320, 390]], profiles: ["phone-sm", "phone"], worst: { width: 320 } });
   expect(toggle.title).toContain("only at 320–390px");
   expect(toggle.detail).toContain("not at Tablet (768px), Laptop (1280px), Desktop (1440px)");
