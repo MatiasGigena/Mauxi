@@ -107,6 +107,9 @@ export function describeNextAuditLab(fixture: "next" | "next-turbopack"): void {
       const unexpected = report.findings.filter((finding) => finding.element && finding.element.tag !== "body" && !PLANTED_IDS.includes(finding.element.testId ?? ""));
       expect(unexpected.map((finding) => `${finding.kind} ${finding.element?.selector}`)).toEqual([]);
       expect(report.summary).toMatchObject({ bug: 10, review: 1, intentional: 1 });
+      // axe-core ran at every width profile; the lab and Next's dev UI are clean for its rules.
+      expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+      expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
       // Hints name the component that wrote the JSX (never Next internals) and project files (never bundler chunks).
       for (const finding of report.findings) {

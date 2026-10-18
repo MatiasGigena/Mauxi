@@ -29,10 +29,9 @@ export default function AuditLabPage() {
 
       {/* Not a finding: off-canvas drawer kept hidden outside the viewport. */}
       <aside className={styles["lab-drawer"]} aria-hidden="true" data-testid="offcanvas-drawer"><a href="#beans" tabIndex={-1}>Beans</a></aside>
-      {/* Not a finding: visually hidden helper text. */}
-      <span className={styles["sr-only"]} data-testid="sr-only-text">Skip to content</span>
-
       <main className={styles["lab-main"]}>
+        {/* Not a finding: visually hidden helper text. */}
+        <span className={styles["sr-only"]} data-testid="sr-only-text">Skip to content</span>
         <section className={styles["lab-hero"]}>
           <p className={styles["lab-eyebrow"]}>Single origin · roasted Tuesdays</p>
           <h1>Coffee that tastes like where it grew.</h1>

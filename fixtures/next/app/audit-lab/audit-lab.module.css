@@ -17,7 +17,7 @@
 
 .lab-drawer { position: fixed; top: 0; right: 0; width: 280px; height: 100vh; padding: 24px; background: #fff; transform: translateX(100%); }
 
-.lab-hero { padding: 56px 24px 32px; background: linear-gradient(160deg, #e9d7bf, #f7f1e8 70%); }
+.lab-hero { padding: 56px 24px 32px; background: #f2e8db; }
 .lab-eyebrow { font-family: system-ui, sans-serif; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #8a5a35; }
 .lab-ref { font-family: system-ui, sans-serif; font-size: 15px; color: #6d5848; }
 
