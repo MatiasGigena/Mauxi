@@ -25,6 +25,43 @@ The scan takes about ten to fifteen seconds:
 
 Animations and transitions are paused and `prefers-reduced-motion: reduce` is emulated, so layouts settle between widths. Viewports use desktop zoom semantics (no mobile `<meta viewport>` scaling), which matches what WCAG 1.4.10 measures.
 
+## Audit several pages
+
+Choose **Audit site** (the stacked-layers button beside **Run audit**) to audit more than the current route. Mauxi first finds the project's pages, then shows them as a checklist before anything is measured:
+
+1. **Discovery** loads the Desktop preview's route in the same hidden window and reads every `a[href]` and `area[href]`. It then opens each page it found (one level deeper) and reads their links too. At most 12 pages are listed, in the order they were found, with the starting route first.
+2. **Choose pages.** Every listed page is checked. Uncheck pages, or type a route and choose **Add**. Hand-added routes go through the same policy as discovered ones. **Skipped links** lists same-origin links that were left out and why.
+3. **Audit N pages** runs the normal single-route audit on each page, one after another, including the interaction pass (about two to four seconds more per page, so a 12-page batch takes roughly two to three minutes). Keeping it means a page's counts in the batch match a single run of that page. Progress shows the page (for example *Page 2 of 3*) and that page's sweep. **Stop** ends the current page and skips the rest; pages already audited keep their results.
+
+The **All pages** summary lists every page with its bug, review and intentional counts, a ruler of the widths where bugs were measured, and the widest failing ranges. Click a page to open its findings and snapshots in the usual panel and canvas; **All pages** returns to the summary. **Re-run** on an open page re-audits that page and updates its row. Running **Audit site** again compares each page with its previous run, so resolved findings are listed per page.
+
+### What discovery leaves out, and why
+
+Discovery only follows links a visitor could open with a plain GET, and only on the approved project origin. Each guard maps to a failure it prevents:
+
+| Link | Handling | Failure it prevents |
+| --- | --- | --- |
+| Other origins, protocol-relative `//host`, `mailto:`, `tel:`, `javascript:`, `data:`, `blob:` | Ignored and only counted | Auditing someone else's site or running script URLs |
+| Authentication, API, action and callback paths (`/api/…`, `/auth/…`, `logout`, `callback`, `checkout`, `delete`, `unsubscribe`, …) and sensitive query keys (`token`, `code`, `state`, …) | Skipped with a reason; the same policy as [route linking](workspace.md#routes) | Signing the user out, consuming one-time codes or triggering actions just by loading a URL |
+| Links with a `download` attribute | Skipped | Writing files instead of rendering a page |
+| Files that are not pages (`.pdf`, `.zip`, images, `.json`, `.xml`, `.txt`, `.csv`, …) | Skipped | Measuring a file viewer, or downloading |
+| Dev-server internals (`/@vite/…`, `/@fs/…`, `/node_modules/…`, `/_next/…`, `/__…`) | Skipped | Auditing tooling endpoints |
+| Same-page anchors and hash variants (`#beans`, `/about#team`) | Hash dropped, then de-duplicated | Auditing one document several times |
+| Bridge parameters (`mauxiSession`, …) and repeated links | Removed, then de-duplicated | Duplicate pages |
+| Forms, buttons and script-driven navigation | Never followed | Non-GET requests and side effects |
+| A page that redirects to a skipped or external route while discovering | Removed with a reason | Following a redirect into a login or callback flow |
+| Endless link sets (calendars, pagination) | At most 12 pages, 400 links read per page, two levels, 10 s per page and 45 s in total | Discovery that never ends |
+| `window.open`, `beforeunload` prompts | Denied and ignored | A page holding the hidden window hostage |
+| A page that fails to load while discovering | Its links are not read; discovery continues (only a failing start page fails discovery) | One broken page hiding the rest |
+
+### Batch failure modes
+
+- **A page fails** (load error, time limit, navigation outside the origin): that row is marked failed with the error and the batch continues with the next page.
+- **Stop or closing the workspace** aborts the current page and marks the remaining pages skipped. Pages already measured keep their results.
+- **Overlapping runs:** only one audit, discovery or batch runs at a time; starting another is refused until it finishes or is stopped.
+- **Memory:** only page summaries are sent to the panel while the batch runs. Full reports stay in the main process, at most 16 (the oldest are dropped), and batch snapshots are captured at half resolution, so a 12-page batch keeps roughly a quarter of the image data of 12 single runs. A page's report is loaded into the panel only when you open it. If it was dropped, run that page again.
+- **Stale results:** the summary belongs to the workspace and is cleared when the workspace closes. Re-running one page updates its row.
+
 ## What it checks
 
 | Finding | Criterion | How it is measured |
@@ -101,7 +138,7 @@ The panel shows a 320–1920 px ruler of the widths where bugs were measured, co
 
 **Fix with agent** attaches the finding to the chat. Send it alone to use the default instruction, or add your own. The request carries a compact description of each finding: criterion, width ranges, element, source, measurement and fix direction. Snapshots and geometry are not sent.
 
-The agent has a `responsive_audit` tool that re-runs the same audit for a route, at most four times per request. Every run, including the agent's, updates the panel; attachments that a newer run no longer reports are removed from the chat. The agent is told to prefer fluid fixes that hold across the whole width range, to keep intentional scrollers scrolling, and to confirm its fix with `responsive_audit`.
+The agent has a `responsive_audit` tool that re-runs the same audit for a route, at most four times per request. Every run, including the agent's, updates the panel; attachments that a newer run no longer reports are removed from the chat. The agent is told to prefer fluid fixes that hold across the whole width range, to keep intentional scrollers scrolling, and to confirm its fix with `responsive_audit`. Passing `routes` (up to 12) instead of `route` runs a site audit in one call that counts as one of the four; it returns per-page counts and bug widths, and refuses authentication, API, action and callback routes like the panel does. The panel then shows the **All pages** summary. The agent is told to use it when a fix touches layout shared by several pages.
 
 ## How it can fail
 
@@ -129,7 +166,7 @@ Audits work on `next dev` with Webpack or Turbopack. The end-to-end suites exerc
 ## Limits
 
 - Automated checks cover only part of WCAG. A clean audit is not a conformance claim.
-- Only the route in the Desktop preview is audited per run. Layout checks measure the state it loads in; the interaction pass adds keyboard focus, closed disclosures and tooltips at two narrow profiles only. Forms are never filled, nothing is typed, and states behind clicks on links, tabs, carousels or comboboxes are not explored.
+- A single run audits the route in the Desktop preview; **Audit site** covers at most 12 linked pages. Layout checks measure the state a page loads in; the interaction pass adds keyboard focus, closed disclosures and tooltips at two narrow profiles only. Forms are never filled, nothing is typed, and states behind clicks on links, tabs, carousels or comboboxes are not explored. Pages reachable only through script navigation or forms are not discovered (add them by hand), and hash-router routes such as `/#/about` collapse into one page because the hash is dropped.
 - Text resize (1.4.4) is covered through zoom-equivalent widths and the viewport meta check, not browser text-only zoom.
 - Orientation (1.3.4) is not checked automatically.
 - Snapshots are captured up to 2,400 px tall; markers below that are listed in the panel only.
