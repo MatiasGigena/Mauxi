@@ -204,6 +204,7 @@ export class AuditScanner {
 
     const interactions: InteractionRun = await runInteractionPass({
       step: async (step) => {
+        if (reloaded) throw new Error("the page reloaded during the interaction checks");
         const { value } = await evaluate(`${INTERACT}(${JSON.stringify(step)})`);
 
         if (!isInteractionResult(value)) throw new Error(`The page returned an invalid ${step.action} result.`);
