@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
 import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
+import { mergeRanges } from "../application/audit-site";
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 1920;
@@ -13,20 +14,6 @@ const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> 
 ];
 
 const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access"];
-
-/** Union of possibly overlapping inclusive ranges, for the panel-wide ruler. */
-function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
-  const merged: Array<[number, number]> = [];
-
-  for (const [from, to] of sorted) {
-    const last = merged[merged.length - 1];
-
-    if (last && from <= last[1] + 16) last[1] = Math.max(last[1], to); else merged.push([from, to]);
-  }
-
-  return merged;
-}
 
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
@@ -86,17 +73,21 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
   </article>;
 }
 
-export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore, onClose }: {
+/** siteView replaces the report body (site setup or summary); pageBar sits above a site page's report. */
+export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore, onClose, onSite, siteView, pageBar }: {
   report: AuditReport | null; progress: AuditProgress | null; running: boolean; error: string; selected: string | null;
   attached: ReadonlySet<string>; ignored: ReadonlySet<string>;
   onRun: () => void; onCancel: () => void; onSelect: (finding: AuditFinding) => void; onShow: (finding: AuditFinding) => void;
   onFix: (finding: AuditFinding) => void; onIgnore: (finding: AuditFinding) => void; onClose: () => void;
+  onSite: () => void; siteView?: ReactNode; pageBar?: ReactNode;
 }) {
   const [showResolved, setShowResolved] = useState(true);
   const visible = report?.findings.filter((finding) => !ignored.has(finding.id)) ?? [];
   const hidden = report?.findings.filter((finding) => ignored.has(finding.id)) ?? [];
   const failing = mergeRanges(visible.filter((finding) => finding.classification === "bug").flatMap((finding) => finding.ranges));
-  const percent = progress ? Math.round(progress.done / Math.max(1, progress.total) * 100) : 0;
+  const site = progress?.site;
+  const fraction = progress ? progress.done / Math.max(1, progress.total) : 0;
+  const percent = Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
 
   const card = (finding: AuditFinding) => <FindingCard key={finding.id} finding={finding} index={report!.findings.indexOf(finding) + 1} selected={selected === finding.id} attached={attached.has(finding.id)} ignored={ignored.has(finding.id)}
     onSelect={() => onSelect(finding)} onShow={() => onShow(finding)} onFix={() => onFix(finding)} onIgnore={() => onIgnore(finding)} />;
@@ -105,9 +96,10 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     <header className="audit-panel-header">
       <div>
         <h2><ScanSearch size={16} aria-hidden="true" />Responsive audit</h2>
-        <p>{report ? <><code>{report.route}</code> · {report.widthsScanned} widths · {(report.durationMs / 1000).toFixed(1)}s</> : "Reflow, zoom and spacing across every width"}</p>
+        <p>{report ? <><code>{report.route}</code> · {report.widthsScanned} widths · {(report.durationMs / 1000).toFixed(1)}s</> : siteView ? "Every page, across every width" : "Reflow, zoom and spacing across every width"}</p>
       </div>
       <div className="audit-panel-actions">
+        {!running && <button type="button" className="audit-site" onClick={onSite} aria-label="Audit site" title="Audit site: find the pages linked from this route and audit them in a batch"><Layers size={15} aria-hidden="true" /></button>}
         {running
           ? <button type="button" className="audit-run" data-running="" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
           : <button type="button" className="audit-run" onClick={onRun}>{report ? <RotateCcw size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}<span>{report ? "Re-run" : "Run audit"}</span></button>}
@@ -115,9 +107,9 @@ export function AuditPanel({ report, progress, running, error, selected, attache
       </div>
     </header>
 
-    {running && <div className="audit-progress" role="status" aria-live="polite">
+    {running && (progress || !siteView) && <div className="audit-progress" role="status" aria-live="polite">
       <div className="audit-progress-label"><LoaderCircle size={14} className="spin" aria-hidden="true" />
-        <span>{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : progress.phase === "interactions" ? `Checking keyboard focus and menus · ${progress.width}px` : "Building report…"}</span>
+        <span>{site && `Page ${site.index + 1} of ${site.total} · `}{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : progress.phase === "interactions" ? `Checking keyboard focus and menus · ${progress.width}px` : "Building report…"}</span>
         <span className="audit-progress-count">{percent}%</span>
       </div>
       <div className="audit-progress-bar"><span style={{ width: `${percent}%` }} /></div>
@@ -125,9 +117,14 @@ export function AuditPanel({ report, progress, running, error, selected, attache
 
     {error && <p className="audit-error" role="alert">{error}</p>}
 
-    {!report && !running && <div className="audit-empty">
+    {siteView}
+
+    {report && pageBar}
+
+    {!report && !running && !siteView && <div className="audit-empty">
       <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
       <ul aria-label="Checks">{CHECKS.map((check) => <li key={check}>{check}</li>)}</ul>
+      <p className="audit-empty-site"><Layers size={13} aria-hidden="true" />Use <strong>Audit site</strong> to find the pages linked from here and audit them together.</p>
     </div>}
 
     {report && <div className="audit-overview">
