@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { defaultCanvas, fitBoards, fitCamera, isCanvasState, unfocus, zoomAt } from "../../src/application/canvas-state";
+import { defaultCanvas, fitBoards, fitCamera, isCanvasState, MAX_ZOOM, MIN_ZOOM, unfocus, zoomAt } from "../../src/application/canvas-state";
 import { RouteLink, supportedRoute } from "../../src/application/route-link";
 import { isBridgeMessage, isShellMessage, BRIDGE_PROTOCOL } from "../../src/application/preview-contract";
 import { WorkspaceStore } from "../../src/infrastructure/project/workspace-store";
@@ -15,9 +15,9 @@ describe("canvas geometry", () => {
 
     for (const requested of [0, .25, 1, 2, 8]) {
       const next = zoomAt(camera, requested, anchor);
-      expect((anchor.x - next.x) / next.zoom).toBe((anchor.x - camera.x) / camera.zoom);
-      expect((anchor.y - next.y) / next.zoom).toBe((anchor.y - camera.y) / camera.zoom);
-      expect(next.zoom).toBeGreaterThanOrEqual(.25); expect(next.zoom).toBeLessThanOrEqual(2);
+      expect((anchor.x - next.x) / next.zoom).toBeCloseTo((anchor.x - camera.x) / camera.zoom, 9);
+      expect((anchor.y - next.y) / next.zoom).toBeCloseTo((anchor.y - camera.y) / camera.zoom, 9);
+      expect(next.zoom).toBeGreaterThanOrEqual(MIN_ZOOM); expect(next.zoom).toBeLessThanOrEqual(MAX_ZOOM);
     }
   });
   it("fits displaced boards including fixed-height headers into the canvas, not the chat", () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
+import { Bot, Check, ChevronDown, Eye, EyeOff, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
 import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
 
 const MIN_WIDTH = 320;
@@ -84,11 +84,11 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
   </article>;
 }
 
-export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore }: {
+export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore, onClose }: {
   report: AuditReport | null; progress: AuditProgress | null; running: boolean; error: string; selected: string | null;
   attached: ReadonlySet<string>; ignored: ReadonlySet<string>;
   onRun: () => void; onCancel: () => void; onSelect: (finding: AuditFinding) => void; onShow: (finding: AuditFinding) => void;
-  onFix: (finding: AuditFinding) => void; onIgnore: (finding: AuditFinding) => void;
+  onFix: (finding: AuditFinding) => void; onIgnore: (finding: AuditFinding) => void; onClose: () => void;
 }) {
   const [showResolved, setShowResolved] = useState(true);
   const visible = report?.findings.filter((finding) => !ignored.has(finding.id)) ?? [];
@@ -105,9 +105,12 @@ export function AuditPanel({ report, progress, running, error, selected, attache
         <h2><ScanSearch size={16} aria-hidden="true" />Responsive audit</h2>
         <p>{report ? <><code>{report.route}</code> · {report.widthsScanned} widths · {(report.durationMs / 1000).toFixed(1)}s</> : "Reflow, zoom and spacing across every width"}</p>
       </div>
-      {running
-        ? <button type="button" className="audit-run" data-running="" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
-        : <button type="button" className="audit-run" onClick={onRun}>{report ? <RotateCcw size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}<span>{report ? "Re-run" : "Run audit"}</span></button>}
+      <div className="audit-panel-actions">
+        {running
+          ? <button type="button" className="audit-run" data-running="" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
+          : <button type="button" className="audit-run" onClick={onRun}>{report ? <RotateCcw size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}<span>{report ? "Re-run" : "Run audit"}</span></button>}
+        <button type="button" className="audit-close" aria-label="Hide audit panel" title="Hide audit panel" onClick={onClose}><PanelRightClose size={16} aria-hidden="true" /></button>
+      </div>
     </header>
 
     {running && <div className="audit-progress" role="status" aria-live="polite">

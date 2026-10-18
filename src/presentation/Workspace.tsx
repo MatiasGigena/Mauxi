@@ -12,6 +12,7 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
+import { ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
 import { AuditBoards, snapshotBoards } from "./AuditBoards";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport } from "../application/audit-contract";
@@ -70,6 +71,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth >= 1100);
+  const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
   const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
@@ -106,6 +109,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
   const initialFit = useRef(!active?.canvas);
+  const [boardsPlaced, setBoardsPlaced] = useState(!!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const dragMoved = useRef(false);
@@ -164,11 +168,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const observer = new ResizeObserver(() => {
       if (!canvas.current) return;
       const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      geometry.current = { width: Math.max(320, canvas.current.clientWidth - AUDIT_PANEL_SPACE), height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
+      geometry.current = { width: Math.max(320, canvas.current.clientWidth - (panelOpenRef.current ? AUDIT_PANEL_SPACE : 0)), height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
 
       if (initialFit.current) {
         initialFit.current = false;
         setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
+        setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
         setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
       }
@@ -178,6 +183,19 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     return () => observer.disconnect();
   }, []);
+
+  // The panel follows the window: open on wide windows, collapsed on narrow ones; manual toggles last until the next crossing.
+  useEffect(() => {
+    const wide = matchMedia("(min-width: 1100px)");
+    const follow = () => setPanelOpen(wide.matches);
+    wide.addEventListener("change", follow);
+
+    return () => wide.removeEventListener("change", follow);
+  }, []);
+
+  useEffect(() => {
+    if (canvas.current) geometry.current = { ...geometry.current, width: Math.max(320, canvas.current.clientWidth - (panelOpen ? AUDIT_PANEL_SPACE : 0)) };
+  }, [panelOpen]);
 
   const persist = useCallback(async (state: CanvasState) => {
     if (!active || !window.mauxi) return;
@@ -631,7 +649,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       setAudit(report);
       setSelectedFinding(null);
       const boards = snapshotBoards(report, PREVIEW_IDS.map((id) => layoutRef.current.boards[id]));
-      setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight) }));
+      setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) }));
     } catch (error) { setAuditError(errorText(error)); }
     finally { setAuditRunning(false); }
   }
@@ -674,9 +692,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   const statusText = active?.status === "failed" ? active.statusDetail : notice;
 
-  return <div className="workspace" data-audit-panel="">
+  return <div className="workspace" data-audit-panel={panelOpen ? "" : undefined}>
     <div className="canvas-surface">
-    <CanvasBackground />
+    <CanvasBackground settled={boardsPlaced} />
     <header className="topbar">
       {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
@@ -723,8 +741,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </main>
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
-    <AuditPanel report={audit} progress={auditProgress} running={auditRunning} error={auditError} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
+    {panelOpen ? <AuditPanel onClose={() => setPanelOpen(false)} report={audit} progress={auditProgress} running={auditRunning} error={auditError} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
       onRun={() => void runAudit()} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} />
+      : <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit">
+        <ScanSearch size={16} aria-hidden="true" /><span>Audit</span>{audit && <span className="audit-launcher-count" aria-label={`${audit.summary.bug} bugs`}>{audit.summary.bug}</span>}
+      </button>}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 

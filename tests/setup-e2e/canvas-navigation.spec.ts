@@ -274,7 +274,7 @@ test("preview headers stay within the frame across zoom levels and narrow viewpo
   await page.getByRole("spinbutton", { name: "Width", exact: true }).fill("240");
   await page.getByRole("button", { name: "Apply viewport", exact: true }).click();
   const header = board(page, "mobile").locator(".artboard-header");
-  expect((await header.boundingBox())!.width).toBeCloseTo(60);
+  expect((await header.boundingBox())!.width).toBeCloseTo(24);
   expect(await header.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();

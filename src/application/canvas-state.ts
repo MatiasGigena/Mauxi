@@ -5,6 +5,9 @@ import type { PreviewId } from "./preview-contract";
 export const PREVIEW_IDS = ["desktop", "mobile"] as const;
 export const LABELS = { desktop: "Desktop", mobile: "Mobile" };
 export const MIN_ZOOM = 0.1;
+
+/** Automatic fits stop here; only the audit matrix overview fits below it. */
+export const FIT_MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 2;
 export const HEADER_HEIGHT = 48;
 
@@ -41,7 +44,7 @@ export function dragBoard(board: Artboard, delta: Point, zoom: number): Artboard
   return { ...board, x: board.x + delta.x / zoom, y: board.y + delta.y / zoom };
 }
 
-export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT): Camera {
+export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM): Camera {
   const left = Math.min(...boards.map((b) => b.x));
   const top = Math.min(...boards.map((b) => b.y));
 
@@ -50,7 +53,7 @@ export function fitCamera(boards: Artboard[], area: { width: number; height: num
     height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight)),
   });
 
-  let low = MIN_ZOOM; let high = MAX_ZOOM;
+  let low = minZoom; let high = MAX_ZOOM;
 
   for (let i = 0; i < 30; i++) {
     const mid = (low + high) / 2; const bounds = size(mid);
