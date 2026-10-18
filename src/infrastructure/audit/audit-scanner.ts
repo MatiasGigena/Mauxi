@@ -18,6 +18,19 @@ const RUN_LIMIT_MS = 180_000;
 const STATIC_STYLE = "*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important;scroll-behavior:auto!important}";
 const SPACING_STYLE = "*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}";
 
+/**
+ * Next.js hydrates after the load event (App Router hydrates the whole document, Pages Router #__next). Until then elements
+ * carry no React fibers, so source hints are missing and client effects can still change the layout. Other pages resolve at once.
+ */
+const HYDRATED = `new Promise(resolve => {
+  const fiber = element => !!element && Object.keys(element).some(key => key.startsWith("__reactFiber$"));
+  const pages = document.getElementById("__next");
+  const done = () => "__next_f" in self ? fiber(document.body) : pages && "__NEXT_DATA__" in self ? fiber(pages.firstElementChild) : true;
+  const deadline = Date.now() + 10000;
+  const tick = () => done() || Date.now() > deadline ? resolve(true) : setTimeout(tick, 50);
+  tick();
+})`;
+
 function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
 }
@@ -72,6 +85,7 @@ export class AuditScanner {
     contents.on("will-redirect", guard);
     contents.on("will-frame-navigate", (event) => { if (event.isMainFrame && !allowed(event.url)) event.preventDefault(); });
     const debug = contents.debugger;
+    let reloaded = false;
     debug.attach("1.3");
 
     const query = async <T extends TSchema>(schema: T, method: string, params: CdpParams = {}): Promise<Static<T>> => {
@@ -101,6 +115,7 @@ export class AuditScanner {
     };
 
     const measure = async (full: boolean): Promise<PageMeasurement> => {
+      if (reloaded) throw new Error("The page reloaded during the audit (for example a dev server full reload). Run the audit again.");
       const { value } = await evaluate(`${MEASURE}(${JSON.stringify({ full, maxElements: 6_000 })})`);
 
       if (!isPageMeasurement(value)) throw new Error("The page returned an invalid measurement.");
@@ -125,6 +140,9 @@ export class AuditScanner {
     signal.throwIfAborted();
 
     if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
+    // A dev server full reload (HMR fallback) would replace the document mid-scan and drop the injected styles.
+    contents.on("did-start-navigation", (details) => { if (details.isMainFrame && !details.isSameDocument) reloaded = true; });
+    await evaluate(HYDRATED);
     // Emulation is applied only after the first document exists; overriding metrics on the initial blank page is unstable.
     await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
     await evaluate(`Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise(r => setTimeout(r, 3000))]).then(() => new Promise(r => setTimeout(r, 400)))`);
