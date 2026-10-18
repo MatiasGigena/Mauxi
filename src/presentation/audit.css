@@ -66,6 +66,7 @@
 .finding-group ul { margin: 0; padding: 0 .375rem; list-style: none; }
 .finding-group li { display: flex; flex-direction: column; gap: .1rem; padding: .35rem 0; border-top: 1px solid #f3f1ee; color: #4a4650; font-size: .6875rem; }
 .finding-group li > span { color: #8b8690; }
+.interaction-summary { margin: 0; padding: 0 .375rem .35rem; color: #625e66; font-size: .6875rem; }
 .resolved-group li { flex-direction: row; align-items: center; gap: .4rem; color: var(--audit-resolved); }
 .resolved-group li span { color: #4a4650; }
 .resolved-group .finding-group-title { color: var(--audit-resolved); }

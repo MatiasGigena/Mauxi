@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Eye, EyeOff, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
+import { Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
 import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
 
 const MIN_WIDTH = 320;
@@ -12,7 +12,7 @@ const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> 
   { id: "intentional", label: "Intentional, with gaps", hint: "Deliberate patterns missing accessibility" },
 ];
 
-const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "1.4.4 Zoom", "2.1.1 Scroller keyboard access"];
+const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access"];
 
 /** Union of possibly overlapping inclusive ranges, for the panel-wide ruler. */
 function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
@@ -27,6 +27,8 @@ function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
 
   return merged;
 }
+
+const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
 const position = (width: number) => `${((Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)) - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`;
 
@@ -115,7 +117,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
 
     {running && <div className="audit-progress" role="status" aria-live="polite">
       <div className="audit-progress-label"><LoaderCircle size={14} className="spin" aria-hidden="true" />
-        <span>{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : "Building report…"}</span>
+        <span>{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : progress.phase === "interactions" ? `Checking keyboard focus and menus · ${progress.width}px` : "Building report…"}</span>
         <span className="audit-progress-count">{percent}%</span>
       </div>
       <div className="audit-progress-bar"><span style={{ width: `${percent}%` }} /></div>
@@ -124,7 +126,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     {error && <p className="audit-error" role="alert">{error}</p>}
 
     {!report && !running && <div className="audit-empty">
-      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles. The visible previews stay untouched.</p>
+      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
       <ul aria-label="Checks">{CHECKS.map((check) => <li key={check}>{check}</li>)}</ul>
     </div>}
 
@@ -152,6 +154,11 @@ export function AuditPanel({ report, progress, running, error, selected, attache
         </section>;
       })}
       {!visible.length && <p className="audit-clean"><Check size={16} aria-hidden="true" />No responsive findings at any measured width.</p>}
+      {report.interactions && <section className="finding-group interaction-group" aria-label="Interaction checks">
+        <h3 className="finding-group-title" title="Tab-only focus walk, disclosures and tooltips at narrow profiles"><Keyboard size={14} aria-hidden="true" />Interaction checks<span>{(report.interactions.durationMs / 1000).toFixed(1)}s</span></h3>
+        <p className="interaction-summary">{count(report.interactions.focusStops, "focus stop")} · {count(report.interactions.disclosures, "disclosure")} opened · {count(report.interactions.hovers, "tooltip")} hovered · {report.interactions.profiles.map((id) => report.profiles.find((profile) => profile.id === id)?.label ?? id).join(", ")}</p>
+        {report.interactions.notes.length > 0 && <ul aria-label="Interaction notes">{report.interactions.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
+      </section>}
       {report.scrollers.length > 0 && <section className="finding-group scroller-group" aria-label="Intentional scrollers">
         <h3 className="finding-group-title" title="Kept scrolling on purpose">Intentional scrollers<span>{report.scrollers.length}</span></h3>
         <ul>{report.scrollers.map((scroller) => <li key={scroller.key}><code>{scroller.element.selector}</code><span>{scroller.signals.join(", ")}</span></li>)}</ul>

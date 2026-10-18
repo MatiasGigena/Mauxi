@@ -498,7 +498,7 @@ export class PiAgentHost {
 
     const responsiveAudit = defineTool({
       name: "responsive_audit", label: "Run responsive audit",
-      description: "Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. At most four audits per request.",
+      description: "Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. At most four audits per request.",
       parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })) }),
       execute: async (_id, input) => {
         if (!this.audit) throw new Error("The responsive audit is unavailable in this workspace.");
@@ -512,6 +512,7 @@ export class PiAgentHost {
           findings: report.findings.slice(0, 30).map((finding) => findingContext(finding, report.route)),
           resolved: report.resolved.map((finding) => ({ id: finding.id, title: finding.title })),
           intentionalScrollers: report.scrollers.map((scroller) => scroller.element.selector),
+          interactions: report.interactions && { focusStops: report.interactions.focusStops, disclosures: report.interactions.disclosures, hovers: report.interactions.hovers, notes: report.interactions.notes.slice(0, 8) },
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: { findings: report.findings.length, resolved: report.resolved.length } };
