@@ -1,0 +1,39 @@
+* { box-sizing: border-box; }
+html { scroll-padding-bottom: 64px; }
+body { margin: 0; font-family: system-ui, sans-serif; color: #1f2a24; background: #f4f6f1; }
+h1, h2 { margin: 0 0 10px; line-height: 1.2; }
+p { margin: 0 0 12px; line-height: 1.5; }
+a { color: #1d5c3f; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #e0761f; outline-offset: 2px; }
+
+.ix-promo { margin: 0; padding: 10px 16px; background: #e0761f; color: #fff; font-size: 14px; }
+.ix-header { position: sticky; top: 0; z-index: 5; padding: 12px 16px; background: #1d3b2c; color: #f4f6f1; }
+.ix-brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ix-home { color: inherit; font-size: 1.15rem; font-weight: 700; text-decoration: none; }
+.ix-burger { min-height: 36px; padding: 6px 14px; border: 1px solid #9fc2ad; border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.ix-menu { position: absolute; top: 100%; left: 0; width: 420px; /* planted: fixed width */ display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 12px; background: #fff; box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
+.ix-menu[hidden] { display: none; }
+.ix-menu a { padding: 10px; border-radius: 6px; text-decoration: none; }
+.ix-tabs { display: flex; flex-wrap: wrap; gap: 0 4px; margin-top: 8px; }
+.ix-tabs a { padding: 10px 12px; color: inherit; font-size: 15px; text-decoration: none; }
+
+.ix-intro { padding: 24px 16px; }
+.ix-faq { margin-bottom: 16px; padding: 10px 12px; border-radius: 8px; background: #fff; }
+.ix-faq summary { cursor: pointer; font-weight: 600; }
+.ix-stat { display: flex; justify-content: flex-end; }
+.ix-tip-wrap { position: relative; }
+.ix-tip-trigger { min-height: 32px; padding: 4px 12px; border: 1px solid #9fc2ad; border-radius: 999px; background: #fff; font: inherit; }
+.ix-tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; width: 260px; /* planted: anchored left of a right-aligned trigger */ padding: 8px 10px; border-radius: 6px; background: #1f2a24; color: #fff; font-size: 13px; }
+.ix-tip-wrap:hover .ix-tip { display: block; }
+
+.ix-story { margin: 0 16px 24px; padding: 18px; border-radius: 12px; background: #fff; }
+.ix-more { display: inline-block; padding: 4px 0; font-weight: 600; }
+
+.ix-actions { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 16px 120px; }
+.ix-actions button { min-height: 40px; padding: 8px 16px; border-radius: 8px; font: inherit; cursor: pointer; }
+.ix-ghost, .ix-ghost:focus, .ix-ghost:focus-visible { border: 1px solid #c5d1c9; background: #fff; color: #1f2a24; outline: none; /* planted: no focus style */ }
+.ix-share { border: 1px solid #1d5c3f; background: #1d5c3f; color: #fff; }
+.ix-sort { margin: 0; }
+.ix-sort button { border: 1px solid #c5d1c9; background: #fff; }
+
+.ix-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; padding: 12px 16px; border-top: 1px solid #c5d1c9; background: #fffdf7; font-size: 14px; }
