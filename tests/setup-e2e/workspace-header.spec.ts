@@ -130,9 +130,9 @@ test("zoom updates both previews and persists; keyboard supports the complete ra
 
   await zoom.focus();
   await page.keyboard.press("Home");
-  await expect(zoom).toHaveValue("0.25");
+  await expect(zoom).toHaveValue("0.1");
   await page.keyboard.press("ArrowRight");
-  await expect(zoom).toHaveValue("0.26");
+  await expect(zoom).toHaveValue("0.11");
   await page.keyboard.press("End");
   await expect(zoom).toHaveValue("2");
 });

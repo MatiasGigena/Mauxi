@@ -508,6 +508,10 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     return;
   }
 
+  if (message.kind === "highlight") { highlightFinding(message.selector, message.label);
+
+  return; }
+
   if (message.kind === "revalidate") {
     const candidate = selectedElements.get(message.selectionId) ?? null;
 
@@ -521,6 +525,37 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
       reason: valid ? undefined : "The original rendered instance was removed or its identity changed." });
   }
 });
+
+let findingHighlight: HTMLDivElement | null = null;
+let findingTimer = 0;
+
+/** Outlines an audit finding's element in the live page so people can see the problem at this width. */
+function highlightFinding(selector: string | null, label: string): void {
+  window.clearTimeout(findingTimer);
+  findingHighlight?.remove(); findingHighlight = null;
+
+  if (!selector) return;
+  let target: Element | null = null;
+
+  try { target = document.querySelector(selector); } catch { return; }
+
+  if (!target) return;
+  target.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  const rect = target.getBoundingClientRect();
+  const box = document.createElement("div");
+  box.dataset.mauxiOverlay = "true";
+  box.setAttribute("aria-hidden", "true");
+  Object.assign(box.style, { position: "absolute", left: `${rect.left + scrollX - 3}px`, top: `${rect.top + scrollY - 3}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px`, border: "2px solid #d6452f", borderRadius: "6px", background: "rgb(214 69 47 / .08)", boxShadow: "0 0 0 4px rgb(214 69 47 / .18)", zIndex: "2147483646", pointerEvents: "none" });
+  const tag = document.createElement("span");
+  tag.textContent = label;
+  Object.assign(tag.style, { position: "absolute", left: "-2px", bottom: "calc(100% + 4px)", maxWidth: "min(320px, 90vw)", padding: "2px 8px", borderRadius: "999px", background: "#d6452f", color: "#fff", font: "600 11px/1.5 system-ui, sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
+  box.append(tag);
+  document.body.append(box);
+  findingHighlight = box;
+  findingTimer = window.setTimeout(() => { box.remove();
+
+ if (findingHighlight === box) findingHighlight = null; }, 8_000);
+}
 
 function reportRoute() {
   if (reportedUrl !== location.href) {

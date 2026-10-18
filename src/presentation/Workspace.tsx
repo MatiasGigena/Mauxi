@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -12,6 +12,11 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
+import { AuditPanel } from "./AuditPanel";
+import { AuditBoards, snapshotBoards } from "./AuditBoards";
+import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport } from "../application/audit-contract";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
@@ -27,6 +32,21 @@ function releaseDraftCaptures(files: string[]): void {
   void window.mauxi.releaseCaptures(files).catch(error => console.warn("Could not release selection captures", error));
 }
 
+/** Horizontal space the audit panel covers on the right of the canvas. */
+const AUDIT_PANEL_SPACE = 400;
+
+function errorText(cause: unknown): string { return (cause instanceof Error ? cause.message : String(cause)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""); }
+
+const IgnoredIds = Type.Array(Type.String({ maxLength: 256 }), { maxItems: 500 });
+
+function readIgnored(key: string): Set<string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+
+    return new Set(Check(IgnoredIds, value) ? value : []);
+  } catch { return new Set(); }
+}
+
 const emptyRuntimes = (): Record<PreviewId, Runtime> => ({ desktop: { generation: "", ready: false, route: "", safe: false }, mobile: { generation: "", ready: false, route: "", safe: false } });
 
 function previewUrl(base: string, id: PreviewId, session: string): string {
@@ -40,6 +60,21 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const browser = useBrowserControl(active?.workspaceId);
   const browserLocked = useRef(false); browserLocked.current = browser.locked;
   const [fixture] = useState<Fixture>(() => new URLSearchParams(location.search).get("fixture") === "next" ? "next" : "vite");
+
+  const [proofPath] = useState(() => {
+    const value = new URLSearchParams(location.search).get("path");
+
+    return value?.startsWith("/") ? value : "/";
+  });
+
+  const [audit, setAudit] = useState<AuditReport | null>(null);
+  const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
+  const ignoredKey = `mauxi:audit-ignored:${active?.workspaceId ?? `proof:${fixture}`}`;
+  const [ignoredFindings, setIgnoredFindings] = useState(() => readIgnored(ignoredKey));
   const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
   const [layout, setLayout] = useState<CanvasState>(() => active?.canvas ?? defaultCanvas());
   const layoutRef = useRef(layout); layoutRef.current = layout;
@@ -109,7 +144,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     return () => { window.removeEventListener("blur", previewFocus); cancelAnimationFrame(frame); };
   }, [minimizeChat]);
-  const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : URLS[fixture];
+  const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : new URL(proofPath, URLS[fixture]).href;
   const origin = new URL(baseUrl).origin;
   const routes = useMemo(() => new RouteLink(origin), [origin, session]);
   const urls = useMemo(() => ({ desktop: previewUrl(baseUrl, "desktop", session), mobile: previewUrl(baseUrl, "mobile", session) }), [baseUrl, session]);
@@ -129,7 +164,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const observer = new ResizeObserver(() => {
       if (!canvas.current) return;
       const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      geometry.current = { width: canvas.current.clientWidth, height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
+      geometry.current = { width: Math.max(320, canvas.current.clientWidth - AUDIT_PANEL_SPACE), height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
 
       if (initialFit.current) {
         initialFit.current = false;
@@ -571,14 +606,75 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     void browser.owner("agent");
   }
 
+  useEffect(() => {
+    if (!window.mauxi) return;
+    const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
+    const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); });
+
+    return () => { offProgress(); offReport(); };
+  }, []);
+
+  const snapshots = useMemo(() => snapshotBoards(audit, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, layout.boards]);
+
+  async function runAudit() {
+    if (!window.mauxi || auditRunning) return;
+    const route = runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
+    setAuditRunning(true); setAuditError(""); setAuditProgress(null);
+
+    try {
+      const report = await window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture });
+      setAudit(report);
+      setSelectedFinding(null);
+      const boards = snapshotBoards(report, PREVIEW_IDS.map((id) => layoutRef.current.boards[id]));
+      setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight) }));
+    } catch (error) { setAuditError(errorText(error)); }
+    finally { setAuditRunning(false); }
+  }
+
+  function selectFinding(finding: AuditFinding) {
+    setSelectedFinding((current) => current === finding.id ? null : finding.id);
+  }
+
+  /** Resizes the closest live preview to the worst width and outlines the element there. */
+  function showFinding(finding: AuditFinding) {
+    setSelectedFinding(finding.id);
+    const id: PreviewId = finding.worst.width <= 1024 ? "mobile" : "desktop";
+    const width = Math.max(240, Math.min(3840, finding.worst.width));
+    setLayout((current) => {
+      const restored = unfocus(current);
+      const board = { ...restored.boards[id], width, height: Math.max(240, Math.min(2160, finding.worst.height)) };
+
+      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: fitCamera([board], geometry.current, geometry.current.headerHeight) };
+    });
+    setActivePreview(id);
+    window.setTimeout(() => send(id, { kind: "highlight", selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) }), 350);
+  }
+
+  function attachFinding(finding: AuditFinding) {
+    if (!audit) return;
+    setAttachedFindings((items) => items.some((item) => item.id === finding.id) ? items : [...items, findingContext(finding, audit.route)].slice(-12));
+  }
+
+  function toggleIgnored(finding: AuditFinding) {
+    setIgnoredFindings((current) => {
+      const next = new Set(current);
+
+      if (next.has(finding.id)) next.delete(finding.id); else next.add(finding.id);
+
+      try { localStorage.setItem(ignoredKey, JSON.stringify([...next])); } catch {}
+
+      return next;
+    });
+  }
+
   const statusText = active?.status === "failed" ? active.statusDetail : notice;
 
-  return <div className="workspace">
+  return <div className="workspace" data-audit-panel="">
     <div className="canvas-surface">
     <CanvasBackground />
     <header className="topbar">
       {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
-      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
@@ -591,6 +687,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      {audit && <AuditBoards boards={snapshots} report={audit} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />}
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -619,7 +716,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
+      findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
+    <AuditPanel report={audit} progress={auditProgress} running={auditRunning} error={auditError} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
+      onRun={() => void runAudit()} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} />
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 

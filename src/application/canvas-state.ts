@@ -4,7 +4,7 @@ import type { PreviewId } from "./preview-contract";
 
 export const PREVIEW_IDS = ["desktop", "mobile"] as const;
 export const LABELS = { desktop: "Desktop", mobile: "Mobile" };
-export const MIN_ZOOM = 0.25;
+export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 2;
 export const HEADER_HEIGHT = 48;
 

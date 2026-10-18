@@ -95,7 +95,8 @@ export type ShellToBridgeMessage =
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-markers"; session: string; generation: string; selectionIds: string[] }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "picker-visibility"; session: string; generation: string; hidden: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "picker-refine"; session: string; generation: string; action: "parent" | "child" | "overlap-next" | "overlap-previous" | "attach" }
-  | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidate"; session: string; generation: string; selectionId: string; fingerprint: ElementFingerprint };
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "revalidate"; session: string; generation: string; selectionId: string; fingerprint: ElementFingerprint }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "highlight"; session: string; generation: string; selector: string | null; label: string };
 
 const boundedString = (limit: number, min = 0) => Type.Refine(Type.String(), (value) => value.length >= min && value.length <= limit);
 
@@ -242,6 +243,7 @@ const shellMessageSchema = Type.Union([
   Type.Object({ ...envelope, kind: Type.Union([Type.Literal("reload"), Type.Literal("connect")]) }),
   Type.Object({ ...envelope, kind: Type.Literal("navigate"), route: boundedString(4096), navigationId: boundedString(128) }),
   Type.Object({ ...envelope, kind: Type.Literal("revalidate"), selectionId: boundedString(128), fingerprint: fingerprintSchema }),
+  Type.Object({ ...envelope, kind: Type.Literal("highlight"), selector: nullableString(1_024), label: boundedString(160) }),
 ]);
 
 export function isBridgeMessage(value: unknown): value is BridgeToShellMessage {

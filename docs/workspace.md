@@ -38,7 +38,7 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 
 - **Move:** drag an artboard header, or use its keyboard move handle with arrows (Shift for larger steps).
 - **Pan:** drag empty canvas or a passive preview; hold **Space** to pan temporarily over an active preview. Wheel on the canvas pans; Ctrl+wheel zooms around the pointer. Click a preview to interact, Escape to return to canvas navigation. Ordinary page scrolling remains independent.
-- **Zoom:** 25–200% via the floating zoom control or Ctrl+wheel. Fresh workspaces fit both boards automatically; agent handoff refits both without discarding positions or viewport settings. There are no separate Fit/Reset buttons.
+- **Zoom:** 10–200% via the floating zoom control or Ctrl+wheel. Fresh workspaces fit both boards automatically; agent handoff refits both without discarding positions or viewport settings. There are no separate Fit/Reset buttons.
 - **Viewports:** initially desktop 1440×900 and mobile 390×844 CSS pixels. **Actions → Viewport** changes iframe dimensions, within 240–3840 wide and 240–2160 high. Camera zoom does not change responsive breakpoints.
 - **Focus:** fits one board and hides, rather than remounts, the other. Unfocus restores the previous camera and positions. Page state survives.
 - **Chat:** stays anchored over the canvas and grows with the draft/latest response up to its height cap. Clicking the canvas minimizes the exchange; clicking chat restores it. There is no manual resize separator.
