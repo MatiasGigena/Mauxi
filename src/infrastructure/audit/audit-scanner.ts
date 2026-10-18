@@ -1,12 +1,13 @@
 import { BrowserWindow, type Session } from "electron";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement } from "../../application/audit-contract";
+import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement, type RouteDiscovery } from "../../application/audit-contract";
 import { INTERACTION_PROFILE_IDS, isInteractionResult, type InteractionRun } from "../../application/audit-interactions";
 import { buildReport, type AuditSample } from "../../application/audit-report";
 import { runInteractionPass } from "./interaction-pass";
 import { measurePage } from "./page-audit";
 import { interactionStep } from "./page-interactions";
+import { discoverRoutes, type DiscoveryRequest } from "./route-discovery";
 
 const EvaluateResult = Type.Object({ result: Type.Object({ value: Type.Optional(Type.Unknown()) }), exceptionDetails: Type.Optional(Type.Object({ text: Type.Optional(Type.String()), exception: Type.Optional(Type.Object({ description: Type.Optional(Type.String()) })) })) });
 const Screenshot = Type.Object({ data: Type.String() });
@@ -19,6 +20,7 @@ const MEASURE = `(${measurePage.toString()})`;
 const INTERACT = `(${interactionStep.toString()})`;
 const SNAPSHOT_MAX_HEIGHT = 2_400;
 const RUN_LIMIT_MS = 180_000;
+const DISCOVERY_LIMIT_MS = 45_000;
 const STATIC_STYLE = "*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important;scroll-behavior:auto!important}";
 const SPACING_STYLE = "*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}";
 
@@ -39,7 +41,21 @@ function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
 }
 
-export interface AuditScanRequest { url: string; route: string; origin: string; previous: AuditReport | null }
+/** Keeps the hidden window on the approved origin: no popups, no cross-origin navigation, no beforeunload prompts. */
+function confine(window: BrowserWindow, origin: string): void {
+  const contents = window.webContents;
+  contents.setAudioMuted(true);
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const guard = (event: Electron.Event, target: string) => { if (!sameOrigin(target, origin)) event.preventDefault(); };
+
+  contents.on("will-navigate", guard);
+  contents.on("will-redirect", guard);
+  contents.on("will-frame-navigate", (event) => { if (event.isMainFrame && !sameOrigin(event.url, origin)) event.preventDefault(); });
+  contents.on("will-prevent-unload", (event) => event.preventDefault());
+}
+
+/** snapshotScale below 1 captures snapshots at reduced resolution (site audits), keeping CSS-pixel geometry. */
+export interface AuditScanRequest { url: string; route: string; origin: string; previous: AuditReport | null; snapshotScale?: number }
 
 /**
  * Loads one project route in a hidden window that shares the workspace session, then measures it across the
@@ -54,13 +70,22 @@ export class AuditScanner {
 
   cancel(reason = "Audit cancelled"): void { this.controller?.abort(new Error(reason)); }
 
-  async run(request: AuditScanRequest): Promise<AuditReport> {
+  run(request: AuditScanRequest): Promise<AuditReport> {
+    return this.exclusive(request, RUN_LIMIT_MS, "The audit exceeded its time limit.", (window, signal) => this.scan(window, request, signal));
+  }
+
+  /** Lists same-origin pages linked from the starting route, for a site audit. Shares the one-run-at-a-time lock. */
+  discover(request: DiscoveryRequest): Promise<RouteDiscovery> {
+    return this.exclusive(request, DISCOVERY_LIMIT_MS, "Route discovery exceeded its time limit.", (window, signal) => discoverRoutes(window, request, signal));
+  }
+
+  private async exclusive<T>(request: { url: string; origin: string }, limitMs: number, timeout: string, work: (window: BrowserWindow, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (this.controller) throw new Error("An audit is already running.");
 
     if (!sameOrigin(request.url, request.origin)) throw new Error("Audits are limited to the approved project origin.");
     const controller = new AbortController();
     this.controller = controller;
-    const timer = setTimeout(() => controller.abort(new Error("The audit exceeded its time limit.")), RUN_LIMIT_MS);
+    const timer = setTimeout(() => controller.abort(new Error(timeout)), limitMs);
 
     const window = new BrowserWindow({
       show: false, width: 1440, height: SWEEP_HEIGHT,
@@ -68,7 +93,9 @@ export class AuditScanner {
       webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
     });
 
-    try { return await this.scan(window, request, controller.signal); }
+    confine(window, request.origin);
+
+    try { return await work(window, controller.signal); }
     finally {
       clearTimeout(timer);
       this.controller = undefined;
@@ -80,8 +107,6 @@ export class AuditScanner {
   private async scan(window: BrowserWindow, request: AuditScanRequest, signal: AbortSignal): Promise<AuditReport> {
     const started = Date.now();
     const contents = window.webContents;
-    contents.setAudioMuted(true);
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
     const allowed = (target: string) => sameOrigin(target, request.origin);
     // While the interaction pass clicks and presses keys, every navigation of the audit window is blocked and counted.
     const interaction = { active: false, blocked: 0 };
@@ -183,7 +208,7 @@ export class AuditScanner {
 
       if (profile.snapshot) {
         const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
-        const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: 1 } });
+        const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: request.snapshotScale ?? 1 } });
         const snapshot: AuditSnapshot = { profileId: profile.id, label: profile.label, width: profile.width, height: profile.height, imageHeight, image: `data:image/jpeg;base64,${shot.data}` };
 
         if (profile.note) snapshot.note = profile.note;

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../../application/browser-contract";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
-import type { AuditProgress, AuditReport, AuditRunRequest } from "../../application/audit-contract";
+import type { AuditProgress, AuditReport, AuditRunRequest, AuditScope, AuditSiteReport, RouteDiscovery } from "../../application/audit-contract";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
 
 type BrowserTestRequest = "targets" | BrowserRequest | (Omit<BrowserRequest, "operation"> & { operation: string; expression?: string });
@@ -36,6 +36,15 @@ contextBridge.exposeInMainWorld("mauxi", {
   },
   auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport> { return ipcRenderer.invoke("mauxi:audit-run", input); },
   auditCancel(): Promise<void> { return ipcRenderer.invoke("mauxi:audit-cancel"); },
+  auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery> { return ipcRenderer.invoke("mauxi:audit-discover", input); },
+  auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport> { return ipcRenderer.invoke("mauxi:audit-site", input); },
+  auditOpen(input: AuditScope & { route: string }): Promise<AuditReport | null> { return ipcRenderer.invoke("mauxi:audit-open", input); },
+  onAuditSite(callback: (report: AuditSiteReport) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: AuditSiteReport) => callback(value);
+    ipcRenderer.on("mauxi:audit-site", listener);
+
+    return () => ipcRenderer.removeListener("mauxi:audit-site", listener);
+  },
   onAuditProgress(callback: (progress: AuditProgress) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AuditProgress) => callback(value);
     ipcRenderer.on("mauxi:audit-progress", listener);

@@ -10,7 +10,7 @@ import type { CanvasState } from "../application/canvas-state";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../application/agent-contract";
 
 import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../application/browser-contract";
-import type { AuditProgress, AuditReport, AuditRunRequest } from "../application/audit-contract";
+import type { AuditProgress, AuditReport, AuditRunRequest, AuditScope, AuditSiteReport, RouteDiscovery } from "../application/audit-contract";
 
 export {};
 
@@ -39,6 +39,10 @@ declare global {
       capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
       auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport>;
       auditCancel(): Promise<void>;
+      auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery>;
+      auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport>;
+      auditOpen(input: AuditScope & { route: string }): Promise<AuditReport | null>;
+      onAuditSite(callback: (report: AuditSiteReport) => void): () => void;
       onAuditProgress(callback: (progress: AuditProgress) => void): () => void;
       onAuditReport(callback: (report: AuditReport) => void): () => void;
       releaseCaptures(files: string[]): Promise<void>;

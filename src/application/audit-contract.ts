@@ -181,7 +181,10 @@ export interface AuditReport {
 
 export interface AuditInteractionSummary { durationMs: number; profiles: string[]; focusStops: number; disclosures: number; hovers: number; notes: string[] }
 
-export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "interactions" | "done"; done: number; total: number; width?: number }
+export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "interactions" | "done"; done: number; total: number; width?: number; site?: AuditSiteStep }
+
+/** Where a site audit is: the zero-based page index of the batch and its route. */
+export interface AuditSiteStep { index: number; total: number; route: string }
 
 export interface AuditRunRequest { workspaceId?: string; route: string }
 
@@ -235,3 +238,47 @@ export function findingContext(finding: AuditFinding, route: string): AuditFindi
 export function formatRanges(ranges: Array<[number, number]>): string {
   return ranges.map(([from, to]) => from === to ? `${from}px` : to >= 1920 ? `${from}px+` : `${from}–${to}px`).join(", ");
 }
+
+export const PageLinksSchema = Type.Object({
+  url: text(4_096),
+  links: Type.Array(Type.Object({ href: text(4_096), download: Type.Boolean() }), { maxItems: 400 }),
+  total: Type.Integer({ minimum: 0, maximum: 10_000_000 }),
+});
+
+export type PageLinks = Static<typeof PageLinksSchema>;
+
+export function isPageLinks(value: unknown): value is PageLinks {
+  return Check(PageLinksSchema, value);
+}
+
+export interface DiscoveredRoute { route: string; depth: number; from: string | null }
+
+export interface ExcludedRoute { route: string; reason: string }
+
+export interface RouteDiscovery {
+  start: string;
+  routes: DiscoveredRoute[];
+  /** Same-origin links that were left out, with the reason. */
+  excluded: ExcludedRoute[];
+  external: number;
+  pagesVisited: number;
+  truncated: boolean;
+}
+
+export type AuditSitePageStatus = "pending" | "running" | "done" | "failed" | "skipped";
+
+export interface AuditSitePage {
+  route: string;
+  status: AuditSitePageStatus;
+  summary: AuditReport["summary"] | null;
+  /** Width ranges of the page's bugs, unmerged. */
+  bugRanges: Array<[number, number]>;
+  resolved: number;
+  durationMs: number;
+  error?: string;
+}
+
+export interface AuditSiteReport { id: string; startedAt: string; durationMs: number; state: "running" | "done" | "cancelled"; pages: AuditSitePage[] }
+
+/** Which workspace an audit request targets: the active one, or a proof fixture. */
+export interface AuditScope { workspaceId?: string; fixture?: "vite" | "next" | "next-turbopack" }

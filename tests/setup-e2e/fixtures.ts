@@ -72,6 +72,7 @@ export async function mockDesktop(page: Page) {
       releaseCaptures: async () => {},
       onAuditProgress: () => () => {},
       onAuditReport: () => () => {},
+      onAuditSite: () => () => {},
       auditCancel: async () => {},
       openProject: async () => {
         state.calls++;
@@ -102,6 +103,9 @@ export async function mockDesktop(page: Page) {
       resolveFixtureSource: unmocked,
       capturePreview: unmocked,
       auditRun: unmocked,
+      auditDiscover: unmocked,
+      auditSite: unmocked,
+      auditOpen: unmocked,
       agentLogin: unmocked,
       agentLogout: unmocked,
       agentRefreshCatalog: unmocked,

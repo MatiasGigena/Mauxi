@@ -21,7 +21,8 @@ import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 import { inspectDomSource } from "../project/dom-source";
 import { AuditScanner } from "../audit/audit-scanner";
-import { FindingContextListSchema, type AuditReport } from "../../application/audit-contract";
+import { FindingContextListSchema, type AuditReport, type AuditScope, type AuditSiteReport, type AuditSiteStep } from "../../application/audit-contract";
+import { linkVerdict, SITE_ROUTE_LIMIT, sitePage } from "../../application/audit-site";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,7 @@ const AgentDialogInput = Type.Object({ workspaceId: WorkspaceIdInput, dialogId: 
 const AuthUrlInput = boundedString(4_096);
 const FixtureInput = Type.Union([Type.Literal("vite"), Type.Literal("next"), Type.Literal("next-turbopack")]);
 const AuditRunInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), route: boundedString(4_096), fixture: Type.Optional(FixtureInput) });
+const AuditSiteInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), routes: Type.Array(boundedString(4_096), { minItems: 1, maxItems: SITE_ROUTE_LIMIT }), fixture: Type.Optional(FixtureInput) });
 const PROOF_ORIGINS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
 const PROOF_ROOTS = { vite: "vite", next: "next", "next-turbopack": "next" } as const;
 const CaptureReleaseInput = Type.Array(Type.Refine(Type.String(), file => file.length > 0 && file.length <= 4_096), { maxItems: 8 });
@@ -146,8 +148,18 @@ let visibleBrowser: ElectronVisibleBrowser | undefined;
 let browserHeartbeat = 0;
 let captures: CaptureCache;
 let captureCleanupTimer: ReturnType<typeof setInterval> | undefined;
-let auditTarget: { workspaceId: string; origin: string; route: string; root: string } | null = null;
+
+type AuditTarget = { workspaceId: string; origin: string; route: string; root: string };
+
+type AuditBase = Omit<AuditTarget, "route">;
+
+let auditTarget: AuditTarget | null = null;
 const auditReports = new Map<string, AuditReport>();
+
+/** The latest site audit per workspace; its pages' full reports live in auditReports. */
+const siteReports = new Map<string, AuditSiteReport>();
+let siteRun: { cancelled: boolean } | null = null;
+let siteStep: AuditSiteStep | null = null;
 
 const auditScanner = new AuditScanner({
   session: () => {
@@ -155,7 +167,7 @@ const auditScanner = new AuditScanner({
 
     return mainWindow.webContents.session;
   },
-  onProgress: progress => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-progress", progress); },
+  onProgress: progress => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-progress", siteStep ? { ...progress, site: siteStep } : progress); },
 });
 
 /** Host-verified source candidates for findings whose element carries a unique literal JSX test ID. */
@@ -175,24 +187,107 @@ async function verifyFindingSources(report: AuditReport, root: string): Promise<
   }
 }
 
-async function runAudit(target: { workspaceId: string; origin: string; route: string; root: string }): Promise<AuditReport> {
+/** Runs one route. A site batch captures half-resolution snapshots and reports through site events instead. */
+async function runAudit(target: AuditTarget, batch = false): Promise<AuditReport> {
   const url = new URL(target.route, target.origin);
 
   if (url.origin !== new URL(target.origin).origin) throw new Error("Audits are limited to the approved project origin.");
+
+  if (!batch && siteRun) throw new Error("A site audit is running.");
   const key = `${target.workspaceId}:${target.route}`;
-  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null });
+  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 });
   await verifyFindingSources(report, target.root);
   auditReports.delete(key); auditReports.set(key, report);
 
-  while (auditReports.size > 8) auditReports.delete(auditReports.keys().next().value!);
+  while (auditReports.size > 16) auditReports.delete(auditReports.keys().next().value!);
   auditTarget = target;
+
+  if (batch) return report;
+  const site = siteReports.get(target.workspaceId);
+  const index = site?.pages.findIndex((page) => page.route === target.route) ?? -1;
+
+  if (site && index >= 0) { site.pages[index] = sitePage(report); sendSite(site); }
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-report", report);
 
   return report;
 }
 
-function resetAudits(): void { auditScanner.cancel("Workspace closed"); auditReports.clear(); auditTarget = null; }
+function sendSite(report: AuditSiteReport): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-site", report);
+}
+
+/** Routes for a site audit, normalized with the discovery link policy; unsafe or external routes are refused. */
+function siteRoutes(routes: string[], origin: string): string[] {
+  const result: string[] = [];
+
+  for (const route of routes) {
+    const verdict = linkVerdict(route, origin);
+
+    if (!route.startsWith("/") || verdict.reason !== null) throw new Error(`${route.slice(0, 200)} cannot be audited (${verdict.reason ?? "not a project route"}).`);
+
+    if (!result.includes(verdict.route)) result.push(verdict.route);
+  }
+
+  return result.slice(0, SITE_ROUTE_LIMIT);
+}
+
+/** Audits routes one after another. A failing page is recorded and the batch continues; Stop skips the rest. */
+async function runSiteAudit(base: AuditBase, requested: string[]): Promise<AuditSiteReport> {
+  if (siteRun || auditScanner.running) throw new Error("An audit is already running.");
+  const routes = siteRoutes(requested, base.origin);
+  const run = { cancelled: false };
+  const started = Date.now();
+  const report: AuditSiteReport = { id: crypto.randomUUID(), startedAt: new Date(started).toISOString(), durationMs: 0, state: "running", pages: routes.map((route) => ({ route, status: "pending", summary: null, bugRanges: [], resolved: 0, durationMs: 0 })) };
+  siteRun = run;
+  siteReports.set(base.workspaceId, report);
+  sendSite(report);
+
+  try {
+    for (const [index, route] of routes.entries()) {
+      if (run.cancelled) { report.pages[index].status = "skipped"; continue; }
+
+      siteStep = { index, total: routes.length, route };
+      report.pages[index].status = "running";
+      sendSite(report);
+
+      try { report.pages[index] = sitePage(await runAudit({ ...base, route }, true)); }
+      catch (error) { report.pages[index] = { ...report.pages[index], status: run.cancelled ? "skipped" : "failed", error: (error instanceof Error ? error.message : String(error)).slice(0, 600) }; }
+
+      report.durationMs = Date.now() - started;
+      sendSite(report);
+    }
+  } finally {
+    siteRun = null; siteStep = null;
+    report.state = run.cancelled ? "cancelled" : "done";
+    report.durationMs = Date.now() - started;
+    sendSite(report);
+  }
+
+  return report;
+}
+
+/** The workspace an audit request targets: the active one, or a fixture in proof mode. */
+function auditBase(scope: AuditScope): AuditBase {
+  const active = manager.snapshot().active;
+
+  if (active) {
+    if (scope.workspaceId !== active.workspaceId) throw new Error("Stale audit workspace");
+
+    return { workspaceId: active.workspaceId, origin: active.origin, root: active.appRoot };
+  }
+
+  if (process.env.MAUXI_PROOF !== "1" || !scope.fixture) throw new Error("No active workspace");
+
+  return { workspaceId: `proof:${scope.fixture}`, origin: PROOF_ORIGINS[scope.fixture], root: path.resolve(process.cwd(), "fixtures", PROOF_ROOTS[scope.fixture]) };
+}
+
+function cancelAudits(reason?: string): void {
+  if (siteRun) siteRun.cancelled = true;
+  auditScanner.cancel(reason);
+}
+
+function resetAudits(): void { cancelAudits("Workspace closed"); auditReports.clear(); siteReports.clear(); auditTarget = null; }
 
 function cleanupCaptureCache(): void {
   try { captures.cleanup(); }
@@ -316,6 +411,13 @@ async function activeAgent(): Promise<PiAgentHost> {
         const previous = auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/";
 
         return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route: route ?? previous });
+      },
+      site: async (routes) => {
+        const current = manager.snapshot().active;
+
+        if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
+
+        return runSiteAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot }, routes);
       },
     });
 
@@ -598,20 +700,42 @@ function registerIpc(): void {
     assertTrustedSender(event);
 
     if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid audit request");
-    const active = manager.snapshot().active;
 
-    if (active) {
-      if (input.workspaceId !== active.workspaceId) throw new Error("Stale audit workspace");
-
-      return runAudit({ workspaceId: active.workspaceId, origin: active.origin, root: active.appRoot, route: input.route });
-    }
-
-    if (process.env.MAUXI_PROOF !== "1" || !input.fixture) throw new Error("No active workspace");
-
-    return runAudit({ workspaceId: `proof:${input.fixture}`, origin: PROOF_ORIGINS[input.fixture], root: path.resolve(process.cwd(), "fixtures", PROOF_ROOTS[input.fixture]), route: input.route });
+    return runAudit({ ...auditBase(input), route: input.route });
   });
 
-  ipcMain.handle("mauxi:audit-cancel", (event) => { assertTrustedSender(event); auditScanner.cancel(); });
+  ipcMain.handle("mauxi:audit-discover", async (event, input) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid route discovery request");
+    const base = auditBase(input);
+
+    if (siteRun) throw new Error("An audit is already running.");
+
+    return auditScanner.discover({ url: new URL(input.route, base.origin).href, route: input.route, origin: base.origin, depth: 2 });
+  });
+
+  ipcMain.handle("mauxi:audit-site", async (event, input) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(AuditSiteInput, input)) throw new Error("Invalid site audit request");
+
+    return runSiteAudit(auditBase(input), input.routes);
+  });
+
+  ipcMain.handle("mauxi:audit-open", (event, input) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid audit request");
+    const base = auditBase(input);
+    const report = auditReports.get(`${base.workspaceId}:${input.route}`) ?? null;
+
+    if (report) auditTarget = { ...base, route: input.route };
+
+    return report;
+  });
+
+  ipcMain.handle("mauxi:audit-cancel", (event) => { assertTrustedSender(event); cancelAudits(); });
 
   ipcMain.handle("mauxi:agent-bootstrap", async (event) => {
     assertTrustedSender(event);
