@@ -1,8 +1,9 @@
-import type { AuditElement, AuditFinding, AuditProfile, AuditReport, AuditScroller, AuditSnapshot, FindingClassification, FindingCriterion, FindingKind, FindingMarker, FindingSeverity, PageIssue, PageMeasurement } from "./audit-contract";
+import type { AuditAxeInfo, AuditElement, AuditFinding, AuditProfile, AuditReport, AuditScroller, AuditSnapshot, FindingClassification, FindingCriterion, FindingKind, FindingMarker, FindingSeverity, PageIssue, PageMeasurement } from "./audit-contract";
 import { formatRanges } from "./audit-contract";
+import { AXE_NODE_LIMIT, axeCriterion, axeFix, isAxeHelpUrl, type AxeImpact, type AxeProfileResult } from "./audit-axe";
 import { interactionFindings, type InteractionRun } from "./audit-interactions";
 
-export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement }
+export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement; axe?: AxeProfileResult[] }
 
 interface Occurrence { sample: AuditSample; issue: PageIssue }
 
@@ -15,6 +16,7 @@ const RESIZE_TEXT: FindingCriterion = { id: "1.4.4", name: "Resize Text" };
 
 const CLASS_ORDER: Record<FindingClassification, number> = { bug: 0, review: 1, intentional: 2 };
 const SEVERITY_ORDER: Record<FindingSeverity, number> = { serious: 0, moderate: 1, minor: 2 };
+const IMPACT_SEVERITY: Record<NonNullable<AxeImpact>, FindingSeverity> = { critical: "serious", serious: "serious", moderate: "moderate", minor: "minor" };
 
 function hash(value: string): string {
   let result = 0x811c9dc5;
@@ -26,8 +28,8 @@ function hash(value: string): string {
 
 const elementKey = (element: AuditElement) => `${element.selector}|${element.source?.file ?? ""}`;
 
-function group(occurrences: Occurrence[], key: (occurrence: Occurrence) => string): Map<string, Occurrence[]> {
-  const groups = new Map<string, Occurrence[]>();
+function group<T>(occurrences: T[], key: (occurrence: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
 
   for (const occurrence of occurrences) {
     const id = key(occurrence);
@@ -97,6 +99,7 @@ export function buildReport(input: {
   snapshots: AuditSnapshot[];
   previous?: AuditReport | null;
   interactions?: InteractionRun;
+  axe?: AuditAxeInfo;
 }): AuditReport {
   const { samples } = input;
   const scanned = [...new Set(samples.filter((sample) => !sample.profile?.textSpacing).map((sample) => sample.width))].sort((a, b) => a - b);
@@ -248,6 +251,54 @@ export function buildReport(input: {
     });
   }
 
+  // General accessibility rules from axe-core, grouped per rule and element across the width profiles where axe ran.
+  const axeSamples = samples.filter((sample) => sample.axe);
+  const axeWidths = axeSamples.map((sample) => sample.width);
+  const axeHits = axeSamples.flatMap((sample) => (sample.axe ?? []).flatMap((result) => result.nodes.map((node) => ({ sample, result, node }))));
+
+  for (const [key, items] of group(axeHits, (hit) => `${hit.result.rule}|${hit.node.element ? elementKey(hit.node.element) : hit.node.target}`)) {
+    const violations = items.filter((hit) => hit.result.outcome === "violation");
+    const chosen = violations.length ? violations : items;
+    const narrowest = chosen.reduce((best, hit) => hit.sample.width < best.sample.width ? hit : best, chosen[0]);
+    const { result, node } = narrowest;
+    const widths = chosen.map((hit) => hit.sample.width);
+    const ranges = widthRanges(widths, axeWidths);
+    const everywhere = axeWidths.every((width) => widths.includes(width));
+    const found = new Set(chosen.map((hit) => hit.sample));
+    const label = (sample: AuditSample) => `${sample.profile?.label ?? "Width"} (${sample.width}px)`;
+    const missing = axeSamples.flatMap((sample) => found.has(sample) ? [] : [label(sample)]);
+    const more = Math.max(...chosen.map((hit) => hit.result.total - hit.result.nodes.length));
+    const criterion = axeCriterion(result.tags);
+    const severities = chosen.map((hit) => IMPACT_SEVERITY[hit.node.impact ?? hit.result.impact ?? "moderate"]);
+    const element = chosen.find((hit) => hit.node.element)?.node.element ?? null;
+    const markerList: FindingMarker[] = [];
+
+    for (const hit of chosen) {
+      const profileId = hit.sample.profile?.id;
+
+      if (!profileId || !snapshotProfiles.has(profileId) || !hit.node.element || ["html", "body"].includes(hit.node.element.tag) || markerList.some((marker) => marker.profileId === profileId)) continue;
+      markerList.push({ profileId, rect: hit.node.element.rect });
+    }
+
+    findings.push({
+      id: `axe:${result.rule}:${hash(key)}`, kind: "axe",
+      title: (everywhere ? result.help : `${result.help} (only at ${formatRanges(ranges)})`).slice(0, 512),
+      detail: [
+        `${violations.length ? "" : "axe-core could not decide this automatically: "}${node.message.replace(/[\s.]*$/, ".")}`,
+        `${element ? "" : `Target: ${node.target}. `}axe-core rule ${result.rule}.`,
+        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}; not at ${missing.join(", ")}.`,
+        more > 0 ? `${more} more elements fail this rule (only the first ${AXE_NODE_LIMIT} per profile are listed).` : "",
+      ].join(" ").trim(),
+      fixHint: axeFix(result.rule, result.help), criterion,
+      severity: severities.reduce((worst, severity) => SEVERITY_ORDER[severity] < SEVERITY_ORDER[worst] ? severity : worst, "minor"),
+      classification: violations.length && criterion && !result.tags.includes("experimental") ? "bug" : "review",
+      element: element && { ...element, selector: element.selector || element.tag },
+      ranges, worst: { width: narrowest.sample.width, height: narrowest.sample.height },
+      profiles: [...new Set(chosen.flatMap((hit) => hit.sample.profile ? [hit.sample.profile.id] : []))], markers: markerList,
+      rule: { id: result.rule, help: result.help, url: isAxeHelpUrl(result.helpUrl) ? result.helpUrl : null },
+    });
+  }
+
   // Document-level viewport metadata.
   const first = samples[0]?.measurement;
 
@@ -278,7 +329,7 @@ export function buildReport(input: {
 
   return {
     url: input.url, route: input.route, startedAt: input.startedAt, durationMs: input.durationMs, widthsScanned: scanned.length,
-    profiles: profileList, snapshots: [...input.snapshots, ...(interactions?.snapshots ?? []).filter((snapshot) => markedBoards.has(snapshot.profileId))], findings, scrollers, resolved,
+    profiles: profileList, snapshots: [...input.snapshots, ...(interactions?.snapshots ?? []).filter((snapshot) => markedBoards.has(snapshot.profileId))], findings, scrollers, resolved, axe: input.axe,
     summary: {
       bug: count((finding) => finding.classification === "bug"), review: count((finding) => finding.classification === "review"), intentional: count((finding) => finding.classification === "intentional"),
       serious: count((finding) => finding.severity === "serious"), moderate: count((finding) => finding.severity === "moderate"), minor: count((finding) => finding.severity === "minor"),

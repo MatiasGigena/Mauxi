@@ -1,9 +1,12 @@
 import { BrowserWindow, type Session } from "electron";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement, type RouteDiscovery } from "../../application/audit-contract";
+import axeSource from "axe-core/axe.min.js" with { type: "text" };
+import { AXE_IGNORED_INCOMPLETE, AXE_NODE_LIMIT, AXE_RULES, AXE_TIMEOUT_MS, isAxeRun, type AxeProfileResult, type AxeRun, type AxeRunOptions } from "../../application/audit-axe";
+import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditAxeInfo, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement, type RouteDiscovery } from "../../application/audit-contract";
 import { INTERACTION_PROFILE_IDS, isInteractionResult, type InteractionRun } from "../../application/audit-interactions";
 import { buildReport, type AuditSample } from "../../application/audit-report";
+import { runAxe } from "./axe-run";
 import { runInteractionPass } from "./interaction-pass";
 import { measurePage } from "./page-audit";
 import { interactionStep } from "./page-interactions";
@@ -11,6 +14,8 @@ import { discoverRoutes, type DiscoveryRequest } from "./route-discovery";
 
 const EvaluateResult = Type.Object({ result: Type.Object({ value: Type.Optional(Type.Unknown()) }), exceptionDetails: Type.Optional(Type.Object({ text: Type.Optional(Type.String()), exception: Type.Optional(Type.Object({ description: Type.Optional(Type.String()) })) })) });
 const Screenshot = Type.Object({ data: Type.String() });
+const FrameTree = Type.Object({ frameTree: Type.Object({ frame: Type.Object({ id: Type.String() }) }) });
+const IsolatedWorld = Type.Object({ executionContextId: Type.Integer() });
 
 type CdpValue = string | number | boolean | CdpValue[] | { [key: string]: CdpValue };
 
@@ -18,6 +23,8 @@ type CdpParams = { [key: string]: CdpValue };
 
 const MEASURE = `(${measurePage.toString()})`;
 const INTERACT = `(${interactionStep.toString()})`;
+const RUN_AXE = `(${runAxe.toString()})`;
+const AXE_OPTIONS: AxeRunOptions = { rules: AXE_RULES, maxNodes: AXE_NODE_LIMIT, timeoutMs: AXE_TIMEOUT_MS, ignoredIncomplete: AXE_IGNORED_INCOMPLETE };
 const SNAPSHOT_MAX_HEIGHT = 2_400;
 const RUN_LIMIT_MS = 180_000;
 const DISCOVERY_LIMIT_MS = 45_000;
@@ -138,10 +145,10 @@ export class AuditScanner {
 
     const command = async (method: string, params: CdpParams = {}): Promise<void> => { await query(Type.Unknown(), method, params); };
 
-    const evaluate = async (expression: string): Promise<Static<typeof EvaluateResult>["result"]> => {
-      const result = await query(EvaluateResult, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+    const evaluate = async (expression: string, contextId?: number): Promise<Static<typeof EvaluateResult>["result"]> => {
+      const result = await query(EvaluateResult, "Runtime.evaluate", contextId === undefined ? { expression, returnByValue: true, awaitPromise: true } : { expression, returnByValue: true, awaitPromise: true, contextId });
 
-      if (result.exceptionDetails) throw new Error(`Page measurement failed: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "unknown error"}`.slice(0, 600));
+      if (result.exceptionDetails) throw new Error(`${contextId === undefined ? "Page measurement" : "axe-core"} failed: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "unknown error"}`.slice(0, 600));
 
       return result.result;
     };
@@ -151,9 +158,9 @@ export class AuditScanner {
       await evaluate(`new Promise(resolve => setTimeout(resolve, ${settleMs}))`);
     };
 
-    const measure = async (full: boolean): Promise<PageMeasurement> => {
+    const measure = async (full: boolean, targets?: string[]): Promise<PageMeasurement> => {
       if (reloaded) throw new Error("The page reloaded during the audit (for example a dev server full reload). Run the audit again.");
-      const { value } = await evaluate(`${MEASURE}(${JSON.stringify({ full, maxElements: 6_000 })})`);
+      const { value } = await evaluate(`${MEASURE}(${JSON.stringify({ full, maxElements: 6_000, targets })})`);
 
       if (!isPageMeasurement(value)) throw new Error("The page returned an invalid measurement.");
 
@@ -186,6 +193,37 @@ export class AuditScanner {
     await evaluate(`Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise(r => setTimeout(r, 3000))]).then(() => new Promise(r => setTimeout(r, 400)))`);
     await evaluate(`(() => { const style = document.createElement("style"); style.dataset.mauxiOverlay = "true"; style.id = "mauxi-audit-static"; style.textContent = ${JSON.stringify(STATIC_STYLE)}; document.head.append(style); })()`);
 
+    // axe-core runs in an isolated world: page scripts cannot tamper with it and it never touches the page's globals.
+    // React fiber expandos are invisible there, so its targets are described by measurePage in the main world.
+    const axe: AuditAxeInfo = { version: null, profiles: [], durationMs: 0, note: null };
+    const axeFailed = (where: string, cause: unknown) => { axe.note ??= `General checks (axe-core) ${where}: ${(cause instanceof Error ? cause.message : String(cause)).replace(/^axe-core failed: (?:Error: )?/, "").split("\n")[0]}`.slice(0, 600); };
+    let axeContext: number | null = null;
+
+    try {
+      const { frameTree } = await query(FrameTree, "Page.getFrameTree");
+      axeContext = (await query(IsolatedWorld, "Page.createIsolatedWorld", { frameId: frameTree.frame.id, worldName: "mauxi-axe" })).executionContextId;
+      await evaluate(`${axeSource};undefined`, axeContext);
+    } catch (error) { signal.throwIfAborted(); axeContext = null; axeFailed("could not start", error); }
+
+    const runAxeHere = async (label: string): Promise<AxeRun | null> => {
+      if (axeContext === null) return null;
+
+      try {
+        const { value } = await evaluate(`${RUN_AXE}(axe, ${JSON.stringify(AXE_OPTIONS)})`, axeContext);
+
+        if (!isAxeRun(value)) throw new Error("axe-core returned an invalid result.");
+        axe.version = value.version;
+        axe.durationMs += value.durationMs;
+
+        return value;
+      } catch (error) {
+        signal.throwIfAborted();
+        axeFailed(`failed at ${label}`, error);
+
+        return null;
+      }
+    };
+
     const samples: AuditSample[] = [];
     let done = 0;
 
@@ -203,8 +241,18 @@ export class AuditScanner {
 
       if (profile.textSpacing) await evaluate(`(() => { const style = document.createElement("style"); style.dataset.mauxiOverlay = "true"; style.id = "mauxi-audit-spacing"; style.textContent = ${JSON.stringify(SPACING_STYLE)}; document.head.append(style); })()`);
       await resize(profile.width, profile.height, 250);
-      const measurement = await measure(true);
-      samples.push({ width: profile.width, height: profile.height, profile, measurement });
+      // axe runs once per distinct layout: text-spacing overrides and the short 400% zoom viewport repeat a measured width.
+      const axeRun = profile.textSpacing || profile.viewportOnly ? null : await runAxeHere(profile.label);
+      const targets = [...new Set(axeRun?.results.flatMap((result) => result.nodes.flatMap((node) => node.target.includes(" >>> ") ? [] : [node.target])) ?? [])].slice(0, 200);
+      const measurement = await measure(true, axeRun ? targets : undefined);
+      const sample: AuditSample = { width: profile.width, height: profile.height, profile, measurement };
+
+      if (axeRun) {
+        sample.axe = axeRun.results.map((result): AxeProfileResult => ({ ...result, nodes: result.nodes.map((node) => ({ ...node, element: measurement.targets?.[targets.indexOf(node.target)] ?? null })) }));
+        axe.profiles.push(profile.id);
+      }
+
+      samples.push(sample);
 
       if (profile.snapshot) {
         const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
@@ -252,6 +300,8 @@ export class AuditScanner {
     if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
     progress("done", total);
 
-    return buildReport({ url: request.url, route: request.route, startedAt: new Date(started).toISOString(), durationMs: Date.now() - started, samples, snapshots, previous: request.previous, interactions });
+    if (axeContext !== null && !axe.profiles.length) axe.note ??= "General checks (axe-core) did not run at any profile.";
+
+    return buildReport({ url: request.url, route: request.route, startedAt: new Date(started).toISOString(), durationMs: Date.now() - started, samples, snapshots, previous: request.previous, interactions, axe });
   }
 }

@@ -47,6 +47,8 @@ export const PageMeasurementSchema = Type.Object({
   issues: Type.Array(PageIssueSchema, { maxItems: 160 }),
   visited: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
   truncated: Type.Boolean(),
+  /** Elements for MeasureOptions.targets, in order; null when a selector no longer matches. */
+  targets: Type.Optional(Type.Array(Type.Union([Type.Null(), AuditElementSchema]), { maxItems: 200 })),
 });
 
 export type AuditRect = Static<typeof RectSchema>;
@@ -67,6 +69,8 @@ export interface MeasureOptions {
   /** Run the slower per-profile checks (text clipping, target size, sticky coverage) in addition to overflow. */
   full: boolean;
   maxElements: number;
+  /** CSS selectors reported by axe-core to describe with the same element model as Mauxi's own findings. */
+  targets?: string[];
 }
 
 export interface AuditProfile {
@@ -118,7 +122,8 @@ export type FindingKind =
   | "focus-obscured"
   | "focus-not-visible"
   | "disclosure-overflow"
-  | "hover-content";
+  | "hover-content"
+  | "axe";
 
 export type FindingSeverity = "serious" | "moderate" | "minor";
 
@@ -144,6 +149,8 @@ export interface AuditFinding {
   worst: { width: number; height: number; overflowPx?: number };
   profiles: string[];
   markers: FindingMarker[];
+  /** The axe-core rule behind an "axe" finding; url is set only for Deque rule documentation. */
+  rule?: { id: string; help: string; url: string | null };
 }
 
 export interface AuditScroller {
@@ -177,7 +184,11 @@ export interface AuditReport {
   summary: { bug: number; review: number; intentional: number; serious: number; moderate: number; minor: number };
   /** Keyboard focus, disclosure and hover checks; absent when the pass did not run. */
   interactions?: AuditInteractionSummary;
+  /** General checks by axe-core at the width profiles; note explains a failed or partial run. */
+  axe?: AuditAxeInfo;
 }
+
+export interface AuditAxeInfo { version: string | null; profiles: string[]; durationMs: number; note: string | null }
 
 export interface AuditInteractionSummary { durationMs: number; profiles: string[]; focusStops: number; disclosures: number; hovers: number; notes: string[] }
 
@@ -210,6 +221,7 @@ const FindingContextSchema = Type.Object({
     Type.Literal("page-overflow"), Type.Literal("clipped-by-page"), Type.Literal("scroller-review"), Type.Literal("scroller-a11y"), Type.Literal("content-clipped"), Type.Literal("text-truncated"),
     Type.Literal("text-spacing-clipped"), Type.Literal("target-size"), Type.Literal("sticky-obstruction"), Type.Literal("zoom-blocked"), Type.Literal("viewport-meta"),
     Type.Literal("focus-obscured"), Type.Literal("focus-not-visible"), Type.Literal("disclosure-overflow"), Type.Literal("hover-content"),
+    Type.Literal("axe"),
   ]),
   title: text(512),
   detail: text(2_048),

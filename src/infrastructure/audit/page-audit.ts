@@ -372,5 +372,14 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
     }
   }
 
-  return { url: clip(location.href, 4_096), viewport: { width: viewportWidth, height: viewportHeight }, documentHeight: Math.max(scrolling.scrollHeight, body?.scrollHeight ?? 0), pageOverflowPx: round(pageOverflowPx), pageClipsX, viewportMeta, issues, visited, truncated };
+  // 6. Describe elements found by axe-core in the isolated world, so they share selectors, labels and source hints.
+  const targets = options.targets?.slice(0, 200).map((selector) => {
+    try {
+      const element = document.querySelector(selector);
+
+      return element ? describe(element) : null;
+    } catch { return null; }
+  });
+
+  return { url: clip(location.href, 4_096), viewport: { width: viewportWidth, height: viewportHeight }, documentHeight: Math.max(scrolling.scrollHeight, body?.scrollHeight ?? 0), pageOverflowPx: round(pageOverflowPx), pageClipsX, viewportMeta, issues, visited, truncated, targets };
 }
