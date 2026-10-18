@@ -77,6 +77,7 @@ Discovery only follows links a visitor could open with a plain GET, and only on 
 | Fixed bars cover the screen | 2.4.11 Focus Not Obscured (Minimum) | Fixed or sticky bars anchored to the top and bottom cover more than 40% of a profile's viewport, typically at 400% zoom. Measured at the top of the page; the keyboard focus walk below measures what focus actually hits. |
 | Pinch-zoom disabled | 1.4.4 Resize Text | The viewport meta tag sets `user-scalable=no` or `maximum-scale` below 2. |
 | Missing viewport meta | — | No `width=device-width`, so phones lay the page out at about 980 px. |
+| General accessibility rules | From axe-core tags (for example 1.4.3, 1.1.1, 4.1.2) | axe-core at the phone, tablet, laptop and desktop profiles. See [General accessibility checks](#general-accessibility-checks-axe-core). |
 
 ### Intentional scrollers versus bugs
 
@@ -125,6 +126,22 @@ Snapshots of the moment are added as extra boards (for example **Focus · 400% z
 - **State not restored:** handled by the verification above; when it fails the pass stops so no later check measures a modified page.
 - **Hover content:** only tooltips with `role="tooltip"` or `aria-describedby` semantics are found, and only content that appears within 120 ms. Escape-to-dismiss (the third 1.4.13 requirement) is not pressed.
 
+## General accessibility checks (axe-core)
+
+At the Small phone, Phone, Tablet, Laptop and Desktop profiles, Mauxi also runs [axe-core](https://github.com/dequelabs/axe-core) 4.13 on the same loaded page, before the interaction pass, so focus, opened menus or hover never affect its results. Running the same rules in every layout finds problems that exist in one layout only: an icon-only menu toggle without a name that is shown only below 600 px, text whose color drops below 4.5:1 in a mobile media query, or an icon link that only appears on desktop.
+
+- **Rules:** color contrast and links distinguished only by color; text alternatives (`img`, image inputs, `role="img"`, `svg`, `area`, `object`); names of buttons, links, `summary`, frames and ARIA widgets; form labels; ARIA attribute, role and parent/child validity, `aria-hidden` containers with focusable content, nested interactive controls; lists; page title and language; landmarks (`region`, one `main`, unique landmarks); inline text-spacing styles. The full list is `AXE_RULES` in `src/application/audit-axe.ts`.
+- **Not repeated:** axe's `meta-viewport`, `meta-viewport-large`, `target-size` and `scrollable-region-focusable` rules are skipped, because Mauxi measures pinch-zoom, target size and scroller keyboard access itself across the width sweep.
+- **Classification:** a violation of a rule tagged with a WCAG success criterion is a **Bug** with that criterion (`wcag143` → 1.4.3). Best-practice rules (landmarks), experimental rules and results axe could not decide (for example text on a gradient or a background image) are **Needs review**. Severity follows axe's impact: critical and serious are serious.
+- **Width ranges:** results are grouped per rule and element across the profiles. A finding measured at 320 and 390 px but not at 768 px reads "(only at 320–390px)" and lists the profiles where it passes. The ranges are bounded by the profile widths (320, 390, 768, 1280, 1440); the exact breakpoint between two profiles is not swept.
+- **Elements and sources:** axe's selectors are resolved in the page and described like every other finding (selector, `data-testid`, React source hint, host verification), so snapshot markers, **Show at <width>** and **Fix with agent** work the same way. Cards show the rule id (for example `axe · button-name`). At most 8 elements per rule and profile are listed; the finding says how many more failed.
+- **Dropped inconclusive results:** contrast results that axe cannot decide because a fixed bar overlaps the text at the measured scroll position (Mauxi reports such bars as 2.4.11), because the element is offscreen, or because the content is a single glyph or icon are not reported.
+- **Isolation:** axe-core runs in an isolated JavaScript world created over the DevTools protocol. Page scripts cannot override it, it defines no globals in the page, and a page that already ships axe-core is unaffected. Its results are validated and size-bounded before they reach the report.
+- **Cost and failures:** axe adds roughly 0.2–1 s to an audit on the lab pages; the report records its time. If axe cannot be injected, takes longer than 10 s at a profile or returns an unexpected result, the layout audit still completes and the panel shows a note.
+- **Learn more** opens Deque's rule page in your default browser. Only `https://dequeuniversity.com/rules/axe/…` links that appear in a stored report can be opened.
+
+axe-core is © Deque Systems, Inc. and licensed under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/). Mauxi bundles its unmodified `axe.min.js` into the desktop host; its source is available from the axe-core project.
+
 ## Panel, snapshots and live highlight
 
 The panel shows a 320–1920 px ruler of the widths where bugs were measured, counts per classification, and the findings. Each finding has its own ruler, the WCAG criterion, the element selector, the source location, what was measured and a fix direction.
@@ -169,4 +186,6 @@ Audits work on `next dev` with Webpack or Turbopack. The end-to-end suites exerc
 - A single run audits the route in the Desktop preview; **Audit site** covers at most 12 linked pages. Layout checks measure the state a page loads in; the interaction pass adds keyboard focus, closed disclosures and tooltips at two narrow profiles only. Forms are never filled, nothing is typed, and states behind clicks on links, tabs, carousels or comboboxes are not explored. Pages reachable only through script navigation or forms are not discovered (add them by hand), and hash-router routes such as `/#/about` collapse into one page because the hash is dropped.
 - Text resize (1.4.4) is covered through zoom-equivalent widths and the viewport meta check, not browser text-only zoom.
 - Orientation (1.3.4) is not checked automatically.
+- axe-core checks the top document only: iframes are not checked, and elements inside shadow roots are reported by their axe selector without an element, source or marker.
+- axe-core does not run at the text-spacing and 400% zoom profiles, which repeat the 320 and 1280 px layouts.
 - Snapshots are captured up to 2,400 px tall; markers below that are listed in the panel only.

@@ -2,7 +2,7 @@
 
 A local-first **Linux** desktop workspace that audits how a real web app behaves at every viewport width and zoom level, and fixes what breaks in the project's own source.
 
-Open a local project, run the **responsive audit**, and Mauxi sweeps the page from 320 to 1920 px plus phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles. It reports horizontal overflow, content cut off, clipped text, small touch targets, sticky bars that cover the screen and zoom-blocking viewport tags, mapped to the WCAG 2.2 criteria that depend on the viewport. It tells deliberate carousels, tables and code blocks apart from accidental scrolling. Each finding comes with the widths where it happens, the element and its source file, and a fix direction you can hand to the agent.
+Open a local project, run the **responsive audit**, and Mauxi sweeps the page from 320 to 1920 px plus phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles. It reports horizontal overflow, content cut off, clipped text, small touch targets, sticky bars that cover the screen and zoom-blocking viewport tags, mapped to the WCAG 2.2 criteria that depend on the viewport. It also runs [axe-core](https://github.com/dequelabs/axe-core) contrast, name, label, ARIA and landmark rules at every width profile, so problems that exist only in the mobile (or only in the desktop) layout are reported with the widths where they occur. It tells deliberate carousels, tables and code blocks apart from accidental scrolling. Each finding comes with the widths where it happens, the element and its source file, and a fix direction you can hand to the agent.
 
 ## What it does
 
