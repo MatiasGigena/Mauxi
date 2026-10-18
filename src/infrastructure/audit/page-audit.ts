@@ -92,43 +92,58 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
     return clip(parts.join(" > "), 1_024);
   };
 
-  /** React development builds keep the JSX call stack on each fiber; use it as an unverified source hint. */
+  /**
+   * React development builds keep the JSX call stack and the owner (the component that wrote the JSX) on each fiber; use them
+   * as an unverified source hint. Server Component owners (Next.js App Router) are plain objects with a name and a stack.
+   */
   const sourceOf = (element: Element): Element_["source"] => {
-    interface Fiber { type?: { name?: string; displayName?: string } | string | null; return?: Fiber | null; _debugStack?: { stack?: string } }
+    interface Named { name?: string; displayName?: string }
 
-    let fiber: Fiber | null | undefined = Object.entries(element).find(([name]) => name.startsWith("__reactFiber$"))?.[1];
+    interface DebugNode { type?: (Named & { render?: Named }) | string | null; name?: unknown; _debugStack?: { stack?: string }; debugStack?: { stack?: string }; _debugOwner?: DebugNode | null; owner?: DebugNode | null }
 
-    if (!fiber) return null;
+    const fileOf = (stack: string) => {
+      for (const frame of stack.split("\n").slice(1, 12)) {
+        // Server Component frames are replayed as about://React/Server/<url>, and webpack URLs contain "(layer)" parentheses.
+        const match = /((?:(?:about|rsc):\/\/React\/[\w-]+\/)?(?:https?|file|webpack-internal):\/\/\/?.+?|\[project\].+?):(\d+):\d+\)?\s*$/.exec(frame);
+
+        if (!match) continue;
+        let path = match[1].replace(/^(?:about|rsc):\/\/React\/[\w-]+\//, "");
+
+        // Bundled chunks (Next's _next/static and .next/server, Turbopack's hashed chunk names) do not name a project file.
+        if (/node_modules|react[-_]dom|react_jsx|jsx-dev-runtime|\/@vite\/|\/\.vite\/|next\/dist|\/_next\/|\/\.next\//.test(path)) continue;
+        path = path.replace(/^\[project\]\//, "").replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?\.?\/?/, "").replace(/^file:\/\//, "").replace(/^https?:\/\/[^/]+\//, "").replace(/\?.*$/, "");
+
+        // Dev-server stack lines refer to transformed code, so only the file is kept as a hint.
+        if (/\.(?:[jt]sx?|mdx?)$/.test(path)) return clip(decodeURIComponent(path), 1_024);
+      }
+
+      return null;
+    };
+
+    const nameOf = (owner: DebugNode | null | undefined) => {
+      if (!owner) return null;
+      const type: Named | undefined = owner.type instanceof Function ? owner.type : owner.type instanceof Object ? owner.type.render : undefined;
+
+      return clip(String(type?.displayName || type?.name || owner.name || ""), 256) || null;
+    };
+
+    let node: DebugNode | null | undefined = Object.entries(element).find(([name]) => name.startsWith("__reactFiber$"))?.[1];
+
+    if (!node) return null;
     let component: string | null = null;
-    let file: string | null = null;
 
-    for (let depth = 0; fiber && depth < 30 && (!component || !file); depth++) {
-      const stack = String(fiber._debugStack?.stack ?? "");
+    // Follow owners: each node's stack is its JSX call site inside its owner, so file and component stay paired.
+    for (let depth = 0; node && depth < 30; depth++) {
+      const owner: DebugNode | null | undefined = node._debugOwner ?? node.owner;
+      const name = nameOf(owner);
+      component ??= name;
+      const file = fileOf(String(node._debugStack?.stack ?? node.debugStack?.stack ?? ""));
 
-      if (!file && stack) {
-        for (const frame of stack.split("\n").slice(1, 12)) {
-          const match = /((?:https?|file|webpack-internal):\/\/\/?[^\s)]+|\[project\][^\s)]+):(\d+):\d+\)?\s*$/.exec(frame);
-
-          if (!match || /node_modules|react[-_]dom|react_jsx|jsx-dev-runtime|\/@vite\/|\/\.vite\/|next\/dist|_next\/static\/chunks\/(?:node_modules|webpack)/.test(match[1])) continue;
-          let path = match[1].replace(/^\[project\]\//, "").replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?\.?\/?/, "").replace(/^file:\/\//, "").replace(/^https?:\/\/[^/]+\//, "");
-          path = path.replace(/\?.*$/, "").replace(/^_next\/static\/chunks\//, "");
-
-          if (!/\.(?:[jt]sx?|mdx?)$/.test(path)) continue;
-          // Dev-server stack lines refer to transformed code, so only the file is kept as a hint.
-          file = clip(decodeURIComponent(path), 1_024);
-          break;
-        }
-      }
-
-      if (!component && fiber.type instanceof Function) {
-        const named: { name?: string; displayName?: string } = fiber.type;
-        component = clip(String(named.displayName || named.name || ""), 256) || null;
-      }
-
-      fiber = fiber.return;
+      if (file) return { component: name ?? component, file, line: null };
+      node = owner;
     }
 
-    return component || file ? { component, file, line: null } : null;
+    return component ? { component, file: null, line: null } : null;
   };
 
   const describe = (element: Element, withSource = true): Element_ => ({
@@ -180,7 +195,8 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
 
   // 1. Horizontal page overflow and content cut off by html/body overflow-x: hidden.
   if (pageOverflowPx > 0 || pageClipsX) {
-    const offenders = entries.filter((entry) => entry.extends && !invisible(entry) && !(entry.parent?.extends));
+    // A child reaching further than its overflowing parent is its own cause (e.g. a fixed-width row inside a body that only overflows by the scrollbar).
+    const offenders = entries.filter((entry) => entry.extends && !invisible(entry) && !(entry.parent?.extends && entry.parent.rect.right >= entry.rect.right - .5));
     const byParent = new Map<Element | null, Entry[]>();
 
     for (const entry of offenders) byParent.set(entry.parent?.element ?? null, [...(byParent.get(entry.parent?.element ?? null) ?? []), entry]);
