@@ -85,6 +85,11 @@ export function AuditLab() {
         </section>
       </main>
 
+      {/* Site audit discovery: one page to follow, plus links it must skip (API, download, mail). Inline links in a sentence add no findings. */}
+      <footer className="lab-section lab-footer" data-testid="lab-footer">
+        <p>Read <a href="/audit-lab-about.html">about the roastery</a>, <a href="/api/logout">sign out of your account</a>, <a href="/audit-lab-menu.pdf" download>download the full menu</a> or <a href="mailto:hello@northwind.example">write to the roasters</a> any time.</p>
+      </footer>
+
       {/* Planted: fixed cookie bar adding to the covered area at short viewports. */}
       <div className="cookie-bar" role="dialog" aria-label="Cookie notice" data-testid="cookie-bar">We use cookies to remember your grind. <button type="button">OK</button></div>
     </div>

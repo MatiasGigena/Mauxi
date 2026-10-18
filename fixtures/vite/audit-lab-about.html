@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>About · Northwind Roasters</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #2b211b; background: #f7f1e8; }
+  main { max-width: 42rem; margin: 0 auto; padding: 48px 24px; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.15; margin: 0 0 16px; }
+  p { line-height: 1.5; margin: 0 0 16px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+  <!-- Site audit fixture: a clean page. Its links lead one level deeper (the blog) and to routes discovery must skip. -->
+  <main data-testid="about-page">
+    <h1>About the roastery</h1>
+    <p id="team">We roast small batches every Tuesday in a converted bakery and ship them the same week.</p>
+    <p>Read <a href="/audit-lab-blog.html">the roasting journal</a>, go back to <a href="/audit-lab.html#beans">this week's beans</a>, meet <a href="/audit-lab-about.html#team">the team</a> or <a href="/auth/callback?code=demo">finish signing in</a> whenever you like.</p>
+  </main>
+</body>
+</html>
