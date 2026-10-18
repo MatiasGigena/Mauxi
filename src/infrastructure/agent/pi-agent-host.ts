@@ -49,9 +49,10 @@ import { RESPONSIVE_WORKFLOW, visibleUserText, WORKING_MESSAGES, REQUEST_PREFIX 
 import { BROWSER_OPERATIONS, type BrowserPort, type BrowserRequest, type BrowserActionTarget } from "../../application/browser-contract";
 import { hasErrorCode } from "../error-code";
 import { watchStreamIdle } from "./stream-watchdog";
-import { findingContext, type AuditReport } from "../../application/audit-contract";
+import { findingContext, formatRanges, type AuditReport, type AuditSiteReport } from "../../application/audit-contract";
+import { mergeRanges, SITE_ROUTE_LIMIT } from "../../application/audit-site";
 
-export interface AuditPort { run(route?: string): Promise<AuditReport> }
+export interface AuditPort { run(route?: string): Promise<AuditReport>; site?(routes: string[]): Promise<AuditSiteReport> }
 
 type AgentMessage = AgentSession["messages"][number];
 
@@ -498,13 +499,24 @@ export class PiAgentHost {
 
     const responsiveAudit = defineTool({
       name: "responsive_audit", label: "Run responsive audit",
-      description: "Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. At most four audits per request.",
-      parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })) }),
+      description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused in a batch. At most four audits (a batch counts as one) per request.`,
+      parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })), routes: Type.Optional(Type.Array(Type.String({ maxLength: 2_048, pattern: "^/" }), { minItems: 1, maxItems: SITE_ROUTE_LIMIT })) }),
       execute: async (_id, input) => {
         if (!this.audit) throw new Error("The responsive audit is unavailable in this workspace.");
 
         if (this.auditsRun >= 4) throw new Error("Audit budget reached for this request. Report the latest results instead of re-running.");
         this.auditsRun++;
+
+        if (input.routes) {
+          if (!this.audit.site) throw new Error("Site audits are unavailable in this workspace.");
+          const site = await this.audit.site(input.routes);
+          const pages = site.pages.map((page) => ({ route: page.route, status: page.status, summary: page.summary, bugWidths: formatRanges(mergeRanges(page.bugRanges)), resolved: page.resolved, error: page.error ?? null }));
+
+          const findings = site.pages.reduce((sum, page) => sum + (page.summary ? page.summary.bug + page.summary.review + page.summary.intentional : 0), 0);
+
+          return { content: [{ type: "text", text: JSON.stringify({ state: site.state, pages }) }], details: { findings, resolved: site.pages.reduce((sum, page) => sum + page.resolved, 0) } };
+        }
+
         const report = await this.audit.run(input.route);
 
         const result = {
