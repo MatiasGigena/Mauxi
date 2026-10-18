@@ -43,7 +43,7 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Agent conversations and responsive accessibility guidance](docs/agent.md)
 - [Changes, command approval, undo, and recovery](docs/changes-and-recovery.md)
 - [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
-- [AC-01–AC-21 acceptance gate and blockers](docs/alpha-acceptance.md)
+- [AC-01–AC-25 acceptance gate and blockers](docs/alpha-acceptance.md)
 - [Development and automated checks](docs/development.md)
 
 The application uses one simple layered architecture: **presentation → application → infrastructure**. Automated tests and their fixtures stay in the repository; generated screenshots, logs, traces, and reports do not.
