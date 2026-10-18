@@ -72,7 +72,11 @@ test("audits the lab page across the width matrix, separating bugs from intentio
   expect(grid.ranges).toEqual([[800, 960]]);
 
   expect(only(report, "promo-card")).toMatchObject({ kind: "text-spacing-clipped", classification: "bug", criterion: { id: "1.4.12" } });
-  expect(only(report, "lab-header")).toMatchObject({ kind: "sticky-obstruction", criterion: { id: "2.4.11" }, worst: { width: 320, height: 256 } });
+  // The keyboard focus walk confirms the coverage finding on the same finding rather than adding one per bar.
+  const header = only(report, "lab-header");
+  expect(header).toMatchObject({ kind: "sticky-obstruction", criterion: { id: "2.4.11" }, worst: { width: 320, height: 256 } });
+  expect(header.detail).toMatch(/Keyboard focus walk: \d+ focus stops? entirely hidden behind \[data-testid="lab-header"\] at 320×256/);
+  expect(report.findings.filter((finding) => finding.kind === "focus-obscured")).toEqual([]);
   expect(report.findings.some((finding) => finding.kind === "zoom-blocked" && finding.criterion?.id === "1.4.4")).toBe(true);
 
   for (const icon of ["icon-search", "icon-account", "icon-cart"]) expect(only(report, icon)).toMatchObject({ kind: "target-size", criterion: { id: "2.5.8" } });
