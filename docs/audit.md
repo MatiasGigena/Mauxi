@@ -6,7 +6,7 @@ Mauxi measures how a page of your local project behaves across a matrix of viewp
 
 Open **Responsive audit** at the top right and choose **Run audit**. Mauxi audits the route currently open in the Desktop preview. It loads that route in a hidden offscreen window that shares the workspace's browser session (so cookies and local storage match your previews) and never resizes or reloads the visible previews.
 
-The scan takes about ten seconds:
+The scan takes about ten to fifteen seconds:
 
 1. **Width sweep:** every 16 CSS px from 320 to 1440, plus 1600 and 1920, at 900 px tall. The sweep finds problems that only appear between breakpoints.
 2. **Profiles**, measured with every check and captured as snapshots:
@@ -20,6 +20,8 @@ The scan takes about ten seconds:
 | Desktop | 1440 × 900 | Wide layout |
 | 400% zoom | 320 × 256 | A 1280 × 1024 screen at 400% zoom |
 | Text spacing | 320 × 568 and 1280 × 800 | WCAG 1.4.12 overrides: line-height 1.5, letter-spacing 0.12em, word-spacing 0.16em, paragraph spacing 2em |
+
+3. **Interaction pass** at 400% zoom and Small phone: a Tab-only keyboard focus walk, closed menus and disclosures opened one at a time, and tooltips hovered (see [Interaction pass](#interaction-pass)). It adds about two to four seconds.
 
 Animations and transitions are paused and `prefers-reduced-motion: reduce` is emulated, so layouts settle between widths. Viewports use desktop zoom semantics (no mobile `<meta viewport>` scaling), which matches what WCAG 1.4.10 measures.
 
@@ -35,7 +37,7 @@ Animations and transitions are paused and `prefers-reduced-motion: reduce` is em
 | Text cut off / truncated | 1.4.10 | A text container with `overflow` hidden/clip no longer fits at narrow profiles but fits at desktop. Ellipsis and line clamps are reported as truncation for review. |
 | Text clipped with increased spacing | 1.4.12 Text Spacing | Text clips only after the spacing overrides, compared with the same width without them. |
 | Touch target smaller than 24×24 | 2.5.8 Target Size (Minimum) | An interactive element under 24×24 CSS px sits within the 24 px spacing circle of another target. Inline links in sentences and labelled checkboxes/radios are exempt. |
-| Fixed bars cover the screen | 2.4.11 Focus Not Obscured (Minimum) | Fixed or sticky bars anchored to the top and bottom cover more than 40% of a profile's viewport, typically at 400% zoom. |
+| Fixed bars cover the screen | 2.4.11 Focus Not Obscured (Minimum) | Fixed or sticky bars anchored to the top and bottom cover more than 40% of a profile's viewport, typically at 400% zoom. Measured at the top of the page; the keyboard focus walk below measures what focus actually hits. |
 | Pinch-zoom disabled | 1.4.4 Resize Text | The viewport meta tag sets `user-scalable=no` or `maximum-scale` below 2. |
 | Missing viewport meta | — | No `width=device-width`, so phones lay the page out at about 980 px. |
 
@@ -55,12 +57,12 @@ After the width sweep and the profiles, Mauxi checks what a keyboard or pointer 
 
 | Finding | Criterion | How it is measured |
 | --- | --- | --- |
-| Keyboard focus hidden behind a fixed bar | 2.4.11 Focus Not Obscured (Minimum) | Mauxi presses Tab (CDP key events) from the start of the page and, at each focus stop, hit-tests a grid of points over the focused element. Points whose topmost element belongs to a visible fixed or sticky bar count as covered. Entirely covered is a **bug**; partly covered is **review**. One finding per covering bar lists the hidden stops. If the bar already has a *Fixed bars cover the screen* finding, the focus evidence is added to it. |
+| Keyboard focus hidden behind a fixed bar | 2.4.11 Focus Not Obscured (Minimum) | Mauxi presses Tab (CDP key events) from the start of the page and, at each focus stop, hit-tests a grid of points over the focused element. Points whose topmost element belongs to a visible fixed or sticky bar count as covered. Entirely covered is a **bug**; partly covered is **review**. One finding per covering bar lists the hidden stops. When the page already has a *Fixed bars cover the screen* finding, the evidence for every bar is added to that finding instead (one root cause, one finding). This also catches what the coverage check misses, such as a sticky header that sits below a banner at the top of the page. |
 | No visible focus indicator | 2.4.7 Focus Visible (review) | Compares the computed outline, box shadow, border, background, text decoration, color, opacity and transform of the focused element, its `::before`/`::after` and up to three ancestors with the same values captured before any element had focus. No change at all is reported for review; a change limited to color, text decoration, weight, opacity or transform is reported as subtle. A focus stop outside the viewport (for example a link inside a hidden drawer) is reported here too. |
 | Opened menu overflows or is cut off | 1.4.10 Reflow | Opens closed disclosures (`button[aria-expanded="false"]` with `aria-controls`, `<details>`, `button[aria-haspopup]`) with a CDP click, then measures the revealed content: wider than the viewport or past its edge, page scroll width growing, fixed content running past the bottom without its own scroll, or content clipped by an `overflow: hidden` ancestor. |
 | Hover content clipped or not hoverable | 1.4.13 Content on Hover or Focus | At 320 × 568, hovers elements whose `aria-describedby` points at a hidden tooltip (or that contain a hidden `role="tooltip"`), then checks whether the revealed content is cut off by the viewport (**bug**) and whether it stays visible when the pointer moves onto it (**review**). |
 
-Snapshots of the moment are added as extra boards (for example **Focus · 400% zoom** at the scroll position where a focused link sat under the header), only when a finding needs them. Each board's markers use the viewport position captured with the screenshot.
+Snapshots of the moment are added as extra boards (for example **Focus · 400% zoom** at the scroll position where a focused link sat under the header, **Menu open** and **Hover**), only for findings the interaction pass reports on its own; evidence added to a coverage finding stays in its text. Each board's markers use the viewport position captured with the screenshot. The panel's **Interaction checks** section shows the number of focus stops, disclosures and tooltips, the time the pass took and every note.
 
 ### Bounds and side-effect policy
 
@@ -80,9 +82,9 @@ Snapshots of the moment are added as extra boards (for example **Focus · 400% z
 - **Hit-testing blind spots:** overlays with `pointer-events: none` are invisible to hit-testing, so they never count as covering (possible miss). Transparent fixed wrappers count only when the hit element or one of its fixed ancestors paints a background, border, text or media (avoids false positives).
 - **Focus indicators drawn elsewhere:** focus-ring libraries, sibling elements or JavaScript overlays can draw a ring Mauxi does not compare, so *No visible focus indicator* is always **review**. Contrast of the indicator (2.4.13) is not measured.
 - **Triggers that navigate or act:** handled by the skip list and the navigation block above. Handlers attached with `addEventListener` cannot be inspected, so a plain-looking `button` that performs an action when clicked is still clicked once; the action stays inside the page and any navigation is blocked.
-- **Triggers covered or off-screen:** each trigger is scrolled into view and hit-tested first; a covered trigger is skipped and noted.
+- **Triggers covered or off-screen:** each trigger is scrolled to the middle of the viewport or, when a bar covers it there, to the first position where hit-testing reaches it; a trigger covered everywhere is skipped and noted.
 - **Content that cannot be found:** without `aria-controls`, the revealed content is the trigger's next sibling (or the `<details>` body). A trigger that reveals nothing measurable is noted, not reported.
-- **Late layout:** transitions are disabled; Mauxi waits two animation frames and 120 ms after each action. Menus positioned by slow scripts can be measured early.
+- **Late layout:** transitions are disabled; Mauxi waits one animation frame after each Tab and two frames plus 120 ms after each click or hover. Menus positioned by slow scripts can be measured early.
 - **State not restored:** handled by the verification above; when it fails the pass stops so no later check measures a modified page.
 - **Hover content:** only tooltips with `role="tooltip"` or `aria-describedby` semantics are found, and only content that appears within 120 ms. Escape-to-dismiss (the third 1.4.13 requirement) is not pressed.
 
