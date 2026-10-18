@@ -70,11 +70,22 @@ The detector was designed against these failure modes; each is either handled or
 
 - **False positives:** off-canvas drawers, sr-only text, decorative elements behind `overflow-x: hidden`, intentional scrollers and the scrollbar-width overflow of `100vw` boxes. These are handled as described above. A scroller with none of the listed signals that scrolls only at narrow widths is reported for review, never as a bug.
 - **Missed overflow:** elements inside `position: fixed` containers, in cross-origin iframes or in closed shadow roots are not measured. Pages larger than 6,000 rendered elements are truncated and the measurement says so.
-- **Unsettled layouts:** each width waits 60 ms (250 ms for profiles) after resizing. Layouts driven by slow JavaScript (debounced resize handlers, lazy content) can be measured mid-update.
-- **Wrong element:** when several siblings overflow together the container is reported. A deeply nested cause behind a fixed-width ancestor is reported at the ancestor.
+- **Unsettled layouts:** each width waits 60 ms (250 ms for profiles) after resizing. Layouts driven by slow JavaScript (debounced resize handlers, lazy content) can be measured mid-update. A dev server full reload during the scan fails the audit; run it again.
+- **Wrong element:** when several siblings overflow together the container is reported. A deeply nested cause behind a fixed-width ancestor is reported at the ancestor, unless it reaches further than that ancestor (for example a fixed-width row inside a `body` that only overflows by the scrollbar): then both are reported.
 - **Unverified source:** stack-derived hints refer to transformed development code, so only the file is kept and line numbers are omitted unless the `data-testid` match verifies them.
 - **Page side effects:** loading the route issues the same requests as opening it in a preview, including requests to any backend the page calls. Use development accounts.
 - **Navigation:** redirects and navigations outside the project origin are blocked and fail the audit.
+
+## Next.js
+
+Audits work on `next dev` with Webpack or Turbopack. The end-to-end suites exercise an App Router route with both bundlers; the Pages Router is handled by the same hydration wait but not covered by a fixture.
+
+- **Hydration:** Next hydrates after the load event. The hidden window waits up to 10 seconds for hydration (the App Router `body`, or the first child of the Pages Router `#__next`, has a React fiber) before measuring, so client components and their effects are in place and source hints are available.
+- **Source hints:** the component is the one that wrote the JSX, Server Components included (for example `RootLayout` or the page component), never Next's internal wrappers. With Webpack the file is the project file for client and Server Components (`app/...`). Turbopack stacks only point at hashed chunks (`_next/static/chunks/...` and `.next/dev/server/chunks/...`), so its hints carry the component without a file. Host verification through a unique literal `data-testid` works the same with both bundlers.
+- **Dev tools:** Next renders its dev indicator and error overlay inside the shadow root of a `nextjs-portal` element (hosted in a `<script data-nextjs-dev-overlay>` element on the App Router), and the route announcer in another shadow root. Shadow roots and script elements are not measured, so they never create findings. An open error overlay is not measured either, so fix runtime errors before auditing.
+- **Viewport:** Next writes the viewport meta tag from `export const viewport` (default `width=device-width, initial-scale=1`). `maximumScale` below 2 or `userScalable: false` is reported as pinch-zoom disabled; a route-level export only affects that route.
+- **Streaming:** the scan starts once the document finished loading, which for a streamed route is when the server closes the stream after its last Suspense boundary. Content that suspends again on the client after hydration can be measured in its fallback state.
+- **Hot reload:** the hidden window connects to the dev server like any tab. CSS and Fast Refresh updates during a scan apply in place and may be measured mid-update; a full reload fails the audit.
 
 ## Limits
 
