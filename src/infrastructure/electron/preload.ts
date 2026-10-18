@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld("mauxi", {
   agentStop(workspaceId: string): Promise<void> { return ipcRenderer.invoke("mauxi:agent-stop", workspaceId); },
   agentDialogResponse(input: AgentDialogResponse): Promise<void> { return ipcRenderer.invoke("mauxi:agent-dialog-response", input); },
   openAuthUrl(url: string): Promise<void> { return ipcRenderer.invoke("mauxi:open-auth-url", url); },
+  openAxeHelp(url: string): Promise<void> { return ipcRenderer.invoke("mauxi:open-axe-help", url); },
   onAgentEvent(callback: (event: AgentEvent) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AgentEvent) => callback(value);
     ipcRenderer.on("mauxi:agent-event", listener);

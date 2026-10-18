@@ -32,6 +32,7 @@
 @keyframes audit-spin { to { transform: rotate(360deg); } }
 
 .audit-error { margin: 0 1.125rem .75rem; padding: .5rem .65rem; border-radius: .6rem; background: #fbeeea; color: #8f2f1f; font-size: .6875rem; overflow-wrap: anywhere; }
+.audit-note { margin: 0 1.125rem .75rem; padding: .5rem .65rem; border-radius: .6rem; background: #fbf4e6; color: #74501a; font-size: .6875rem; overflow-wrap: anywhere; }
 .audit-empty { padding: 0 1.125rem 1rem; color: #625e66; font-size: .75rem; }
 .audit-empty p { margin: 0 0 .75rem; line-height: 1.55; }
 .audit-empty ul { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
@@ -83,6 +84,8 @@
 .finding-meta { display: flex; flex-wrap: wrap; gap: .3rem; }
 .finding-criterion, .finding-severity { padding: .05rem .4rem; border-radius: 999px; background: #f3f1ee; color: #4a4650; font-size: .625rem; }
 .finding-criterion.muted { color: #8b8690; }
+.finding-rule { padding: .05rem .4rem; border: 1px solid #e8e5e1; border-radius: 999px; color: #625e66; font: 500 .625rem/1.4 ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.finding-help-error { color: #8f2f1f; }
 .finding-severity { background: color-mix(in srgb, var(--severity) 12%, #fff); color: color-mix(in srgb, var(--severity) 85%, #000); text-transform: capitalize; }
 .finding-chevron { flex: none; margin-top: .2rem; color: #a19ca5; transition: transform 160ms ease; }
 .finding-summary[aria-expanded=true] .finding-chevron { transform: rotate(180deg); }

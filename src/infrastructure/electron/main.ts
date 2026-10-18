@@ -23,6 +23,7 @@ import { inspectDomSource } from "../project/dom-source";
 import { AuditScanner } from "../audit/audit-scanner";
 import { FindingContextListSchema, type AuditReport, type AuditScope, type AuditSiteReport, type AuditSiteStep } from "../../application/audit-contract";
 import { linkVerdict, SITE_ROUTE_LIMIT, sitePage } from "../../application/audit-site";
+import { isAxeHelpUrl } from "../../application/audit-axe";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +66,7 @@ const AgentModelInput = Type.Object({ workspaceId: WorkspaceIdInput, modelKey: b
 const AgentThinkingInput = Type.Object({ workspaceId: WorkspaceIdInput, level: Type.Union(THINKING_LEVELS.map(level => Type.Literal(level))) });
 const AgentDialogInput = Type.Object({ workspaceId: WorkspaceIdInput, dialogId: boundedString(128), value: Type.Optional(boundedString(8_000)), cancelled: Type.Optional(Type.Boolean()) });
 const AuthUrlInput = boundedString(4_096);
+const HelpUrlInput = boundedString(512);
 const FixtureInput = Type.Union([Type.Literal("vite"), Type.Literal("next"), Type.Literal("next-turbopack")]);
 const AuditRunInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), route: boundedString(4_096), fixture: Type.Optional(FixtureInput) });
 const AuditSiteInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), routes: Type.Array(boundedString(4_096), { minItems: 1, maxItems: SITE_ROUTE_LIMIT }), fixture: Type.Optional(FixtureInput) });
@@ -824,6 +826,14 @@ function registerIpc(): void {
 
     if (url.protocol !== "https:" || !approvedAuthUrls.has(url.toString())) throw new Error("Unapproved authentication URL");
     await shell.openExternal(url.toString());
+  });
+
+  ipcMain.handle("mauxi:open-axe-help", async (event, target) => {
+    assertTrustedSender(event);
+
+    // Only Deque rule pages that a stored audit report actually links to are opened in the system browser.
+    if (!Value.Check(HelpUrlInput, target) || !isAxeHelpUrl(target) || ![...auditReports.values()].some((report) => report.findings.some((finding) => finding.rule?.url === target))) throw new Error("Unapproved help URL");
+    await shell.openExternal(new URL(target).toString());
   });
 
   ipcMain.handle("mauxi:release-captures", (event, input) => {

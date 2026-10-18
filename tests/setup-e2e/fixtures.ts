@@ -115,6 +115,7 @@ export async function mockDesktop(page: Page) {
       agentStop: unmocked,
       agentDialogResponse: unmocked,
       openAuthUrl: unmocked,
+      openAxeHelp: unmocked,
     };
   }, discovery());
   await page.goto("/");

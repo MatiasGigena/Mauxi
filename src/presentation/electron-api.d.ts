@@ -56,6 +56,7 @@ declare global {
       agentStop(workspaceId: string): Promise<void>;
       agentDialogResponse(input: AgentDialogResponse): Promise<void>;
       openAuthUrl(url: string): Promise<void>;
+      openAxeHelp(url: string): Promise<void>;
       onAgentEvent(callback: (event: AgentEvent) => void): () => void;
       onWorkspaceEvent(callback: (event: WorkspaceEvent) => void): () => void;
     };

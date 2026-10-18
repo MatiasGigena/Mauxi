@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
+import { ArrowUpRight, Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
 import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
 import { mergeRanges } from "../application/audit-site";
 
@@ -13,7 +13,7 @@ const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> 
   { id: "intentional", label: "Intentional, with gaps", hint: "Deliberate patterns missing accessibility" },
 ];
 
-const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access"];
+const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access", "axe-core: contrast, names, labels, ARIA"];
 
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
@@ -44,6 +44,8 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
 }) {
   const card = useRef<HTMLElement>(null);
   const source = sourceLabel(finding);
+  const [helpError, setHelpError] = useState(false);
+  const help = finding.rule?.url;
 
   useEffect(() => { if (selected) card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
@@ -53,7 +55,8 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
       <span className="finding-heading">
         <strong>{finding.title}</strong>
         <span className="finding-meta">
-          {finding.criterion ? <span className="finding-criterion">WCAG {finding.criterion.id} {finding.criterion.name}</span> : <span className="finding-criterion muted">Responsive layout</span>}
+          {finding.criterion ? <span className="finding-criterion">WCAG {finding.criterion.id} {finding.criterion.name}</span> : <span className="finding-criterion muted">{finding.rule ? "Best practice" : "Responsive layout"}</span>}
+          {finding.rule && <span className="finding-rule" title={finding.rule.help}>axe · {finding.rule.id}</span>}
           <span className="finding-severity">{finding.severity}</span>
         </span>
       </span>
@@ -68,7 +71,9 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
         <button type="button" onClick={onShow}><Eye size={14} aria-hidden="true" /><span>Show at {finding.worst.width}px</span></button>
         <button type="button" className="finding-fix-action" disabled={attached} onClick={onFix}><Bot size={14} aria-hidden="true" /><span>{attached ? "Attached to chat" : "Fix with agent"}</span></button>
         {finding.classification !== "bug" && <button type="button" className="finding-ignore" onClick={onIgnore}>{ignored ? <Undo2 size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}<span>{ignored ? "Restore" : "Mark intentional"}</span></button>}
+        {help && <button type="button" className="finding-help" title="Opens Deque's rule page in your browser" onClick={() => { setHelpError(false); void window.mauxi?.openAxeHelp(help).catch(() => setHelpError(true)); }}><span>Learn more</span><ArrowUpRight size={13} aria-hidden="true" /></button>}
       </div>
+      {helpError && <p className="finding-help-error" role="alert">Could not open your default browser.</p>}
     </div>}
   </article>;
 }
@@ -116,6 +121,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     </div>}
 
     {error && <p className="audit-error" role="alert">{error}</p>}
+    {report?.axe?.note && !running && <p className="audit-note" role="note">{report.axe.note} Layout checks are complete.</p>}
 
     {siteView}
 
