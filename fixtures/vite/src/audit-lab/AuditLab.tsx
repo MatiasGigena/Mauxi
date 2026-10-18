@@ -22,10 +22,9 @@ export function AuditLab() {
 
       {/* Not a finding: off-canvas drawer kept hidden outside the viewport. */}
       <aside className="lab-drawer" aria-hidden="true" data-testid="offcanvas-drawer"><a href="#beans" tabIndex={-1}>Beans</a></aside>
-      {/* Not a finding: visually hidden helper text. */}
-      <span className="sr-only">Skip to content</span>
-
       <main>
+        {/* Not a finding: visually hidden helper text. */}
+        <span className="sr-only">Skip to content</span>
         <section className="lab-hero">
           <p className="lab-eyebrow">Single origin · roasted Tuesdays</p>
           <h1>Coffee that tastes like where it grew.</h1>

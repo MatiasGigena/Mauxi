@@ -91,6 +91,9 @@ test("audits the lab page across the width matrix, separating bugs from intentio
   for (const negative of ["origin-carousel", "price-table", "offcanvas-drawer"]) expect(byTestId(report, negative)).toEqual([]);
   expect(report.findings.some((finding) => finding.element?.selector.includes("sr-only"))).toBe(false);
   expect(report.summary).toMatchObject({ bug: 9, review: 1, intentional: 1 });
+  // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are layout findings only.
+  expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+  expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
   // The panel and canvas reflect the report.
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
