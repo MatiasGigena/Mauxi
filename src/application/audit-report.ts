@@ -1,5 +1,6 @@
 import type { AuditElement, AuditFinding, AuditProfile, AuditReport, AuditScroller, AuditSnapshot, FindingClassification, FindingCriterion, FindingKind, FindingMarker, FindingSeverity, PageIssue, PageMeasurement } from "./audit-contract";
 import { formatRanges } from "./audit-contract";
+import { interactionFindings, type InteractionRun } from "./audit-interactions";
 
 export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement }
 
@@ -95,6 +96,7 @@ export function buildReport(input: {
   samples: AuditSample[];
   snapshots: AuditSnapshot[];
   previous?: AuditReport | null;
+  interactions?: InteractionRun;
 }): AuditReport {
   const { samples } = input;
   const scanned = [...new Set(samples.filter((sample) => !sample.profile?.textSpacing).map((sample) => sample.width))].sort((a, b) => a - b);
@@ -263,18 +265,24 @@ export function buildReport(input: {
     criterion: null, severity: "serious", classification: "bug", element: null, ranges: [[narrowest, widest]], worst: { width: narrowest, height: samples[0].height }, profiles: [], markers: [],
   });
 
+  if (input.interactions) findings.push(...interactionFindings(input.interactions, findings, (kind, element) => `${kind}:${hash(elementKey(element))}`));
+
   findings.sort((a, b) => CLASS_ORDER[a.classification] - CLASS_ORDER[b.classification] || SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.ranges[0]?.[0] ?? 0) - (b.ranges[0]?.[0] ?? 0));
   const ids = new Set(findings.map((finding) => finding.id));
   const resolved = input.previous && input.previous.route === input.route ? input.previous.findings.filter((finding) => !ids.has(finding.id)) : [];
   const count = (predicate: (finding: AuditFinding) => boolean) => findings.filter(predicate).length;
+  const interactions = input.interactions;
+  // Interaction snapshots are only kept as boards when a finding marks something on them.
+  const markedBoards = new Set(findings.flatMap((finding) => finding.markers.map((marker) => marker.profileId)));
   const profileList = [...new Map(samples.flatMap((sample) => sample.profile ? [[sample.profile.id, { ...sample.profile, issueCount: count((finding) => finding.profiles.includes(sample.profile!.id)) }] as const] : [])).values()];
 
   return {
     url: input.url, route: input.route, startedAt: input.startedAt, durationMs: input.durationMs, widthsScanned: scanned.length,
-    profiles: profileList, snapshots: input.snapshots, findings, scrollers, resolved,
+    profiles: profileList, snapshots: [...input.snapshots, ...(interactions?.snapshots ?? []).filter((snapshot) => markedBoards.has(snapshot.profileId))], findings, scrollers, resolved,
     summary: {
       bug: count((finding) => finding.classification === "bug"), review: count((finding) => finding.classification === "review"), intentional: count((finding) => finding.classification === "intentional"),
       serious: count((finding) => finding.severity === "serious"), moderate: count((finding) => finding.severity === "moderate"), minor: count((finding) => finding.severity === "minor"),
     },
+    interactions: interactions && { durationMs: interactions.durationMs, profiles: interactions.profiles, focusStops: interactions.focusStops, disclosures: interactions.disclosures, hovers: interactions.hovers, notes: interactions.notes },
   };
 }

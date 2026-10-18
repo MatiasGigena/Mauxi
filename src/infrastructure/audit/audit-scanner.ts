@@ -2,8 +2,11 @@ import { BrowserWindow, type Session } from "electron";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement } from "../../application/audit-contract";
+import { INTERACTION_PROFILE_IDS, isInteractionResult, type InteractionRun } from "../../application/audit-interactions";
 import { buildReport, type AuditSample } from "../../application/audit-report";
+import { runInteractionPass } from "./interaction-pass";
 import { measurePage } from "./page-audit";
+import { interactionStep } from "./page-interactions";
 
 const EvaluateResult = Type.Object({ result: Type.Object({ value: Type.Optional(Type.Unknown()) }), exceptionDetails: Type.Optional(Type.Object({ text: Type.Optional(Type.String()), exception: Type.Optional(Type.Object({ description: Type.Optional(Type.String()) })) })) });
 const Screenshot = Type.Object({ data: Type.String() });
@@ -13,6 +16,7 @@ type CdpValue = string | number | boolean | CdpValue[] | { [key: string]: CdpVal
 type CdpParams = { [key: string]: CdpValue };
 
 const MEASURE = `(${measurePage.toString()})`;
+const INTERACT = `(${interactionStep.toString()})`;
 const SNAPSHOT_MAX_HEIGHT = 2_400;
 const RUN_LIMIT_MS = 180_000;
 const STATIC_STYLE = "*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important;scroll-behavior:auto!important}";
@@ -79,11 +83,19 @@ export class AuditScanner {
     contents.setAudioMuted(true);
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     const allowed = (target: string) => sameOrigin(target, request.origin);
-    const guard = (event: Electron.Event, target: string) => { if (!allowed(target)) event.preventDefault(); };
+    // While the interaction pass clicks and presses keys, every navigation of the audit window is blocked and counted.
+    const interaction = { active: false, blocked: 0 };
+
+    const guard = (event: Electron.Event, target: string) => {
+      if (allowed(target) && !interaction.active) return;
+      event.preventDefault();
+
+      if (interaction.active) interaction.blocked++;
+    };
 
     contents.on("will-navigate", guard);
     contents.on("will-redirect", guard);
-    contents.on("will-frame-navigate", (event) => { if (event.isMainFrame && !allowed(event.url)) event.preventDefault(); });
+    contents.on("will-frame-navigate", (event) => { if (event.isMainFrame) guard(event, event.url); });
     const debug = contents.debugger;
     let reloaded = false;
     debug.attach("1.3");
@@ -124,7 +136,8 @@ export class AuditScanner {
     };
 
     const sweep = sweepWidths();
-    const total = sweep.length + AUDIT_PROFILES.length;
+    const interactionProfiles = INTERACTION_PROFILE_IDS.flatMap((id) => AUDIT_PROFILES.filter((profile) => profile.id === id));
+    const total = sweep.length + AUDIT_PROFILES.length + interactionProfiles.length;
 
     const progress = (phase: AuditProgress["phase"], done: number, width?: number) => {
       const update: AuditProgress = { phase, done, total };
@@ -181,8 +194,38 @@ export class AuditScanner {
       done++;
     }
 
+    const settle = (ms: number) => evaluate(`Promise.race([new Promise(r => requestAnimationFrame(() => ${ms ? `requestAnimationFrame(() => setTimeout(r, ${ms}))` : "r()"})), new Promise(r => setTimeout(r, ${ms + 300}))])`);
+
+    const mouse = async (types: string[], point: { x: number; y: number }) => {
+      for (const type of types) await command("Input.dispatchMouseEvent", { type, x: point.x, y: point.y, button: type === "mouseMoved" ? "none" : "left", clickCount: type === "mouseMoved" ? 0 : 1 });
+    };
+
+    interaction.active = true;
+
+    const interactions: InteractionRun = await runInteractionPass({
+      step: async (step) => {
+        const { value } = await evaluate(`${INTERACT}(${JSON.stringify(step)})`);
+
+        if (!isInteractionResult(value)) throw new Error(`The page returned an invalid ${step.action} result.`);
+
+        return value;
+      },
+      press: async (key) => {
+        const code = key === "Tab" ? 9 : 27;
+
+        for (const type of ["rawKeyDown", "keyUp"]) await command("Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code });
+      },
+      click: (point) => mouse(["mouseMoved", "mousePressed", "mouseReleased"], point),
+      hover: (point) => mouse(["mouseMoved"], point),
+      settle: async (ms) => { await settle(ms); },
+      resize: (width, height) => resize(width, height, 250),
+      capture: async () => `data:image/jpeg;base64,${(await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72 })).data}`,
+      blockedNavigations: () => interaction.blocked,
+    }, interactionProfiles, signal, (profile) => { progress("interactions", done, profile.width); done++; }).finally(() => { interaction.active = false; });
+
+    if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
     progress("done", total);
 
-    return buildReport({ url: request.url, route: request.route, startedAt: new Date(started).toISOString(), durationMs: Date.now() - started, samples, snapshots, previous: request.previous });
+    return buildReport({ url: request.url, route: request.route, startedAt: new Date(started).toISOString(), durationMs: Date.now() - started, samples, snapshots, previous: request.previous, interactions });
   }
 }

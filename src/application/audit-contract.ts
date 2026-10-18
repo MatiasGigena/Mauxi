@@ -5,11 +5,11 @@ const text = (limit: number) => Type.Refine(Type.String(), (value) => value.leng
 const nullableText = (limit: number) => Type.Union([Type.Null(), text(limit)]);
 const finite = Type.Refine(Type.Number(), (value) => Number.isFinite(value) && Math.abs(value) <= 1_000_000);
 
-const RectSchema = Type.Object({ x: finite, y: finite, width: finite, height: finite });
+export const RectSchema = Type.Object({ x: finite, y: finite, width: finite, height: finite });
 
 const SourceHintSchema = Type.Object({ component: nullableText(256), file: nullableText(1_024), line: Type.Union([Type.Null(), Type.Integer({ minimum: 1, maximum: 1_000_000 })]), verified: Type.Optional(Type.Boolean()) });
 
-const AuditElementSchema = Type.Object({
+export const AuditElementSchema = Type.Object({
   selector: text(1_024),
   tag: text(64),
   label: text(160),
@@ -114,7 +114,11 @@ export type FindingKind =
   | "target-size"
   | "sticky-obstruction"
   | "zoom-blocked"
-  | "viewport-meta";
+  | "viewport-meta"
+  | "focus-obscured"
+  | "focus-not-visible"
+  | "disclosure-overflow"
+  | "hover-content";
 
 export type FindingSeverity = "serious" | "moderate" | "minor";
 
@@ -171,9 +175,13 @@ export interface AuditReport {
   scrollers: AuditScroller[];
   resolved: AuditFinding[];
   summary: { bug: number; review: number; intentional: number; serious: number; moderate: number; minor: number };
+  /** Keyboard focus, disclosure and hover checks; absent when the pass did not run. */
+  interactions?: AuditInteractionSummary;
 }
 
-export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "done"; done: number; total: number; width?: number }
+export interface AuditInteractionSummary { durationMs: number; profiles: string[]; focusStops: number; disclosures: number; hovers: number; notes: string[] }
+
+export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "interactions" | "done"; done: number; total: number; width?: number }
 
 export interface AuditRunRequest { workspaceId?: string; route: string }
 
@@ -198,6 +206,7 @@ const FindingContextSchema = Type.Object({
   kind: Type.Union([
     Type.Literal("page-overflow"), Type.Literal("clipped-by-page"), Type.Literal("scroller-review"), Type.Literal("scroller-a11y"), Type.Literal("content-clipped"), Type.Literal("text-truncated"),
     Type.Literal("text-spacing-clipped"), Type.Literal("target-size"), Type.Literal("sticky-obstruction"), Type.Literal("zoom-blocked"), Type.Literal("viewport-meta"),
+    Type.Literal("focus-obscured"), Type.Literal("focus-not-visible"), Type.Literal("disclosure-overflow"), Type.Literal("hover-content"),
   ]),
   title: text(512),
   detail: text(2_048),
