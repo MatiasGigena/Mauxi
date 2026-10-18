@@ -247,7 +247,7 @@ async function runTask(page: Page, plan: Plan, project: Project, task: Task): Pr
 
 test.skip(!planFile, "Live acceptance needs MAUXI_LIVE_PLAN; it uses a real provider and never runs by default");
 
-test("real projects: AppImage without pi, live model design tasks, visible checks and lifecycle", async () => {
+test("real projects: AppImage without pi, live-model agent tasks, visible checks and lifecycle", async () => {
   const plan = Value.Parse(PlanSchema, JSON.parse(await readFile(planFile!, "utf8")));
   const home = path.join(plan.evidence, "home"); const bin = path.join(plan.evidence, "bin");
   const profile = path.join(home, "config", "Mauxi", "pi-profile");
