@@ -21,7 +21,7 @@ import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 import { inspectDomSource } from "../project/dom-source";
 import { AuditScanner } from "../audit/audit-scanner";
-import type { AuditReport } from "../../application/audit-contract";
+import { FindingContextListSchema, type AuditReport } from "../../application/audit-contract";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -125,6 +125,7 @@ const AgentSendInput = Type.Object({
   text: boundedString(100_000),
   behavior: Type.Union([Type.Literal("prompt"), Type.Literal("steer"), Type.Literal("followUp")]),
   selections: Type.Array(SelectionInput, { maxItems: 8 }),
+  findings: Type.Optional(FindingContextListSchema),
 });
 
 let mainWindow: BrowserWindow | null = null;

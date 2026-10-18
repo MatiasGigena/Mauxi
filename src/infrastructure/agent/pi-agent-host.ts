@@ -23,6 +23,7 @@ import {
 import { Type } from "typebox";
 import {
   THINKING_LEVELS,
+  findingsContext,
   selectionContext,
   type AgentDialog,
   type AgentDialogResponse,
@@ -48,7 +49,7 @@ import { RESPONSIVE_WORKFLOW, visibleUserText, WORKING_MESSAGES, REQUEST_PREFIX 
 import { BROWSER_OPERATIONS, type BrowserPort, type BrowserRequest, type BrowserActionTarget } from "../../application/browser-contract";
 import { hasErrorCode } from "../error-code";
 import { watchStreamIdle } from "./stream-watchdog";
-import type { AuditReport } from "../../application/audit-contract";
+import { findingContext, type AuditReport } from "../../application/audit-contract";
 
 export interface AuditPort { run(route?: string): Promise<AuditReport> }
 
@@ -229,6 +230,7 @@ export class PiAgentHost {
   private checkpointFailure?: string;
   private runHadFailure = false;
   private runTurns = 0;
+  private auditsRun = 0;
   private runDeadline?: ReturnType<typeof setTimeout>;
   private runStopReason?: string;
   private pendingModelFailure?: AgentMessage;
@@ -494,6 +496,28 @@ export class PiAgentHost {
       },
     });
 
+    const responsiveAudit = defineTool({
+      name: "responsive_audit", label: "Run responsive audit",
+      description: "Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. At most four audits per request.",
+      parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })) }),
+      execute: async (_id, input) => {
+        if (!this.audit) throw new Error("The responsive audit is unavailable in this workspace.");
+
+        if (this.auditsRun >= 4) throw new Error("Audit budget reached for this request. Report the latest results instead of re-running.");
+        this.auditsRun++;
+        const report = await this.audit.run(input.route);
+
+        const result = {
+          route: report.route, widthsScanned: report.widthsScanned, summary: report.summary,
+          findings: report.findings.slice(0, 30).map((finding) => findingContext(finding, report.route)),
+          resolved: report.resolved.map((finding) => ({ id: finding.id, title: finding.title })),
+          intentionalScrollers: report.scrollers.map((scroller) => scroller.element.selector),
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: { findings: report.findings.length, resolved: report.resolved.length } };
+      },
+    });
+
     const browserTargets = defineTool({
       name: "browser_targets", label: "Visible preview targets",
       description: "Get host-owned identities for the EXISTING visible previews and current control generation. If owner is \"agent\" you already have control: continue with browser_action. Only when owner is not \"agent\", ask the user to use the Give agent control button beside Send in chat. Never substitute a separate browser.",
@@ -558,8 +582,8 @@ export class PiAgentHost {
           services,
           sessionManager,
           sessionStartEvent,
-          tools: ["workspace_read", "workspace_list", "workspace_search", "workspace_edit", "workspace_write", "workspace_delete", "workspace_command", "ask_question", "browser_targets", "browser_action"],
-          customTools: [workspaceRead, workspaceList, workspaceSearch, workspaceEdit, workspaceWrite, workspaceDelete, workspaceCommand, askQuestion, browserTargets, browserAction],
+          tools: ["workspace_read", "workspace_list", "workspace_search", "workspace_edit", "workspace_write", "workspace_delete", "workspace_command", "ask_question", "responsive_audit", "browser_targets", "browser_action"],
+          customTools: [workspaceRead, workspaceList, workspaceSearch, workspaceEdit, workspaceWrite, workspaceDelete, workspaceCommand, askQuestion, responsiveAudit, browserTargets, browserAction],
         })),
         services,
         diagnostics: services.diagnostics,
@@ -701,7 +725,7 @@ export class PiAgentHost {
   private onSessionEvent(event: AgentSessionEvent): void {
     switch (event.type) {
       case "agent_start":
-        this.runState = "working"; this.status = this.workingMessage(); this.lastError = undefined; this.runHadFailure = false;
+        this.runState = "working"; this.status = this.workingMessage(); this.auditsRun = 0; this.lastError = undefined; this.runHadFailure = false;
         this.runTurns = 0; this.browser?.resetBudget(); clearTimeout(this.runDeadline);
         this.runStopReason = undefined; this.pendingModelFailure = undefined;
         this.runDeadline = setTimeout(() => this.stopForBudget(`the request reached its ${RUN_DEADLINE_MS / 60_000}-minute limit`), RUN_DEADLINE_MS);
@@ -1168,7 +1192,7 @@ export class PiAgentHost {
     if (request.selections.length > 8 || request.selections.some((item) => item.status !== "current" || item.capture.workspaceId !== this.workspaceId)) throw new Error("Attached context is stale or belongs to another workspace.");
     assertArtifactCapacity(path.join(this.profileDir, "sessions"), ARTIFACT_LIMITS.sessions, 1024 * 1024);
     const images = await this.imageInputs(request);
-    const prompt = `${REQUEST_PREFIX}${text}${selectionContext(request.selections)}`;
+    const prompt = `${REQUEST_PREFIX}${text}${findingsContext(request.findings)}${selectionContext(request.selections)}`;
     this.lastError = undefined; this.checkpointFailure = undefined;
 
     if (request.behavior === "steer") { await this.runtime!.session.steer(prompt, images);

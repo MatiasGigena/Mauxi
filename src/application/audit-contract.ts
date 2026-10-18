@@ -195,7 +195,10 @@ export interface AuditFindingContext {
 
 const FindingContextSchema = Type.Object({
   id: text(128),
-  kind: text(64),
+  kind: Type.Union([
+    Type.Literal("page-overflow"), Type.Literal("clipped-by-page"), Type.Literal("scroller-review"), Type.Literal("scroller-a11y"), Type.Literal("content-clipped"), Type.Literal("text-truncated"),
+    Type.Literal("text-spacing-clipped"), Type.Literal("target-size"), Type.Literal("sticky-obstruction"), Type.Literal("zoom-blocked"), Type.Literal("viewport-meta"),
+  ]),
   title: text(512),
   detail: text(2_048),
   fixHint: text(2_048),

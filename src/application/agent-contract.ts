@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import type { StoredSelection } from "./selection-state";
+import { formatRanges, type AuditFindingContext } from "./audit-contract";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -97,6 +98,7 @@ export interface AgentSendRequest {
   text: string;
   behavior: "prompt" | "steer" | "followUp";
   selections: StoredSelection[];
+  findings?: AuditFindingContext[];
 }
 
 export interface AgentLoginRequest {
@@ -145,6 +147,27 @@ const stringSchema = Type.String();
 
 export function assertShortString(value: unknown, label: string, max = 4_096): asserts value is string {
   if (!Check(stringSchema, value) || value.length > max) throw new Error(`Invalid ${label}`);
+}
+
+export function findingsContext(findings: readonly AuditFindingContext[] = []): string {
+  if (!findings.length) return "";
+
+  const blocks = findings.map((finding, index) => {
+    const source = finding.element?.source;
+    const where = source?.file ? `${source.verified ? "verified" : "unverified hint"}: ${source.file}${source.line ? `:${source.line}` : ""}${source.component ? ` (${source.component})` : ""}` : "unknown";
+
+    return [
+      `Finding ${index + 1} [${finding.classification}, ${finding.severity}] ${finding.title}`,
+      `Criterion: ${finding.criterion ?? "responsive layout (no single WCAG criterion)"}`,
+      `Route: ${finding.route} · widths: ${formatRanges(finding.ranges)} · worst at ${finding.worstWidth}px`,
+      `Element: ${finding.element ? `<${finding.element.tag}> ${finding.element.selector}${finding.element.testId ? ` (data-testid ${finding.element.testId})` : ""} — ${finding.element.label}` : "document"}`,
+      `Source: ${where}`,
+      `Measured: ${finding.detail}`,
+      `Suggested direction: ${finding.fixHint}`,
+    ].join("\n");
+  });
+
+  return `\n\n<audit_findings>\n${blocks.join("\n\n")}\n</audit_findings>`;
 }
 
 export function selectionContext(selections: readonly StoredSelection[]): string {
