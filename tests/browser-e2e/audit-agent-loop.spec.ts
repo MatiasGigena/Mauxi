@@ -20,6 +20,7 @@ test("the agent fixes an attached audit finding and verifies it with responsive_
   ][request - 1] ?? text("The pricing row now wraps, and responsive_audit reports the overflow as resolved."), {}, "/audit-lab.html");
 
   try {
+    await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
     await panel.getByRole("button", { name: "Run audit", exact: true }).click();
     const card = panel.locator('.finding-card:has-text("Horizontal scroll at 320–")').first();

@@ -4,7 +4,7 @@ Mauxi measures how a page of your local project behaves across a matrix of viewp
 
 ## Run an audit
 
-Choose **Run audit** in the **Responsive audit** panel. Mauxi audits the route currently open in the Desktop preview. It loads that route in a hidden offscreen window that shares the workspace's browser session (so cookies and local storage match your previews) and never resizes or reloads the visible previews.
+Open **Responsive audit** at the top right and choose **Run audit**. Mauxi audits the route currently open in the Desktop preview. It loads that route in a hidden offscreen window that shares the workspace's browser session (so cookies and local storage match your previews) and never resizes or reloads the visible previews.
 
 The scan takes about ten seconds:
 

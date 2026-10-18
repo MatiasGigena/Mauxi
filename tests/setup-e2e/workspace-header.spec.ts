@@ -26,13 +26,14 @@ async function openWorkspace(page: Page) {
 }
 
 for (const width of [320, 768, 1440]) {
-  test(`workspace header contains only logo, repository title and zoom at ${width}px`, async ({ page }, testInfo) => {
+  test(`workspace header contains only logo, repository title, audit and zoom at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await openWorkspace(page);
     const header = page.locator(".topbar");
     await expect(header.locator("img")).toBeVisible();
     await expect(header.locator("strong")).toHaveText("rondo");
-    await expect(header.locator("button, a, select, input")).toHaveCount(2);
+    await expect(header.locator("button, a, select, input")).toHaveCount(3);
+    await expect(header.getByRole("button", { name: "Responsive audit", exact: true })).toBeVisible();
     await expect(header.getByRole("button", { name: "Project menu" })).toHaveAttribute("aria-expanded", "false");
     await expect(header.getByRole("slider", { name: "Camera zoom" })).toBeVisible();
     await expect(header).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
@@ -141,7 +142,8 @@ test("agent lock disables zoom without adding header actions; emergency return s
   await openWorkspace(page);
   await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
-  await expect(page.locator(".topbar button")).toHaveCount(1);
+  await expect(page.locator(".topbar button")).toHaveCount(2);
+  await expect(page.locator(".topbar").getByRole("button", { name: "Responsive audit", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
   await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();

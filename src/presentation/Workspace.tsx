@@ -71,7 +71,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth >= 1100);
+  const [panelOpen, setPanelOpen] = useState(false);
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
@@ -184,10 +184,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return () => observer.disconnect();
   }, []);
 
-  // The panel follows the window: open on wide windows, collapsed on narrow ones; manual toggles last until the next crossing.
+  // The panel collapses when the window becomes too narrow to show it beside the canvas.
   useEffect(() => {
     const wide = matchMedia("(min-width: 1100px)");
-    const follow = () => setPanelOpen(wide.matches);
+    const follow = () => { if (!wide.matches) setPanelOpen(false); };
+
     wide.addEventListener("change", follow);
 
     return () => wide.removeEventListener("change", follow);
@@ -627,7 +628,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   useEffect(() => {
     if (!window.mauxi) return;
     const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
-    const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); });
+    const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); });
 
     return () => { offProgress(); offReport(); };
   }, []);
@@ -697,6 +698,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <CanvasBackground settled={boardsPlaced} />
     <header className="topbar">
       {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
+        <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
+      </button>}
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
@@ -741,11 +745,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </main>
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
-    {panelOpen ? <AuditPanel onClose={() => setPanelOpen(false)} report={audit} progress={auditProgress} running={auditRunning} error={auditError} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
-      onRun={() => void runAudit()} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} />
-      : <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit">
-        <ScanSearch size={16} aria-hidden="true" /><span>Audit</span>{audit && <span className="audit-launcher-count" aria-label={`${audit.summary.bug} bugs`}>{audit.summary.bug}</span>}
-      </button>}
+    {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={audit} progress={auditProgress} running={auditRunning} error={auditError} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
+      onRun={() => void runAudit()} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 

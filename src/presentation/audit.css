@@ -13,7 +13,8 @@
 .workspace .audit-close { display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border-radius: 999px; background: transparent; color: #747178; }
 .workspace .audit-close:focus-visible { outline: 2px solid #218f90; outline-offset: 1px; }
 @media (hover: hover) and (pointer: fine) { .workspace .audit-close:hover { color: #24242a; background: #f3f1ee; } }
-.workspace .audit-launcher { position: absolute; z-index: 21; top: 4.5rem; right: .75rem; display: inline-flex; align-items: center; gap: .4rem; min-height: 2.5rem; padding: .4rem .85rem; border: 1px solid #e8e5e1; border-radius: 999px; background: #fff; color: #24242a; box-shadow: var(--floating-shadow); font-size: .75rem; font-weight: 500; }
+.workspace .audit-launcher { display: inline-flex; flex: none; align-items: center; gap: .4rem; min-height: 3rem; margin-left: auto; padding: .375rem 1rem; border: 1px solid #e8e5e1; border-radius: 999px; background: #fff; color: #24242a; box-shadow: var(--floating-shadow); font-size: .75rem; font-weight: 500; pointer-events: auto; }
+@media (max-width: 640px) { .workspace .audit-launcher { padding-inline: .85rem; } .audit-launcher-label { display: none; } }
 .workspace .audit-launcher svg { color: var(--audit-teal); }
 .workspace .audit-launcher:focus-visible { outline: 2px solid #218f90; outline-offset: 2px; }
 .audit-launcher-count { min-width: 1.25rem; padding: 0 .35rem; border-radius: 999px; background: var(--severity-serious); color: #fff; font-size: .625rem; line-height: 1.25rem; text-align: center; }

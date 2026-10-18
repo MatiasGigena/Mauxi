@@ -17,6 +17,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
+  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
 });
 
 test.afterAll(async () => { await application?.close(); });

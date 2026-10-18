@@ -48,7 +48,7 @@ Layout, viewport sizes, focus restore state, and route-link preference are saved
 
 ## Responsive audit panel
 
-The **Responsive audit** panel is docked on the right on windows 1100 px and wider and collapses to an **Audit** button on narrower ones (the button shows the bug count after a run). **Hide audit panel** collapses it manually. While open, the topbar and chat sit beside it. Running the audit adds a row of profile snapshots below the live previews and fits the canvas to show them; the canvas zooms out to 10% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
+The **Responsive audit** button at the top right opens the audit panel, docked on the right (it shows the bug count after a run). The panel also opens whenever an audit report arrives, including runs started by the agent. **Hide audit panel** collapses it, and it collapses automatically when the window is narrower than 1100 px. While open, the topbar and chat sit beside it. Running the audit adds a row of profile snapshots below the live previews and fits the canvas to show them; the canvas zooms out to 10% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
 
 ## Routes
 
