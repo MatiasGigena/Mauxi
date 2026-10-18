@@ -20,9 +20,14 @@ import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
 
-const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
+const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
+
+/** Proof fixtures served from the same project directory share its source files. */
+const SOURCE_FIXTURES = { vite: "vite", next: "next", "next-turbopack": "next" } as const;
 
 type Fixture = keyof typeof URLS;
+
+const isFixture = (value: string | null): value is Fixture => value === "next" || value === "next-turbopack";
 
 type Command = ShellToBridgeMessage extends infer T ? T extends ShellToBridgeMessage ? Omit<T, "protocol" | "session" | "generation"> : never : never;
 
@@ -60,7 +65,12 @@ function previewUrl(base: string, id: PreviewId, session: string): string {
 export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => Promise<void> }) {
   const browser = useBrowserControl(active?.workspaceId);
   const browserLocked = useRef(false); browserLocked.current = browser.locked;
-  const [fixture] = useState<Fixture>(() => new URLSearchParams(location.search).get("fixture") === "next" ? "next" : "vite");
+
+  const [fixture] = useState<Fixture>(() => {
+    const value = new URLSearchParams(location.search).get("fixture");
+
+    return isFixture(value) ? value : "vite";
+  });
 
   const [proofPath] = useState(() => {
     const value = new URLSearchParams(location.search).get("path");
@@ -313,7 +323,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
           };
 
-          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : window.mauxi.resolveFixtureSource({ fixture, ...input });
+          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : window.mauxi.resolveFixtureSource({ fixture: SOURCE_FIXTURES[fixture], ...input });
           void resolution.then((resolved) => {
             setSelections((items) => items.map((item) => {
               if (item.capture.selectionId !== capture.selectionId) return item;
@@ -544,7 +554,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
           locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
         };
 
-        const resolved = active ? await window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : await window.mauxi.resolveFixtureSource({ fixture, ...input });
+        const resolved = active ? await window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : await window.mauxi.resolveFixtureSource({ fixture: SOURCE_FIXTURES[fixture], ...input });
 
         if (!resolved || resolved.filePath !== capture.source.filePath || resolved.fileFingerprint !== capture.source.fileFingerprint) {
           setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId

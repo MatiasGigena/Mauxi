@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld("mauxi", {
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
   },
-  auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" }): Promise<AuditReport> { return ipcRenderer.invoke("mauxi:audit-run", input); },
+  auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport> { return ipcRenderer.invoke("mauxi:audit-run", input); },
   auditCancel(): Promise<void> { return ipcRenderer.invoke("mauxi:audit-cancel"); },
   onAuditProgress(callback: (progress: AuditProgress) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AuditProgress) => callback(value);

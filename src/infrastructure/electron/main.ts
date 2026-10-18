@@ -64,9 +64,10 @@ const AgentModelInput = Type.Object({ workspaceId: WorkspaceIdInput, modelKey: b
 const AgentThinkingInput = Type.Object({ workspaceId: WorkspaceIdInput, level: Type.Union(THINKING_LEVELS.map(level => Type.Literal(level))) });
 const AgentDialogInput = Type.Object({ workspaceId: WorkspaceIdInput, dialogId: boundedString(128), value: Type.Optional(boundedString(8_000)), cancelled: Type.Optional(Type.Boolean()) });
 const AuthUrlInput = boundedString(4_096);
-const FixtureInput = Type.Union([Type.Literal("vite"), Type.Literal("next")]);
+const FixtureInput = Type.Union([Type.Literal("vite"), Type.Literal("next"), Type.Literal("next-turbopack")]);
 const AuditRunInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), route: boundedString(4_096), fixture: Type.Optional(FixtureInput) });
-const PROOF_ORIGINS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
+const PROOF_ORIGINS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
+const PROOF_ROOTS = { vite: "vite", next: "next", "next-turbopack": "next" } as const;
 const CaptureReleaseInput = Type.Array(Type.Refine(Type.String(), file => file.length > 0 && file.length <= 4_096), { maxItems: 8 });
 
 const SelectionInput = Type.Object({
@@ -607,7 +608,7 @@ function registerIpc(): void {
 
     if (process.env.MAUXI_PROOF !== "1" || !input.fixture) throw new Error("No active workspace");
 
-    return runAudit({ workspaceId: `proof:${input.fixture}`, origin: PROOF_ORIGINS[input.fixture], root: path.resolve(process.cwd(), "fixtures", input.fixture), route: input.route });
+    return runAudit({ workspaceId: `proof:${input.fixture}`, origin: PROOF_ORIGINS[input.fixture], root: path.resolve(process.cwd(), "fixtures", PROOF_ROOTS[input.fixture]), route: input.route });
   });
 
   ipcMain.handle("mauxi:audit-cancel", (event) => { assertTrustedSender(event); auditScanner.cancel(); });
