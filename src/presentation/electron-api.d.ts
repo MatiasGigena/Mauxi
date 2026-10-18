@@ -10,6 +10,7 @@ import type { CanvasState } from "../application/canvas-state";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../application/agent-contract";
 
 import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../application/browser-contract";
+import type { AuditProgress, AuditReport, AuditRunRequest } from "../application/audit-contract";
 
 export {};
 
@@ -36,6 +37,10 @@ declare global {
       resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
+      auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" }): Promise<AuditReport>;
+      auditCancel(): Promise<void>;
+      onAuditProgress(callback: (progress: AuditProgress) => void): () => void;
+      onAuditReport(callback: (report: AuditReport) => void): () => void;
       releaseCaptures(files: string[]): Promise<void>;
       agentBootstrap(): Promise<AgentSnapshot>;
       agentLogin(input: AgentLoginRequest): Promise<void>;

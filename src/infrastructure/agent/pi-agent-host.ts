@@ -48,6 +48,9 @@ import { RESPONSIVE_WORKFLOW, visibleUserText, WORKING_MESSAGES, REQUEST_PREFIX 
 import { BROWSER_OPERATIONS, type BrowserPort, type BrowserRequest, type BrowserActionTarget } from "../../application/browser-contract";
 import { hasErrorCode } from "../error-code";
 import { watchStreamIdle } from "./stream-watchdog";
+import type { AuditReport } from "../../application/audit-contract";
+
+export interface AuditPort { run(route?: string): Promise<AuditReport> }
 
 type AgentMessage = AgentSession["messages"][number];
 
@@ -242,6 +245,7 @@ export class PiAgentHost {
     private readonly browser?: BrowserPort,
     private readonly openAuthUrl?: (url: string) => Promise<void>,
     private readonly streamIdleMs = STREAM_IDLE_MS,
+    private readonly audit?: AuditPort,
   ) {
     this.sessionDir = path.join(profileDir, "sessions", workspaceId.replace(/[^a-zA-Z0-9_-]/g, "_"));
     this.captureRoot = path.resolve(captureRoot);

@@ -19,6 +19,9 @@ import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
+import { inspectDomSource } from "../project/dom-source";
+import { AuditScanner } from "../audit/audit-scanner";
+import type { AuditReport } from "../../application/audit-contract";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,6 +64,9 @@ const AgentModelInput = Type.Object({ workspaceId: WorkspaceIdInput, modelKey: b
 const AgentThinkingInput = Type.Object({ workspaceId: WorkspaceIdInput, level: Type.Union(THINKING_LEVELS.map(level => Type.Literal(level))) });
 const AgentDialogInput = Type.Object({ workspaceId: WorkspaceIdInput, dialogId: boundedString(128), value: Type.Optional(boundedString(8_000)), cancelled: Type.Optional(Type.Boolean()) });
 const AuthUrlInput = boundedString(4_096);
+const FixtureInput = Type.Union([Type.Literal("vite"), Type.Literal("next")]);
+const AuditRunInput = Type.Object({ workspaceId: Type.Optional(WorkspaceIdInput), route: boundedString(4_096), fixture: Type.Optional(FixtureInput) });
+const PROOF_ORIGINS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
 const CaptureReleaseInput = Type.Array(Type.Refine(Type.String(), file => file.length > 0 && file.length <= 4_096), { maxItems: 8 });
 
 const SelectionInput = Type.Object({
@@ -138,6 +144,53 @@ let visibleBrowser: ElectronVisibleBrowser | undefined;
 let browserHeartbeat = 0;
 let captures: CaptureCache;
 let captureCleanupTimer: ReturnType<typeof setInterval> | undefined;
+let auditTarget: { workspaceId: string; origin: string; route: string; root: string } | null = null;
+const auditReports = new Map<string, AuditReport>();
+
+const auditScanner = new AuditScanner({
+  session: () => {
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error("No visible workspace window");
+
+    return mainWindow.webContents.session;
+  },
+  onProgress: progress => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-progress", progress); },
+});
+
+/** Host-verified source candidates for findings whose element carries a unique literal JSX test ID. */
+async function verifyFindingSources(report: AuditReport, root: string): Promise<void> {
+  const signal = AbortSignal.timeout(5_000);
+
+  for (const finding of report.findings.slice(0, 24)) {
+    const element = finding.element;
+
+    if (!element?.testId) continue;
+
+    try {
+      const match = await inspectDomSource(root, element.tag, element.testId, signal);
+
+      if (match.status === "static-match" && "filePath" in match) element.source = { component: element.source?.component ?? null, file: match.filePath, line: match.lineNumber, verified: true };
+    } catch { return; }
+  }
+}
+
+async function runAudit(target: { workspaceId: string; origin: string; route: string; root: string }): Promise<AuditReport> {
+  const url = new URL(target.route, target.origin);
+
+  if (url.origin !== new URL(target.origin).origin) throw new Error("Audits are limited to the approved project origin.");
+  const key = `${target.workspaceId}:${target.route}`;
+  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null });
+  await verifyFindingSources(report, target.root);
+  auditReports.delete(key); auditReports.set(key, report);
+
+  while (auditReports.size > 8) auditReports.delete(auditReports.keys().next().value!);
+  auditTarget = target;
+
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-report", report);
+
+  return report;
+}
+
+function resetAudits(): void { auditScanner.cancel("Workspace closed"); auditReports.clear(); auditTarget = null; }
 
 function cleanupCaptureCache(): void {
   try { captures.cleanup(); }
@@ -253,7 +306,16 @@ async function activeAgent(): Promise<PiAgentHost> {
 
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
-    }, testStreamIdleMs());
+    }, testStreamIdleMs(), {
+      run: async (route) => {
+        const current = manager.snapshot().active;
+
+        if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
+        const previous = auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/";
+
+        return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route: route ?? previous });
+      },
+    });
 
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {
@@ -494,6 +556,7 @@ function registerIpc(): void {
 
   ipcMain.handle("mauxi:close-project", async (event) => {
     assertTrustedSender(event);
+    resetAudits();
     await disposeAgent();
     const result = await manager.close();
     setTimeout(() => { void createWindow(); }, 100);
@@ -528,6 +591,25 @@ function registerIpc(): void {
 
     return resolveWorkspaceSource(path.resolve(process.cwd(), "fixtures", input.fixture), input.hint, input.lineNumber, input.columnNumber, sourceLocator(input.locator));
   });
+
+  ipcMain.handle("mauxi:audit-run", async (event, input) => {
+    assertTrustedSender(event);
+
+    if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid audit request");
+    const active = manager.snapshot().active;
+
+    if (active) {
+      if (input.workspaceId !== active.workspaceId) throw new Error("Stale audit workspace");
+
+      return runAudit({ workspaceId: active.workspaceId, origin: active.origin, root: active.appRoot, route: input.route });
+    }
+
+    if (process.env.MAUXI_PROOF !== "1" || !input.fixture) throw new Error("No active workspace");
+
+    return runAudit({ workspaceId: `proof:${input.fixture}`, origin: PROOF_ORIGINS[input.fixture], root: path.resolve(process.cwd(), "fixtures", input.fixture), route: input.route });
+  });
+
+  ipcMain.handle("mauxi:audit-cancel", (event) => { assertTrustedSender(event); auditScanner.cancel(); });
 
   ipcMain.handle("mauxi:agent-bootstrap", async (event) => {
     assertTrustedSender(event);

@@ -70,6 +70,9 @@ export async function mockDesktop(page: Page) {
       browserOwner: async () => ({ workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] }),
       saveCanvas: async () => {},
       releaseCaptures: async () => {},
+      onAuditProgress: () => () => {},
+      onAuditReport: () => () => {},
+      auditCancel: async () => {},
       openProject: async () => {
         state.calls++;
 
@@ -98,6 +101,7 @@ export async function mockDesktop(page: Page) {
       resolveSource: unmocked,
       resolveFixtureSource: unmocked,
       capturePreview: unmocked,
+      auditRun: unmocked,
       agentLogin: unmocked,
       agentLogout: unmocked,
       agentRefreshCatalog: unmocked,

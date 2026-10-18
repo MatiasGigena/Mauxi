@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserOwner, BrowserRequest, BrowserResult, BrowserState, BrowserTarget } from "../../application/browser-contract";
 import type { CanvasState } from "../../application/canvas-state";
 import type { ConfirmProjectRequest, WorkspaceEvent } from "../../application/project-contract";
+import type { AuditProgress, AuditReport, AuditRunRequest } from "../../application/audit-contract";
 import type { AgentDialogResponse, AgentEvent, AgentLoginRequest, AgentModelRequest, AgentSendRequest, AgentSnapshot, AgentThinkingRequest } from "../../application/agent-contract";
 
 type BrowserTestRequest = "targets" | BrowserRequest | (Omit<BrowserRequest, "operation"> & { operation: string; expression?: string });
@@ -32,6 +33,20 @@ contextBridge.exposeInMainWorld("mauxi", {
   },
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
+  },
+  auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" }): Promise<AuditReport> { return ipcRenderer.invoke("mauxi:audit-run", input); },
+  auditCancel(): Promise<void> { return ipcRenderer.invoke("mauxi:audit-cancel"); },
+  onAuditProgress(callback: (progress: AuditProgress) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: AuditProgress) => callback(value);
+    ipcRenderer.on("mauxi:audit-progress", listener);
+
+    return () => ipcRenderer.removeListener("mauxi:audit-progress", listener);
+  },
+  onAuditReport(callback: (report: AuditReport) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: AuditReport) => callback(value);
+    ipcRenderer.on("mauxi:audit-report", listener);
+
+    return () => ipcRenderer.removeListener("mauxi:audit-report", listener);
   },
   releaseCaptures(files: string[]): Promise<void> { return ipcRenderer.invoke("mauxi:release-captures", files); },
   agentBootstrap(): Promise<AgentSnapshot> { return ipcRenderer.invoke("mauxi:agent-bootstrap"); },
