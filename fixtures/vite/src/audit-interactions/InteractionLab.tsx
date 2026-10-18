@@ -14,7 +14,7 @@ export function InteractionLab() {
   return (
     <div className="ix">
       {/* The strip scrolls away, so at the top of the page the header below it is not yet stuck to the viewport edge. */}
-      <p className="ix-promo">Spring trail guides are out.</p>
+      <aside aria-label="Promotion"><p className="ix-promo">Spring trail guides are out.</p></aside>
       {/* Planted: sticky header taller than half of a 400%-zoom viewport. Tab scrolls later links to the middle of the
           viewport, right under it (2.4.11). The coverage check measures the page at the top, where the header still sits below the strip. */}
       <header className="ix-header" data-testid="ix-header">
@@ -70,7 +70,7 @@ export function InteractionLab() {
       </main>
 
       {/* Not a finding: a fixed bottom bar matched by scroll-padding-bottom, so focus scrolls clear of it. */}
-      <div className="ix-bar" data-testid="ix-bar">Offline maps ready. <a href="#maps">Open maps</a></div>
+      <aside className="ix-bar" aria-label="Offline maps" data-testid="ix-bar">Offline maps ready. <a href="#maps">Open maps</a></aside>
     </div>
   );
 }

@@ -6,7 +6,7 @@ p { margin: 0 0 12px; line-height: 1.5; }
 a { color: #1d5c3f; }
 a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #e0761f; outline-offset: 2px; }
 
-.ix-promo { margin: 0; padding: 10px 16px; background: #e0761f; color: #fff; font-size: 14px; }
+.ix-promo { margin: 0; padding: 10px 16px; background: #a8520f; color: #fff; font-size: 14px; }
 .ix-header { position: sticky; top: 0; z-index: 5; padding: 12px 16px; background: #1d3b2c; color: #f4f6f1; }
 .ix-brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ix-home { color: inherit; font-size: 1.15rem; font-weight: 700; text-decoration: none; }

@@ -92,6 +92,9 @@ test("audits keyboard focus, opened menus and hover content without activating n
   ]));
   expect(interactions.notes.join("\n")).not.toMatch(/tried to change the page URL|Could not return|stopped/);
   expect(report.summary).toMatchObject({ bug: 3, review: 1, intentional: 0 });
+  // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are interaction findings only.
+  expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+  expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
   // The navigating triggers were never clicked: their handlers would have written to the shared session storage.
   expect(await mobile.locator("body").evaluate(() => localStorage.getItem("mauxi-fixture:navigated"))).toBeNull();
