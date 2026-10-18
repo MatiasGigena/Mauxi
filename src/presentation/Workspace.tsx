@@ -614,6 +614,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return () => { offProgress(); offReport(); };
   }, []);
 
+  // Attached findings that a newer run no longer reports (fixed, or a different route) are dropped from the chat.
+  useEffect(() => {
+    if (audit) setAttachedFindings((items) => items.filter((item) => audit.findings.some((finding) => finding.id === item.id)));
+  }, [audit]);
+
   const snapshots = useMemo(() => snapshotBoards(audit, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, layout.boards]);
 
   async function runAudit() {
