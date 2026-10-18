@@ -46,6 +46,10 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 
 Layout, viewport sizes, focus restore state, and route-link preference are saved with the workspace. Live element handles and preview generations are not persisted.
 
+## Responsive audit panel
+
+The **Responsive audit** panel is docked on the right on windows 1100 px and wider and collapses to an **Audit** button on narrower ones (the button shows the bug count after a run). **Hide audit panel** collapses it manually. While open, the topbar and chat sit beside it. Running the audit adds a row of profile snapshots below the live previews and fits the canvas to show them; the canvas zooms out to 10% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
+
 ## Routes
 
 Linked routes mirror a supported same-origin **URL navigation**, not clicks, submissions, scrolling, or `history.state`. Authentication/API/action/callback paths and sensitive query/hash keys are conservatively excluded. Form-originated navigation is excluded too. Turn off **Actions → Link preview routes** in either preview to stop synchronization; **Actions → Copy route** remains available for supported routes.

@@ -1,11 +1,14 @@
 # Mauxi
 
-A local-first **Linux** desktop workspace for polishing, building, and animating real web interfaces with a coding agent.
+A local-first **Linux** desktop workspace that audits how a real web app behaves at every viewport width and zoom level, and fixes what breaks in the project's own source.
 
-Open a local project, explore live desktop and mobile previews on a freeform canvas, select precise elements, and discuss changes that update the real source code.
+Open a local project, run the **responsive audit**, and Mauxi sweeps the page from 320 to 1920 px plus phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles. It reports horizontal overflow, content cut off, clipped text, small touch targets, sticky bars that cover the screen and zoom-blocking viewport tags, mapped to the WCAG 2.2 criteria that depend on the viewport. It tells deliberate carousels, tables and code blocks apart from accidental scrolling. Each finding comes with the widths where it happens, the element and its source file, and a fix direction you can hand to the agent.
 
 ## What it does
 
+- Audits the route in the Desktop preview across a width sweep and full-check profiles without touching the visible previews, with snapshots of every profile on the canvas. See [responsive audit](docs/audit.md).
+- Classifies findings as bugs, needs review or intentional patterns with accessibility gaps; resolved findings are tracked between runs.
+- **Show at <width>** resizes a live preview to the failing width and outlines the element; **Fix with agent** attaches the finding to chat, and the agent verifies its fix with the same audit.
 - Opens React + Vite and supported Next.js projects with an explicit launch plan and temporary preview integration.
 - Keeps desktop and mobile previews live while you pan, zoom, focus, resize, and select elements linked to their source.
 - Offers resumable agent conversations and provider/model setup, with a host policy focused on responsive accessibility fixes.
@@ -35,6 +38,7 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 
 ## Documentation
 
+- [Responsive audit: checks, classification, limits](docs/audit.md)
 - [Workspace, project setup, and preview controls](docs/workspace.md)
 - [Agent conversations and responsive accessibility guidance](docs/agent.md)
 - [Changes, command approval, undo, and recovery](docs/changes-and-recovery.md)

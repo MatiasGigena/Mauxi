@@ -22,7 +22,8 @@ Run suites sequentially: they share fixture files and local ports.
 | Command | Coverage |
 | --- | --- |
 | `npm run test:e2e` | Vite/Next workspace, selection, exact JSX provenance, Motion/GSAP, delayed Next streaming, capture, routing, and HMR |
-| `npm run test:browser-e2e` | Visible-preview control, exact approvals, stale targets, revocation, and checks |
+| `npm run test:audit-e2e` | Responsive audit against the Vite audit lab: every planted bug, review item and scroller gap, silent negatives, live highlight, chat attachment, and resolution after a CSS fix. Writes the report JSON, profile snapshots and screenshots to `test-results/audit/` |
+| `npm run test:browser-e2e` | Visible-preview control, exact approvals, stale targets, revocation, checks, and the agent fix-and-verify loop with `responsive_audit` (local fake model) |
 | `npm run test:session-e2e` | Disposable Vite/Next Webpack/Turbopack imports, occupied ports, private caches, preservation of source/config/types and abrupt-owner recovery |
 | `npm run test:lifecycle-e2e` | Project close/reopen, layout persistence, and integration cleanup |
 | `npm run test:setup-e2e` | Approved setup UI, nested diff disclosures, diagnostics, motion/accessibility, and native Electron picker IPC (OS dialog result stubbed; real temporary-project discovery) |
@@ -31,7 +32,7 @@ Run suites sequentially: they share fixture files and local ports.
 | `npm run dist:linux && npm run test:package-e2e` | Actual AppImage, external Node/npm without pi on PATH, Chromium sandbox enabled, local fake provider, dual capture pixels, cookie/IPC boundaries, selected editing/visible checks/undo and reopen isolation for Vite and Next (#11) |
 | `MAUXI_LIVE_PLAN=/private/plan.json npm run test:live-acceptance` | Opt-in only; uses a real provider. Drives the AppImage through live-model design tasks on nominated real projects, then close/reopen/restart cleanup. Plan format and results: [real-project run](real-project-acceptance.md) |
 
-The workspace/Turbopack scripts install temporary fixture instrumentation and clean it through shell traps. Other integration suites exercise project setup directly. The shell uses port 44173, Vite uses 45173, Next Webpack uses 45000, and the Turbopack suite uses 45001. Do not run them against personal projects or unrelated servers.
+The workspace/Turbopack scripts install temporary fixture instrumentation and clean it through shell traps. Other integration suites exercise project setup directly. The shell uses port 44173, Vite uses 45173 (the audit suite reuses it), Next Webpack uses 45000, and the Turbopack suite uses 45001. Do not run them against personal projects or unrelated servers.
 
 `npm run verify:production` builds the fixtures, scans their output for bridge signatures, and runs hydrated production browser checks on ports 45273/45274. It requires Playwright Chromium (`npx playwright install chromium` if not already installed). These production checks are separate from agent verification of the visible workspace. To exercise exclusion with the temporary hooks installed:
 
