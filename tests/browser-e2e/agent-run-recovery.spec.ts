@@ -88,7 +88,7 @@ test("malformed tool arguments are returned to the model without revoking previe
 
   const { page, requests, close } = await launch(state, request => [
     toolCall("workspace_edit", JSON.stringify({ path: "src/App.tsx", oldText: "Mauxi", ".newText": "Mauxi!" })),
-    toolCall("design_search", JSON.stringify({ query: "" })),
+    toolCall("workspace_search", JSON.stringify({ query: "" })),
     toolCall("browser_targets", "{}"),
   ][request - 1] ?? text("Recovered from malformed arguments."));
 
@@ -98,7 +98,7 @@ test("malformed tool arguments are returned to the model without revoking previe
     await settled(page);
     expect(requests).toHaveLength(4);
     expect(requests[1]).toContain("Validation failed for tool \\\"workspace_edit\\\"");
-    expect(requests[2]).toContain("Validation failed for tool \\\"design_search\\\"");
+    expect(requests[2]).toContain("Validation failed for tool \\\"workspace_search\\\"");
     expect(requests[3]).toContain('\\"owner\\":\\"agent\\"');
     const final = await snapshot(page);
     expect(final.error).toBeUndefined();

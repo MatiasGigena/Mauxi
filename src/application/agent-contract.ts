@@ -1,7 +1,6 @@
 import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import type { StoredSelection } from "./selection-state";
-import type { ResourceView } from "./design-resource-contract";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -80,7 +79,6 @@ export interface AgentSnapshot {
 export interface AgentDiagnostics {
   tools: AgentToolActivityView[];
   changeSets: AgentChangeSetView[];
-  resources: ResourceView;
 }
 
 export type AgentDialog = { links?: Array<{ url: string; label?: string }>; warning?: string } & (

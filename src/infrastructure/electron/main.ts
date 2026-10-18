@@ -253,8 +253,7 @@ async function activeAgent(): Promise<PiAgentHost> {
 
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
-    }, path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-references", "library", "catalog.json"),
-    path.join(app.isPackaged ? process.resourcesPath : path.resolve(__dirname, ".."), "design-skills"), testStreamIdleMs());
+    }, testStreamIdleMs());
 
     agentHost = created;
     unsubscribeAgent = created.subscribe((agentEvent) => {

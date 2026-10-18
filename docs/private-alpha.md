@@ -20,7 +20,7 @@ The AppImage includes Electron and pi's SDK, **not your project's toolchain**. I
 
 Use disposable, trusted copies with non-production data/accounts. Open project → inspect the plan → Confirm & start → Models & providers → configure/select a model → select a preview element → inspect/remove context → send → give agent control using the scan icon beside Send → inspect the result and the agent's verification summary → repository-title menu → Close project. Review source diffs in your editor/Git; the minimal chat has no diff/Undo panel. Commands and consequential browser interactions require their own approvals. Take back control revokes queued browser actions; Stop also aborts the agent, not an unrelated external server.
 
-Design guidance works in the background: the visual reference library is available automatically, and previously approved personal skills continue loading without design-direction controls. Personal skills are not bundled or licensed for redistribution. See [background design guidance](agent.md) for resource trust and verification limits. Missing guidance is not permission to install packages or claim design quality.
+The agent follows a fixed responsive accessibility policy; there are no design skills, reference libraries or design-direction controls. See [agent guidance](agent.md) for verification limits.
 
 ## Known blockers and limits
 

@@ -1,7 +1,7 @@
 {
   "name": "mauxi",
   "productName": "Mauxi",
-  "description": "A local-first Linux workspace for polishing real web interfaces.",
+  "description": "A local-first Linux workspace for auditing and fixing responsive accessibility in real web interfaces.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -77,18 +77,6 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "design-references/library",
-        "to": "design-references/library",
-        "filter": ["catalog.json", "images/**/*.webp"]
-      },
-      {
-        "from": "design-skills",
-        "to": "design-skills",
-        "filter": ["**/*.md"]
-      }
     ],
     "linux": {
       "target": [

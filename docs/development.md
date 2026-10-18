@@ -27,7 +27,6 @@ Run suites sequentially: they share fixture files and local ports.
 | `npm run test:lifecycle-e2e` | Project close/reopen, layout persistence, and integration cleanup |
 | `npm run test:setup-e2e` | Approved setup UI, nested diff disclosures, diagnostics, motion/accessibility, and native Electron picker IPC (OS dialog result stubbed; real temporary-project discovery) |
 | `npm run test:turbopack-e2e` | Next.js Turbopack preview bridge |
-| `npm run build && npx playwright test --config playwright.resources.config.ts` | Automatic background reference loading with no design setup or controls |
 | `npm run test:release-gates` | Moved-hook recovery conflicts, owned descendant cleanup (#12), and bounded newline-free logs (#13) |
 | `npm run dist:linux && npm run test:package-e2e` | Actual AppImage, external Node/npm without pi on PATH, Chromium sandbox enabled, local fake provider, dual capture pixels, cookie/IPC boundaries, selected editing/visible checks/undo and reopen isolation for Vite and Next (#11) |
 | `MAUXI_LIVE_PLAN=/private/plan.json npm run test:live-acceptance` | Opt-in only; uses a real provider. Drives the AppImage through live-model design tasks on nominated real projects, then close/reopen/restart cleanup. Plan format and results: [real-project run](real-project-acceptance.md) |
@@ -60,4 +59,4 @@ See the [acceptance table](alpha-acceptance.md) and [candidate usage notes](priv
 
 ## What these checks do not establish
 
-Local fake providers keep unit tests deterministic and free of paid model calls. Passing them does not establish live subscription/API compatibility, real-model design quality, human acceptance, real-device behavior, or full authenticated AppImage acceptance. Live provider testing must be explicitly authorized and cost-bounded. Avoid maintaining frozen pass counts in documentation; run the relevant commands for current results.
+Local fake providers keep unit tests deterministic and free of paid model calls. Passing them does not establish live subscription/API compatibility, real-model fix quality, human acceptance, real-device behavior, or full authenticated AppImage acceptance. Live provider testing must be explicitly authorized and cost-bounded. Avoid maintaining frozen pass counts in documentation; run the relevant commands for current results.

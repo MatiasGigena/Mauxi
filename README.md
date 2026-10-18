@@ -8,7 +8,7 @@ Open a local project, explore live desktop and mobile previews on a freeform can
 
 - Opens React + Vite and supported Next.js projects with an explicit launch plan and temporary preview integration.
 - Keeps desktop and mobile previews live while you pan, zoom, focus, resize, and select elements linked to their source.
-- Offers resumable agent conversations, provider/model setup, and optional local design guidance.
+- Offers resumable agent conversations and provider/model setup, with a host policy focused on responsive accessibility fixes.
 - Applies live edits with retained checkpoints, conflict-aware recovery, and one-time command approval.
 - Lets the agent inspect the same visible previews after an explicit handoff from chat, with separate approvals for interactions and checks retained in session history.
 
@@ -36,7 +36,7 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 ## Documentation
 
 - [Workspace, project setup, and preview controls](docs/workspace.md)
-- [Agent conversations and local design guidance](docs/agent.md)
+- [Agent conversations and responsive accessibility guidance](docs/agent.md)
 - [Changes, command approval, undo, and recovery](docs/changes-and-recovery.md)
 - [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
 - [AC-01–AC-21 acceptance gate and blockers](docs/alpha-acceptance.md)
