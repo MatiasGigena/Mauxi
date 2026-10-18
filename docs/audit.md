@@ -49,6 +49,43 @@ Anything ambiguous is classified **Needs review** rather than **Bug**. Choose **
 
 These patterns are measured and stay silent: off-canvas drawers translated outside the viewport (fixed position or `aria-hidden`), visually hidden helper text (1×1 px or clipped), fixed elements outside the viewport, and intentional scrollers that are reachable by keyboard.
 
+## Interaction pass
+
+After the width sweep and the profiles, Mauxi checks what a keyboard or pointer user reaches, at **Small phone** (320 × 568) and **400% zoom** (320 × 256). It runs after every snapshot is captured, so it never changes what the other checks measured.
+
+| Finding | Criterion | How it is measured |
+| --- | --- | --- |
+| Keyboard focus hidden behind a fixed bar | 2.4.11 Focus Not Obscured (Minimum) | Mauxi presses Tab (CDP key events) from the start of the page and, at each focus stop, hit-tests a grid of points over the focused element. Points whose topmost element belongs to a visible fixed or sticky bar count as covered. Entirely covered is a **bug**; partly covered is **review**. One finding per covering bar lists the hidden stops. If the bar already has a *Fixed bars cover the screen* finding, the focus evidence is added to it. |
+| No visible focus indicator | 2.4.7 Focus Visible (review) | Compares the computed outline, box shadow, border, background, text decoration, color, opacity and transform of the focused element, its `::before`/`::after` and up to three ancestors with the same values captured before any element had focus. No change at all is reported for review; a change limited to color, text decoration, weight, opacity or transform is reported as subtle. A focus stop outside the viewport (for example a link inside a hidden drawer) is reported here too. |
+| Opened menu overflows or is cut off | 1.4.10 Reflow | Opens closed disclosures (`button[aria-expanded="false"]` with `aria-controls`, `<details>`, `button[aria-haspopup]`) with a CDP click, then measures the revealed content: wider than the viewport or past its edge, page scroll width growing, fixed content running past the bottom without its own scroll, or content clipped by an `overflow: hidden` ancestor. |
+| Hover content clipped or not hoverable | 1.4.13 Content on Hover or Focus | At 320 × 568, hovers elements whose `aria-describedby` points at a hidden tooltip (or that contain a hidden `role="tooltip"`), then checks whether the revealed content is cut off by the viewport (**bug**) and whether it stays visible when the pointer moves onto it (**review**). |
+
+Snapshots of the moment are added as extra boards (for example **Focus · 400% zoom** at the scroll position where a focused link sat under the header), only when a finding needs them. Each board's markers use the viewport position captured with the screenshot.
+
+### Bounds and side-effect policy
+
+- At most 40 focus stops per profile; the walk stops when focus returns to a visited element, leaves the document (body, an iframe or a closed shadow root) or the 20-second interaction budget runs out.
+- Only Tab is pressed during the focus walk: never Enter, Space or text. Focus starts from a temporary, invisible marker at the top of `<body>`, and is blurred and the page scrolled back to the top afterwards.
+- At most 6 disclosures per profile and 6 hover targets. Only `button` and `summary` elements are clicked. Skipped, with a note: links and `role="button"` links, submit buttons that belong to a form, buttons with `formaction`, buttons inside links, inline `onclick` or React click handlers that mention navigation (`location`, `navigate`, `router`, `href`, `submit`, `window.open`), and buttons whose name reads like a destructive or payment action (delete, remove, buy, pay, sign out, send).
+- While interacting, every navigation of the audit window is blocked. A trigger that still changes the URL (for example `pushState`) is noted, history is restored, and the rest of the disclosure pass is skipped.
+- Each opened disclosure is closed by clicking its trigger again (or Escape when the trigger is covered by its own menu) and Mauxi verifies that `aria-expanded`/`open`, the URL and the scroll position are back to their initial values. If not, the remaining interactions are skipped with a note.
+- Interaction failures never fail the audit: the report lists what was skipped and why under **Interaction checks** in the panel.
+
+### How the interaction pass can fail
+
+- **Focus does not move:** offscreen windows have no OS focus. CDP key events still move focus (no focus emulation is needed); if no element receives focus, the report notes it instead of reporting a clean result.
+- **Endless or trapped focus:** roving tab indexes, focus traps and generated content are cut off by the stop limit, cycle detection and the time budget.
+- **Wrong start:** a previous walk leaves the sequential focus starting point mid-page; every walk starts from the marker at the top of `<body>`.
+- **Page reactions to Tab:** keydown and focus handlers run as they would for a user (for example a menu opening on focus). The measurement already captured is not affected, and the page is restored afterwards.
+- **Hit-testing blind spots:** overlays with `pointer-events: none` are invisible to hit-testing, so they never count as covering (possible miss). Transparent fixed wrappers count only when the hit element or one of its fixed ancestors paints a background, border, text or media (avoids false positives).
+- **Focus indicators drawn elsewhere:** focus-ring libraries, sibling elements or JavaScript overlays can draw a ring Mauxi does not compare, so *No visible focus indicator* is always **review**. Contrast of the indicator (2.4.13) is not measured.
+- **Triggers that navigate or act:** handled by the skip list and the navigation block above. Handlers attached with `addEventListener` cannot be inspected, so a plain-looking `button` that performs an action when clicked is still clicked once; the action stays inside the page and any navigation is blocked.
+- **Triggers covered or off-screen:** each trigger is scrolled into view and hit-tested first; a covered trigger is skipped and noted.
+- **Content that cannot be found:** without `aria-controls`, the revealed content is the trigger's next sibling (or the `<details>` body). A trigger that reveals nothing measurable is noted, not reported.
+- **Late layout:** transitions are disabled; Mauxi waits two animation frames and 120 ms after each action. Menus positioned by slow scripts can be measured early.
+- **State not restored:** handled by the verification above; when it fails the pass stops so no later check measures a modified page.
+- **Hover content:** only tooltips with `role="tooltip"` or `aria-describedby` semantics are found, and only content that appears within 120 ms. Escape-to-dismiss (the third 1.4.13 requirement) is not pressed.
+
 ## Panel, snapshots and live highlight
 
 The panel shows a 320–1920 px ruler of the widths where bugs were measured, counts per classification, and the findings. Each finding has its own ruler, the WCAG criterion, the element selector, the source location, what was measured and a fix direction.
@@ -90,7 +127,7 @@ Audits work on `next dev` with Webpack or Turbopack. The end-to-end suites exerc
 ## Limits
 
 - Automated checks cover only part of WCAG. A clean audit is not a conformance claim.
-- Only the route in the Desktop preview is audited per run, in the state it loads in (no interactions, no hover or open menus).
+- Only the route in the Desktop preview is audited per run. Layout checks measure the state it loads in; the interaction pass adds keyboard focus, closed disclosures and tooltips at two narrow profiles only. Forms are never filled, nothing is typed, and states behind clicks on links, tabs, carousels or comboboxes are not explored.
 - Text resize (1.4.4) is covered through zoom-equivalent widths and the viewport meta check, not browser text-only zoom.
 - Orientation (1.3.4) is not checked automatically.
 - Snapshots are captured up to 2,400 px tall; markers below that are listed in the panel only.
