@@ -44,6 +44,8 @@ declare global {
       auditOpen(input: AuditScope & { route: string }): Promise<AuditReport | null>;
       onAuditSite(callback: (report: AuditSiteReport) => void): () => void;
       onAuditProgress(callback: (progress: AuditProgress) => void): () => void;
+      /** A single-route audit started (true) or ended (false), whether the user or the agent started it. */
+      onAuditState(callback: (running: boolean) => void): () => void;
       onAuditReport(callback: (report: AuditReport) => void): () => void;
       releaseCaptures(files: string[]): Promise<void>;
       agentBootstrap(): Promise<AgentSnapshot>;

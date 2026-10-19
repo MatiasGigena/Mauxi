@@ -71,6 +71,7 @@ export async function mockDesktop(page: Page) {
       saveCanvas: async () => {},
       releaseCaptures: async () => {},
       onAuditProgress: () => () => {},
+      onAuditState: () => () => {},
       onAuditReport: () => () => {},
       onAuditSite: () => () => {},
       auditCancel: async () => {},

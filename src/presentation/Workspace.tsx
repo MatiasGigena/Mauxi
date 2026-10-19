@@ -82,6 +82,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  /** A single-route run the host reports, including one the agent started. */
+  const [hostAudit, setHostAudit] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
@@ -643,9 +645,17 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   useEffect(() => {
     if (!window.mauxi) return;
     const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
+
+    // Agent-started runs show progress and Stop like the user's own; a new run drops the last run's progress and error.
+    const offState = window.mauxi.onAuditState((running) => {
+      setHostAudit(running);
+
+      if (running) { setAuditProgress(null); setAuditError(""); setPanelOpen(true); }
+    });
+
     const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); reportArrived(report); });
 
-    return () => { offProgress(); offReport(); };
+    return () => { offProgress(); offState(); offReport(); };
   }, [reportArrived]);
 
   // Attached findings that a newer run no longer reports (fixed, or a different route) are dropped from the chat.
@@ -667,7 +677,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   /** Audits the Desktop preview's route, or the given route (an open page of a site audit). */
   async function runAudit(target?: string) {
-    if (!window.mauxi || auditRunning) return;
+    if (!window.mauxi || auditRunning || hostAudit) return;
     const route = target ?? desktopRoute();
     setAuditRunning(true); setAuditError(""); setAuditProgress(null);
 
@@ -806,7 +816,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </main>
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
-    {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
+    {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
       onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored}
       onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>

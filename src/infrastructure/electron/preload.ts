@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld("mauxi", {
 
     return () => ipcRenderer.removeListener("mauxi:audit-progress", listener);
   },
+  onAuditState(callback: (running: boolean) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, value: boolean) => callback(value);
+    ipcRenderer.on("mauxi:audit-state", listener);
+
+    return () => ipcRenderer.removeListener("mauxi:audit-state", listener);
+  },
   onAuditReport(callback: (report: AuditReport) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AuditReport) => callback(value);
     ipcRenderer.on("mauxi:audit-report", listener);

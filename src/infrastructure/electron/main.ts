@@ -201,26 +201,39 @@ async function runAudit(target: AuditTarget, batch = false, signal?: AbortSignal
   if (url.origin !== new URL(target.origin).origin) throw new Error("Audits are limited to the approved project origin.");
 
   if (!batch && siteRun) throw new Error("A site audit is running.");
+
+  // Refused before announcing: a run turned away by the lock must not end the panel's view of the run holding it.
+  if (!batch && auditScanner.running) throw new Error("An audit is already running.");
   const key = `${target.workspaceId}:${target.route}`;
   const epoch = auditEpoch;
-  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 }, signal);
-  assertAuditEpoch(epoch); signal?.throwIfAborted();
-  await verifyFindingSources(report, target.root);
-  assertAuditEpoch(epoch); signal?.throwIfAborted();
-  auditReports.delete(key); auditReports.set(key, report);
 
-  while (auditReports.size > 16) auditReports.delete(auditReports.keys().next().value!);
-  auditTarget = target;
+  if (!batch) sendAuditState(true);
 
-  if (batch) return report;
-  const site = siteReports.get(target.workspaceId);
-  const index = site?.pages.findIndex((page) => page.route === target.route) ?? -1;
+  try {
+    const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 }, signal);
+    assertAuditEpoch(epoch); signal?.throwIfAborted();
+    await verifyFindingSources(report, target.root);
+    assertAuditEpoch(epoch); signal?.throwIfAborted();
+    auditReports.delete(key); auditReports.set(key, report);
 
-  if (site && index >= 0) { site.pages[index] = sitePage(report); sendSite(site); }
+    while (auditReports.size > 16) auditReports.delete(auditReports.keys().next().value!);
+    auditTarget = target;
 
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-report", report);
+    if (batch) return report;
+    const site = siteReports.get(target.workspaceId);
+    const index = site?.pages.findIndex((page) => page.route === target.route) ?? -1;
 
-  return report;
+    if (site && index >= 0) { site.pages[index] = sitePage(report); sendSite(site); }
+
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-report", report);
+
+    return report;
+  } finally { if (!batch && epoch === auditEpoch) sendAuditState(false); }
+}
+
+/** Single-route runs announce their start and end to the panel whoever started them (user or agent); site batches report through site events. */
+function sendAuditState(running: boolean): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("mauxi:audit-state", running);
 }
 
 function sendSite(report: AuditSiteReport): void {

@@ -5,7 +5,7 @@ import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { AuditSiteReport } from "../../src/application/audit-contract";
-import { launch, text, toolCall } from "../helpers/fake-provider";
+import { launch, text, toolCall, type Reply } from "../helpers/fake-provider";
 
 declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
 
@@ -107,5 +107,55 @@ test("stopping the agent mid-batch cancels its site audit and frees the audit fo
     expect((await page.evaluate(() => window.lastSiteReport))!.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
     await page.screenshot({ path: testInfo.outputPath("agent-site-stopped.png") });
     await writeFile(testInfo.outputPath("agent-site-stopped.json"), JSON.stringify({ cancelledMs, pages: site.pages.map(({ route, status, error }) => ({ route, status, error })), userAudit: { route: user.route, summary: user.summary }, modelRequests: requests.length }, null, 2));
+  } finally { await close(); }
+});
+
+test("the panel shows the agent's own audit running, and its Stop cancels it", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-agent-panel-"));
+  // The second audit is held back, so the panel is seen idle between the two agent runs.
+  const later: Reply = (response, request) => { setTimeout(() => toolCall("responsive_audit", "{}")(response, request), 5_000); };
+
+  const { page, requests, close } = await launch(state, request => [
+    toolCall("responsive_audit", JSON.stringify({ route: "/audit-cards.html" })), later,
+  ][request - 1] ?? text("The re-run was cancelled."), {}, "/audit-lab.html");
+
+  try {
+    const panel = page.getByRole("complementary", { name: "Responsive audit" });
+    const stop = panel.getByRole("button", { name: "Stop", exact: true });
+    const rerun = panel.getByRole("button", { name: "Re-run", exact: true });
+    await expect(panel).toHaveCount(0);
+    await page.getByLabel("Message", { exact: true }).fill("Audit the cards page, then re-run it");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+
+    // The agent's run opens the panel with progress and Stop, as the user's own run does.
+    await expect(stop).toBeVisible({ timeout: 60_000 });
+    await expect(panel.getByRole("status")).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^(Run audit|Re-run)$/ })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("agent-audit-running.png") });
+
+    // Its report lands in the panel and Run is back until the agent's next audit.
+    await expect.poll(() => requests.length, { timeout: 120_000 }).toBe(2);
+    await expect(rerun).toBeVisible();
+    await expect(stop).toHaveCount(0);
+    await expect(panel.locator(".audit-panel-header code")).toHaveText("/audit-cards.html");
+
+    // Stop in the panel cancels the agent's second run; the agent gets a clean cancellation and the report stays.
+    await expect(stop).toBeVisible({ timeout: 30_000 });
+    await stop.click();
+    await expect(rerun).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await page.evaluate(() => window.mauxi!.agentBootstrap())).runState, { timeout: 60_000 }).toBe("idle");
+    expect(requests).toHaveLength(3);
+    const cancelled = JSON.stringify(Value.Parse(ToolMessages, JSON.parse(requests[2])).messages.filter((message) => message.role === "tool").at(-1)?.content);
+    expect(cancelled).toContain("Audit cancelled");
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+
+    // The scanner is free: the user's Re-run runs to a fresh report.
+    await rerun.click();
+    await expect(stop).toBeVisible();
+    await expect(rerun).toBeVisible({ timeout: 120_000 });
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("agent-audit-stopped.png") });
+    await writeFile(testInfo.outputPath("agent-audit-panel.json"), JSON.stringify({ firstRun: requests[1].includes('\\"route\\":\\"/audit-cards.html\\"'), cancelledToolResult: cancelled, modelRequests: requests.length }, null, 2));
   } finally { await close(); }
 });
