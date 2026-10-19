@@ -262,7 +262,7 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
     const top = Math.max(rect.top, 0);
     const bottom = Math.min(rect.bottom, viewportHeight);
     const name = `${active.tagName.toLowerCase()} "${labelOf(active)}"`;
-    const hiddenStyle = style.visibility === "hidden" || style.opacity === "0" || (rect.width <= 1 && rect.height <= 1) || style.clipPath === "inset(50%)" || (style.clip !== "auto" && style.clip !== "");
+    const hiddenStyle = !active.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || (rect.width <= 1 && rect.height <= 1) || style.clipPath === "inset(50%)" || (style.clip !== "auto" && style.clip !== "");
 
     if (right - left < 1 || bottom - top < 1 || hiddenStyle) {
       issues.push({ kind: "focus-not-visible", variant: "offscreen", element: describe(active), view: viewRect(active), detail: clip(`Focus stop ${stop} moved to ${name}, which is ${hiddenStyle ? "visually hidden" : `outside the ${viewportWidth}×${viewportHeight} viewport (at ${round(rect.left)}, ${round(rect.top)})`} while focused, so keyboard users cannot see where they are.`, 512) });

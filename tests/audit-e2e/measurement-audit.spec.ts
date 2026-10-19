@@ -6,10 +6,11 @@ import { AXE_IGNORED_INCOMPLETE, AXE_RULES } from "../../src/application/audit-a
 import { buildReport, type AuditSample } from "../../src/application/audit-report";
 import type { measurePage } from "../../src/infrastructure/audit/page-audit";
 import type { AxeApi, runAxe } from "../../src/infrastructure/audit/axe-run";
+import type { interactionStep } from "../../src/infrastructure/audit/page-interactions";
 
 declare global {
   interface Window {
-    auditMeasurement: { measurePage: typeof measurePage; runAxe: typeof runAxe };
+    auditMeasurement: { measurePage: typeof measurePage; runAxe: typeof runAxe; interactionStep: typeof interactionStep };
     axe: AxeApi;
   }
 }
@@ -17,7 +18,7 @@ declare global {
 let browserSource: string;
 
 test.beforeAll(async () => {
-  const result = await build({ stdin: { contents: 'export { measurePage } from "./src/infrastructure/audit/page-audit"; export { runAxe } from "./src/infrastructure/audit/axe-run";', resolveDir: process.cwd() }, bundle: true, platform: "browser", format: "iife", globalName: "auditMeasurement", write: false });
+  const result = await build({ stdin: { contents: 'export { measurePage } from "./src/infrastructure/audit/page-audit"; export { runAxe } from "./src/infrastructure/audit/axe-run"; export { interactionStep } from "./src/infrastructure/audit/page-interactions";', resolveDir: process.cwd() }, bundle: true, platform: "browser", format: "iife", globalName: "auditMeasurement", write: false });
   browserSource = result.outputFiles[0].text;
 });
 
@@ -87,4 +88,33 @@ test("ignored inconclusive axe nodes leave a profile unknown instead of passing"
   expect(finding!.detail).toContain("unknown at Desktop (1440px)");
   expect(finding!.detail).not.toContain("not at");
   expect(finding!.title).not.toContain("only at");
+});
+
+test("keyboard focus inside a transparent ancestor is reported as invisible", async ({ page }, testInfo) => {
+  await page.setContent('<html lang="en"><head><title>Hidden focus</title></head><body><main><div style="opacity:0"><button data-testid="transparent-focus">Hidden focus</button></div><button data-testid="visible-focus">Visible focus</button><svg data-testid="visible-svg-focus" tabindex="0" width="30" height="30" aria-label="Visible icon"><circle cx="15" cy="15" r="12" /></svg></main></body></html>');
+  await page.addScriptTag({ content: browserSource });
+  await page.evaluate(() => window.auditMeasurement.interactionStep({ action: "focus-start" }));
+  await page.keyboard.press("Tab");
+
+  const result = await page.evaluate(() => ({
+    active: document.activeElement?.getAttribute("data-testid"),
+    measured: window.auditMeasurement.interactionStep({ action: "focus-measure" }),
+  }));
+
+  const visible = [];
+
+  for (const testId of ["visible-focus", "visible-svg-focus"]) {
+    await page.keyboard.press("Tab");
+
+    const next = await page.evaluate(() => ({ active: document.activeElement?.getAttribute("data-testid"), measured: window.auditMeasurement.interactionStep({ action: "focus-measure" }) }));
+    expect(next.active).toBe(testId);
+    expect(next.measured.issues?.some((issue) => issue.variant === "offscreen")).toBe(false);
+    visible.push(next);
+  }
+
+  await writeFile(testInfo.outputPath("transparent-focus.json"), JSON.stringify({ ...result, visible }, null, 2));
+  await page.screenshot({ path: testInfo.outputPath("transparent-focus.png") });
+  await page.evaluate(() => window.auditMeasurement.interactionStep({ action: "cleanup" }));
+  expect(result.active).toBe("transparent-focus");
+  expect(result.measured.issues).toContainEqual(expect.objectContaining({ kind: "focus-not-visible", variant: "offscreen", element: expect.objectContaining({ testId: "transparent-focus" }) }));
 });
