@@ -348,7 +348,18 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
   const loginFocus = useRef<HTMLElement | null>(null);
+  const runFocus = useRef<HTMLElement | null>(null);
+  const modelPicker = useRef<HTMLButtonElement>(null);
   const providerLogin = loginFocus.current !== null;
+  // Disabling the focused control while an action runs can drop focus to the body (browser-dependent); put it back afterwards.
+  useLayoutEffect(() => {
+    if (busy || loginFocus.current) return;
+    const target = runFocus.current;
+    runFocus.current = null;
+
+    if (!target || (document.activeElement && document.activeElement !== document.body)) return;
+    (target.isConnected ? target : modelPicker.current)?.focus({ preventScroll: true });
+  }, [busy]);
   useLayoutEffect(() => {
     if (inlineDialog || busy || !loginFocus.current?.isConnected) return;
     let frame = 0;
@@ -390,6 +401,8 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   }, [workspaceId]);
 
   function run(action: () => Promise<void>) {
+    const active = document.activeElement;
+    runFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
     setBusy(true); setSendError("");
     void action().catch((error) => setSendError(errorMessage(error))).finally(() => setBusy(false));
   }
@@ -465,7 +478,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
             }} />
         </div>
         <div className="composer-toolbar" data-composer-motion="toolbar" data-retained-motion="" data-exiting={!!inlineDialog || undefined} inert={!!inlineDialog} aria-hidden={!!inlineDialog || undefined}>
-          <button className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
+          <button ref={modelPicker} className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
             <Settings2 size={16} aria-hidden="true" /><span>{selectedModel ? selectedModel.name : "Models & providers"}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <div className="send-actions">
