@@ -163,6 +163,11 @@ const siteReports = new Map<string, AuditSiteReport>();
 let siteRun: { cancelled: boolean } | null = null;
 let siteStep: AuditSiteStep | null = null;
 
+/** Bumped when a workspace closes: a run still finishing for the old workspace must not store or publish anything. */
+let auditEpoch = 0;
+
+function assertAuditEpoch(epoch: number): void { if (epoch !== auditEpoch) throw new Error("Workspace closed"); }
+
 const auditScanner = new AuditScanner({
   session: () => {
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error("No visible workspace window");
@@ -197,8 +202,11 @@ async function runAudit(target: AuditTarget, batch = false): Promise<AuditReport
 
   if (!batch && siteRun) throw new Error("A site audit is running.");
   const key = `${target.workspaceId}:${target.route}`;
+  const epoch = auditEpoch;
   const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 });
+  assertAuditEpoch(epoch);
   await verifyFindingSources(report, target.root);
+  assertAuditEpoch(epoch);
   auditReports.delete(key); auditReports.set(key, report);
 
   while (auditReports.size > 16) auditReports.delete(auditReports.keys().next().value!);
@@ -239,11 +247,13 @@ async function runSiteAudit(base: AuditBase, requested: string[]): Promise<Audit
   if (siteRun || auditScanner.running) throw new Error("An audit is already running.");
   const routes = siteRoutes(requested, base.origin);
   const run = { cancelled: false };
+  const epoch = auditEpoch;
+  const send = () => { if (epoch === auditEpoch) sendSite(report); };
   const started = Date.now();
   const report: AuditSiteReport = { id: crypto.randomUUID(), startedAt: new Date(started).toISOString(), durationMs: 0, state: "running", pages: routes.map((route) => ({ route, status: "pending", summary: null, bugRanges: [], resolved: 0, durationMs: 0 })) };
   siteRun = run;
   siteReports.set(base.workspaceId, report);
-  sendSite(report);
+  send();
 
   try {
     for (const [index, route] of routes.entries()) {
@@ -251,20 +261,22 @@ async function runSiteAudit(base: AuditBase, requested: string[]): Promise<Audit
 
       siteStep = { index, total: routes.length, route };
       report.pages[index].status = "running";
-      sendSite(report);
+      send();
 
       try { report.pages[index] = sitePage(await runAudit({ ...base, route }, true)); }
       catch (error) { report.pages[index] = { ...report.pages[index], status: run.cancelled ? "skipped" : "failed", error: (error instanceof Error ? error.message : String(error)).slice(0, 600) }; }
 
       report.durationMs = Date.now() - started;
-      sendSite(report);
+      send();
     }
   } finally {
     siteRun = null; siteStep = null;
     report.state = run.cancelled ? "cancelled" : "done";
     report.durationMs = Date.now() - started;
-    sendSite(report);
+    send();
   }
+
+  assertAuditEpoch(epoch);
 
   return report;
 }
@@ -289,7 +301,7 @@ function cancelAudits(reason?: string): void {
   auditScanner.cancel(reason);
 }
 
-function resetAudits(): void { cancelAudits("Workspace closed"); auditReports.clear(); siteReports.clear(); auditTarget = null; }
+function resetAudits(): void { auditEpoch++; cancelAudits("Workspace closed"); auditReports.clear(); siteReports.clear(); auditTarget = null; }
 
 function cleanupCaptureCache(): void {
   try { captures.cleanup(); }
