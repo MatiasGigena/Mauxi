@@ -499,7 +499,7 @@ export class PiAgentHost {
 
     const responsiveAudit = defineTool({
       name: "responsive_audit", label: "Run responsive audit",
-      description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px, plus axe-core rules (contrast, names, labels, ARIA, landmarks) at the phone, tablet, laptop and desktop profiles. Returns findings with width ranges and which earlier findings are resolved. It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused in a batch. At most four audits (a batch counts as one) per request.`,
+      description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px, plus axe-core rules (contrast, names, labels, ARIA, landmarks) at the phone, tablet, laptop and desktop profiles. Returns findings with width ranges, which earlier findings are resolved, and which could not be re-checked (unverified: do not claim them fixed). It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused in a batch. At most four audits (a batch counts as one) per request.`,
       parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })), routes: Type.Optional(Type.Array(Type.String({ maxLength: 2_048, pattern: "^/" }), { minItems: 1, maxItems: SITE_ROUTE_LIMIT })) }),
       execute: async (_id, input) => {
         if (!this.audit) throw new Error("The responsive audit is unavailable in this workspace.");
@@ -523,6 +523,8 @@ export class PiAgentHost {
           route: report.route, widthsScanned: report.widthsScanned, summary: report.summary,
           findings: report.findings.slice(0, 30).map((finding) => findingContext(finding, report.route)),
           resolved: report.resolved.map((finding) => ({ id: finding.id, title: finding.title })),
+          // Earlier findings whose check did not fully run again: neither fixed nor confirmed.
+          unverified: (report.unverified ?? []).map((finding) => ({ id: finding.id, title: finding.title })),
           intentionalScrollers: report.scrollers.map((scroller) => scroller.element.selector),
           interactions: report.interactions && { focusStops: report.interactions.focusStops, disclosures: report.interactions.disclosures, hovers: report.interactions.hovers, notes: report.interactions.notes.slice(0, 8) },
         };

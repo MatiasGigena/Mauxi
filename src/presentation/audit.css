@@ -71,6 +71,7 @@
 .resolved-group li { flex-direction: row; align-items: center; gap: .4rem; color: var(--audit-resolved); }
 .resolved-group li span { color: #4a4650; }
 .resolved-group .finding-group-title { color: var(--audit-resolved); }
+.unverified-group li { flex-direction: row; align-items: center; color: #4a4650; }
 
 .finding-card { --severity: var(--severity-serious); margin: .35rem 0; padding: .55rem .6rem .6rem; border: 1px solid #ece9e5; border-radius: .85rem; background: #fff; scroll-margin: .5rem; transition: border-color 120ms ease, box-shadow 120ms ease; }
 .finding-card[data-severity=moderate] { --severity: var(--severity-moderate); }

@@ -181,6 +181,8 @@ export interface AuditReport {
   findings: AuditFinding[];
   scrollers: AuditScroller[];
   resolved: AuditFinding[];
+  /** Previous findings no longer reported whose check did not run completely this time (axe failed or cut off, interaction pass skipped or stopped). */
+  unverified?: AuditFinding[];
   summary: { bug: number; review: number; intentional: number; serious: number; moderate: number; minor: number };
   /** Keyboard focus, disclosure and hover checks; absent when the pass did not run. */
   interactions?: AuditInteractionSummary;

@@ -1,7 +1,14 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AuditFinding, AuditReport } from "../../src/application/audit-contract";
+
+const LAB = path.resolve("fixtures/vite/src/audit-axe/AxeLab.tsx");
+const HERO = '<img className="axe-photo" src={photo} width={640} height={360} data-testid="hero-photo" />';
+
+// Eight unnamed images ahead of the photo fill axe-core's image-alt node list, so the photo is no longer listed.
+const FILLER = '{Array.from({ length: 8 }, (_, index) => <img key={index} src={divider} width={8} height={8} data-testid="alt-filler" />)}';
+const NAMED = HERO.replace("<img ", '<img alt="Two bikes by the harbor" ');
 
 declare global { interface Window { lastAuditReport?: AuditReport | null } }
 
@@ -17,6 +24,23 @@ test.beforeAll(async ({}, testInfo) => {
 });
 
 test.afterAll(async () => { await application?.close(); });
+
+async function runAudit(): Promise<AuditReport> {
+  await page.evaluate(() => { window.lastAuditReport = null; });
+  await page.getByRole("complementary", { name: "Responsive audit" }).getByRole("button", { name: "Re-run", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 120_000 }).toBe(true);
+  const report = await page.evaluate(() => window.lastAuditReport);
+
+  if (!report) throw new Error("The audit report was not delivered.");
+
+  return report;
+}
+
+/** Writes the lab source and waits until the dev server serves it. */
+async function writeLab(source: string, marker: string): Promise<void> {
+  await writeFile(LAB, source);
+  await expect.poll(() => fetch("http://127.0.0.1:45173/src/audit-axe/AxeLab.tsx").then((response) => response.text()), { timeout: 15_000 }).toContain(marker);
+}
 
 function only(report: AuditReport, testId: string): AuditFinding {
   const matches = report.findings.filter((finding) => finding.element?.testId === testId);
@@ -80,4 +104,45 @@ test("runs axe-core at every width profile and reports layout-specific violation
   // Only Deque rule pages linked from a report can be opened outside Mauxi.
   await expect(page.evaluate(() => window.mauxi!.openAxeHelp("https://example.com/rules/axe/4.13/button-name"))).rejects.toThrow(/Unapproved help URL/);
   await expect(page.evaluate(() => window.mauxi!.openAxeHelp("https://dequeuniversity.com/rules/axe/4.13/not-in-the-report"))).rejects.toThrow(/Unapproved help URL/);
+});
+
+test("keeps a cut-off finding unverified across runs until a complete check resolves it", async ({}, testInfo) => {
+  const original = await readFile(LAB, "utf8");
+  expect(original).toContain(HERO);
+  const baseline = await page.evaluate(() => window.lastAuditReport);
+  const photo = baseline?.findings.find((finding) => finding.element?.testId === "hero-photo");
+
+  if (!photo) throw new Error("The first test must report the hero photo.");
+  const ids = (findings: AuditFinding[] | undefined) => (findings ?? []).map((finding) => finding.id);
+
+  try {
+    await writeLab(original.replace(HERO, `${FILLER}\n          ${HERO}`), "alt-filler");
+    const cutOff = await runAudit();
+    await writeFile(testInfo.outputPath("axe-cut-off.json"), JSON.stringify({ ...cutOff, snapshots: [] }, null, 2));
+    expect(cutOff.findings.filter((finding) => finding.element?.testId === "alt-filler")).toHaveLength(8);
+    expect(ids(cutOff.findings)).not.toContain(photo.id);
+    expect(ids(cutOff.unverified)).toEqual([photo.id]);
+    expect(ids(cutOff.resolved)).not.toContain(photo.id);
+
+    // Still cut off: the photo stays unverified rather than being forgotten.
+    const again = await runAudit();
+    expect(ids(again.unverified)).toEqual([photo.id]);
+    expect(ids(again.resolved)).toEqual([]);
+    const panel = page.getByRole("complementary", { name: "Responsive audit" });
+    await panel.getByRole("button", { name: /Not re-checked this run/ }).click();
+    await expect(panel.locator(".unverified-group li")).toHaveText([photo.title]);
+    await page.screenshot({ path: testInfo.outputPath("axe-unverified.png") });
+
+    // A complete image-alt check without the photo resolves it, together with the filler.
+    await writeLab(original.replace(HERO, NAMED), "Two bikes by the harbor");
+    const fixed = await runAudit();
+    await writeFile(testInfo.outputPath("axe-resolved.json"), JSON.stringify({ ...fixed, snapshots: [] }, null, 2));
+    expect(fixed.findings.filter((finding) => finding.rule?.id === "image-alt")).toEqual([]);
+    expect(ids(fixed.resolved)).toEqual(expect.arrayContaining([photo.id]));
+    expect(fixed.resolved.filter((finding) => finding.element?.testId === "alt-filler")).toHaveLength(8);
+    expect(fixed.unverified ?? []).toEqual([]);
+    await expect(panel.getByRole("button", { name: /Resolved since last run/ })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /Not re-checked this run/ })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("axe-resolved.png") });
+  } finally { await writeFile(LAB, original); }
 });

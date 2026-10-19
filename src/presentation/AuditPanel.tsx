@@ -87,6 +87,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
   onSite: () => void; siteView?: ReactNode; pageBar?: ReactNode;
 }) {
   const [showResolved, setShowResolved] = useState(true);
+  const [showUnverified, setShowUnverified] = useState(false);
   const visible = report?.findings.filter((finding) => !ignored.has(finding.id)) ?? [];
   const hidden = report?.findings.filter((finding) => ignored.has(finding.id)) ?? [];
   const failing = mergeRanges(visible.filter((finding) => finding.classification === "bug").flatMap((finding) => finding.ranges));
@@ -147,6 +148,10 @@ export function AuditPanel({ report, progress, running, error, selected, attache
       {report.resolved.length > 0 && <section className="finding-group resolved-group">
         <button type="button" className="finding-group-title" aria-expanded={showResolved} onClick={() => setShowResolved((open) => !open)}><Check size={14} aria-hidden="true" />Resolved since last run<span>{report.resolved.length}</span></button>
         {showResolved && <ul>{report.resolved.map((finding) => <li key={finding.id}><Check size={12} aria-hidden="true" /><span>{finding.title}</span></li>)}</ul>}
+      </section>}
+      {(report.unverified?.length ?? 0) > 0 && <section className="finding-group unverified-group">
+        <button type="button" className="finding-group-title" aria-expanded={showUnverified} onClick={() => setShowUnverified((open) => !open)}><RotateCcw size={14} aria-hidden="true" />Not re-checked this run<span>{report.unverified!.length}</span></button>
+        {showUnverified && <ul>{report.unverified!.map((finding) => <li key={finding.id}><span>{finding.title}</span></li>)}</ul>}
       </section>}
       {GROUPS.map((group) => {
         const items = visible.filter((finding) => finding.classification === group.id);

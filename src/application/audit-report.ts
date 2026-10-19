@@ -14,6 +14,8 @@ const FOCUS_NOT_OBSCURED: FindingCriterion = { id: "2.4.11", name: "Focus Not Ob
 const KEYBOARD: FindingCriterion = { id: "2.1.1", name: "Keyboard" };
 const RESIZE_TEXT: FindingCriterion = { id: "1.4.4", name: "Resize Text" };
 
+const INTERACTION_KINDS = new Set<FindingKind>(["focus-obscured", "focus-not-visible", "disclosure-overflow", "hover-content"]);
+
 const CLASS_ORDER: Record<FindingClassification, number> = { bug: 0, review: 1, intentional: 2 };
 const SEVERITY_ORDER: Record<FindingSeverity, number> = { serious: 0, moderate: 1, minor: 2 };
 const IMPACT_SEVERITY: Record<NonNullable<AxeImpact>, FindingSeverity> = { critical: "serious", serious: "serious", moderate: "moderate", minor: "minor" };
@@ -320,16 +322,31 @@ export function buildReport(input: {
 
   findings.sort((a, b) => CLASS_ORDER[a.classification] - CLASS_ORDER[b.classification] || SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.ranges[0]?.[0] ?? 0) - (b.ranges[0]?.[0] ?? 0));
   const ids = new Set(findings.map((finding) => finding.id));
-  const resolved = input.previous && input.previous.route === input.route ? input.previous.findings.filter((finding) => !ids.has(finding.id)) : [];
-  const count = (predicate: (finding: AuditFinding) => boolean) => findings.filter(predicate).length;
   const interactions = input.interactions;
+  const axeAt = new Map(samples.flatMap((sample) => sample.profile && sample.axe ? [[sample.profile.id, sample.axe] as const] : []));
+
+  // A missing finding is resolved only when its check ran again, completely, where it was found; otherwise it is unverified.
+  const remeasured = (finding: AuditFinding) => {
+    if (finding.kind === "axe") return !!finding.rule && finding.profiles.length > 0 && finding.profiles.every((id) => axeAt.get(id)?.every((item) => item.rule !== finding.rule!.id || item.total <= item.nodes.length));
+
+    if (INTERACTION_KINDS.has(finding.kind)) return !!interactions && !interactions.notes.length && finding.profiles.every((id) => interactions.profiles.includes(id));
+
+    return samples.length > 0;
+  };
+
+  // Unverified findings carry forward until they are found again or their check completes (then they are resolved).
+  const before = input.previous && input.previous.route === input.route ? [...new Map([...input.previous.unverified ?? [], ...input.previous.findings].map((finding) => [finding.id, finding])).values()] : [];
+  const gone = before.filter((finding) => !ids.has(finding.id));
+  const resolved = gone.filter(remeasured);
+  const unverified = gone.filter((finding) => !remeasured(finding));
+  const count = (predicate: (finding: AuditFinding) => boolean) => findings.filter(predicate).length;
   // Interaction snapshots are only kept as boards when a finding marks something on them.
   const markedBoards = new Set(findings.flatMap((finding) => finding.markers.map((marker) => marker.profileId)));
   const profileList = [...new Map(samples.flatMap((sample) => sample.profile ? [[sample.profile.id, { ...sample.profile, issueCount: count((finding) => finding.profiles.includes(sample.profile!.id)) }] as const] : [])).values()];
 
   return {
     url: input.url, route: input.route, startedAt: input.startedAt, durationMs: input.durationMs, widthsScanned: scanned.length,
-    profiles: profileList, snapshots: [...input.snapshots, ...(interactions?.snapshots ?? []).filter((snapshot) => markedBoards.has(snapshot.profileId))], findings, scrollers, resolved, axe: input.axe,
+    profiles: profileList, snapshots: [...input.snapshots, ...(interactions?.snapshots ?? []).filter((snapshot) => markedBoards.has(snapshot.profileId))], findings, scrollers, resolved, unverified, axe: input.axe,
     summary: {
       bug: count((finding) => finding.classification === "bug"), review: count((finding) => finding.classification === "review"), intentional: count((finding) => finding.classification === "intentional"),
       serious: count((finding) => finding.severity === "serious"), moderate: count((finding) => finding.severity === "moderate"), minor: count((finding) => finding.severity === "minor"),
