@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import { isPageLinks, type DiscoveredRoute, type PageLinks, type RouteDiscovery } from "../../application/audit-contract";
 import { linkVerdict, SITE_ROUTE_LIMIT } from "../../application/audit-site";
+import type { Fence } from "./navigation-fence";
 
 export const LINKS_PER_PAGE = 400;
 const PAGE_LIMIT_MS = 10_000;
@@ -42,9 +43,10 @@ function within<T>(work: Promise<T>, ms: number, signal: AbortSignal, message: s
 
 /**
  * Breadth-first walk of same-origin links from the starting route: the start page and, below the depth limit,
- * each page it links to. Only routes that pass the site-audit link policy are loaded or listed.
+ * each page it links to. Only routes that pass the site-audit link policy are loaded or listed; the fence cancels
+ * redirects to excluded routes before they are requested.
  */
-export async function discoverRoutes(window: BrowserWindow, request: DiscoveryRequest, signal: AbortSignal): Promise<RouteDiscovery> {
+export async function discoverRoutes(window: BrowserWindow, request: DiscoveryRequest, signal: AbortSignal, fence: Fence): Promise<RouteDiscovery> {
   const contents = window.webContents;
   const start = linkVerdict(request.url, request.origin);
 
@@ -64,8 +66,13 @@ export async function discoverRoutes(window: BrowserWindow, request: DiscoveryRe
     let links: PageLinks;
 
     try {
-      await within(window.loadURL(new URL(route, request.origin).href), PAGE_LIMIT_MS, signal, `${route} did not load within ${PAGE_LIMIT_MS / 1000}s.`);
-      const landed = linkVerdict(contents.getURL(), request.origin);
+      fence.refused = null;
+
+      // A cancelled redirect fails the load; the refusal says where it led.
+      try { await within(window.loadURL(new URL(route, request.origin).href), PAGE_LIMIT_MS, signal, `${route} did not load within ${PAGE_LIMIT_MS / 1000}s.`); }
+      catch (error) { if (!fence.refused || signal.aborted) throw error; }
+
+      const landed = fence.refused ?? linkVerdict(contents.getURL(), request.origin);
 
       if (landed.reason !== null || landed.route !== route && found.has(landed.route)) {
         if (node.depth === 0) throw new Error(landed.reason === null ? "The start page redirects." : "The start page redirects outside the allowed routes.");

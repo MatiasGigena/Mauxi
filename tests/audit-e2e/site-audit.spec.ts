@@ -1,6 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { AuditSiteReport } from "../../src/application/audit-contract";
 
 declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
@@ -8,6 +10,10 @@ declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
 const LAB = "/audit-lab.html";
 const ABOUT = "/audit-lab-about.html";
 const BLOG = "/audit-lab-blog.html";
+const MEMBERS = "/audit-lab-members.html";
+const ACCOUNT = "/audit-lab-account.html";
+const EXCLUDED = "Auth, API, action or credential route";
+const SignOutCounter = Type.Object({ signOuts: Type.Integer() });
 
 let application: ElectronApplication;
 let page: Page;
@@ -122,4 +128,32 @@ test("Stop ends a site audit and skips the remaining pages", async ({}, testInfo
   await expect(panel().getByRole("list", { name: "Audited pages" }).locator(".site-page-status")).toHaveText(["Skipped", "Skipped", "Skipped"]);
   await expect(panel().getByRole("button", { name: "Audit site", exact: true })).toBeVisible();
   await writeFile(testInfo.outputPath("site-cancelled.json"), JSON.stringify(site.pages.map(({ route, status }) => ({ route, status })), null, 2));
+});
+
+async function signOuts(): Promise<number> {
+  return Value.Parse(SignOutCounter, await (await fetch("http://127.0.0.1:45173/audit-lab-signouts.json")).json()).signOuts;
+}
+
+test("cancels redirects and page navigations to excluded routes before they are requested", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const before = await signOuts();
+
+  // The account link redirects to an allowed page and then to /api/logout; the members page script also navigates there.
+  const discovery = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }), MEMBERS);
+  expect(discovery.routes.map((item) => item.route)).toEqual([MEMBERS, BLOG, LAB, ABOUT]);
+  expect(discovery.excluded).toContainEqual({ route: ACCOUNT, reason: `Redirects to an excluded route (${EXCLUDED})` });
+
+  const start = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }).then(() => "resolved", (error: Error) => error.message), ACCOUNT);
+  expect(start).toContain("The start page redirects outside the allowed routes.");
+
+  const site = await page.evaluate((routes) => window.mauxi!.auditSite({ fixture: "vite", routes }), [ACCOUNT]);
+  expect(site.pages.map((item) => [item.route, item.status])).toEqual([[ACCOUNT, "failed"]]);
+  expect(site.pages[0].error).toContain(`The page redirects to an excluded route (${EXCLUDED}).`);
+
+  const single = await page.evaluate((route) => window.mauxi!.auditRun({ fixture: "vite", route }).then(() => "resolved", (error: Error) => error.message), ACCOUNT);
+  expect(single).toContain(`The page redirects to an excluded route (${EXCLUDED}).`);
+
+  const after = await signOuts();
+  await writeFile(testInfo.outputPath("excluded-redirects.json"), JSON.stringify({ discovery: { routes: discovery.routes, excluded: discovery.excluded }, start, site: site.pages.map(({ route, status, error }) => ({ route, status, error })), single, signOuts: { before, after } }, null, 2));
+  expect(after).toBe(before);
 });

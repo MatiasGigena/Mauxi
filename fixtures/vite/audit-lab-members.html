@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Members · Northwind Roasters</title>
+<style>
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #2b211b; background: #f7f1e8; }
+  main { max-width: 42rem; margin: 0 auto; padding: 48px 24px; }
+  p { line-height: 1.5; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+  <!-- Site audit fixture: an allowed-looking link whose redirect chain ends at the sign-out endpoint, and a script that
+       navigates there on its own. Audits must cancel both before the endpoint is requested. -->
+  <main data-testid="members-page">
+    <h1>Members</h1>
+    <p>Manage <a href="/audit-lab-account.html">your account</a> or read <a href="/audit-lab-blog.html">the roasting journal</a>.</p>
+  </main>
+  <script>addEventListener("load", () => setTimeout(() => location.assign("/api/logout?from=script"), 150));</script>
+</body>
+</html>

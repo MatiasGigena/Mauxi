@@ -8,6 +8,7 @@ import { INTERACTION_PROFILE_IDS, isInteractionResult, type InteractionRun } fro
 import { buildReport, type AuditSample } from "../../application/audit-report";
 import { runAxe } from "./axe-run";
 import { runInteractionPass } from "./interaction-pass";
+import { confine, type Fence } from "./navigation-fence";
 import { measurePage } from "./page-audit";
 import { interactionStep } from "./page-interactions";
 import { discoverRoutes, type DiscoveryRequest } from "./route-discovery";
@@ -48,19 +49,6 @@ function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
 }
 
-/** Keeps the hidden window on the approved origin: no popups, no cross-origin navigation, no beforeunload prompts. */
-function confine(window: BrowserWindow, origin: string): void {
-  const contents = window.webContents;
-  contents.setAudioMuted(true);
-  contents.setWindowOpenHandler(() => ({ action: "deny" }));
-  const guard = (event: Electron.Event, target: string) => { if (!sameOrigin(target, origin)) event.preventDefault(); };
-
-  contents.on("will-navigate", guard);
-  contents.on("will-redirect", guard);
-  contents.on("will-frame-navigate", (event) => { if (event.isMainFrame && !sameOrigin(event.url, origin)) event.preventDefault(); });
-  contents.on("will-prevent-unload", (event) => event.preventDefault());
-}
-
 /** snapshotScale below 1 captures snapshots at reduced resolution (site audits), keeping CSS-pixel geometry. */
 export interface AuditScanRequest { url: string; route: string; origin: string; previous: AuditReport | null; snapshotScale?: number }
 
@@ -78,15 +66,15 @@ export class AuditScanner {
   cancel(reason = "Audit cancelled"): void { this.controller?.abort(new Error(reason)); }
 
   run(request: AuditScanRequest): Promise<AuditReport> {
-    return this.exclusive(request, RUN_LIMIT_MS, "The audit exceeded its time limit.", (window, signal) => this.scan(window, request, signal));
+    return this.exclusive(request, RUN_LIMIT_MS, "The audit exceeded its time limit.", (window, signal, fence) => this.scan(window, request, signal, fence));
   }
 
   /** Lists same-origin pages linked from the starting route, for a site audit. Shares the one-run-at-a-time lock. */
   discover(request: DiscoveryRequest): Promise<RouteDiscovery> {
-    return this.exclusive(request, DISCOVERY_LIMIT_MS, "Route discovery exceeded its time limit.", (window, signal) => discoverRoutes(window, request, signal));
+    return this.exclusive(request, DISCOVERY_LIMIT_MS, "Route discovery exceeded its time limit.", (window, signal, fence) => discoverRoutes(window, request, signal, fence));
   }
 
-  private async exclusive<T>(request: { url: string; origin: string }, limitMs: number, timeout: string, work: (window: BrowserWindow, signal: AbortSignal) => Promise<T>): Promise<T> {
+  private async exclusive<T>(request: { url: string; origin: string }, limitMs: number, timeout: string, work: (window: BrowserWindow, signal: AbortSignal, fence: Fence) => Promise<T>): Promise<T> {
     if (this.controller) throw new Error("An audit is already running.");
 
     if (!sameOrigin(request.url, request.origin)) throw new Error("Audits are limited to the approved project origin.");
@@ -100,9 +88,9 @@ export class AuditScanner {
       webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
     });
 
-    confine(window, request.origin);
+    const fence = confine(window, request.origin, request.url);
 
-    try { return await work(window, controller.signal); }
+    try { return await work(window, controller.signal, fence); }
     finally {
       clearTimeout(timer);
       this.controller = undefined;
@@ -111,7 +99,7 @@ export class AuditScanner {
     }
   }
 
-  private async scan(window: BrowserWindow, request: AuditScanRequest, signal: AbortSignal): Promise<AuditReport> {
+  private async scan(window: BrowserWindow, request: AuditScanRequest, signal: AbortSignal, fence: Fence): Promise<AuditReport> {
     const started = Date.now();
     const contents = window.webContents;
     const allowed = (target: string) => sameOrigin(target, request.origin);
@@ -181,8 +169,17 @@ export class AuditScanner {
     progress("loading", 0);
     const loaded = window.loadURL(request.url);
     const aborted = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
-    await Promise.race([loaded, aborted]);
+
+    try { await Promise.race([loaded, aborted]); }
+    catch (error) {
+      signal.throwIfAborted();
+
+      if (!fence.refused) throw error;
+    }
+
     signal.throwIfAborted();
+
+    if (fence.refused) throw new Error(fence.refused.route === null ? "The audited page left the approved project origin." : `The page redirects to an excluded route (${fence.refused.reason}).`);
 
     if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
     // A dev server full reload (HMR fallback) would replace the document mid-scan and drop the injected styles.
