@@ -160,12 +160,12 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
 
   const viewportMeta = { present: !!meta, content: metaContent, deviceWidth: metaPairs.get("width") === "device-width", zoomBlocked };
 
-  // Walk the rendered tree once, tracking whether an ancestor clips or scrolls horizontally.
-  interface Entry { element: Element; style: CSSStyleDeclaration; rect: DOMRect; contained: boolean; fixed: boolean; parent: Entry | null; extends: boolean }
+  // Walk the rendered tree once, tracking whether an ancestor clips or scrolls horizontally, or is fully transparent (opacity is not inherited).
+  interface Entry { element: Element; style: CSSStyleDeclaration; rect: DOMRect; contained: boolean; fixed: boolean; faded: boolean; parent: Entry | null; extends: boolean }
 
   const entries: Entry[] = [];
   const skipTags = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "META", "LINK"]);
-  const stack: Array<{ element: Element; contained: boolean; fixed: boolean; parent: Entry | null }> = body ? [{ element: body, contained: false, fixed: false, parent: null }] : [];
+  const stack: Array<{ element: Element; contained: boolean; fixed: boolean; faded: boolean; parent: Entry | null }> = body ? [{ element: body, contained: false, fixed: false, faded: false, parent: null }] : [];
   let visited = 0;
   let truncated = false;
 
@@ -180,17 +180,18 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
     if (style.display === "none") continue;
     const rect = item.element.getBoundingClientRect();
     const fixed = item.fixed || style.position === "fixed";
+    const faded = item.faded || style.opacity === "0";
     const extendsRight = !item.contained && !fixed && rect.width > 1 && rect.right > viewportWidth + .5;
-    const entry: Entry = { element: item.element, style, rect, contained: item.contained, fixed, parent: item.parent, extends: extendsRight };
+    const entry: Entry = { element: item.element, style, rect, contained: item.contained, fixed, faded, parent: item.parent, extends: extendsRight };
     entries.push(entry);
     // html/body clipping is reported as pageClipsX rather than treated as a containing scroller.
     const clipsChildren = item.element !== body && (style.overflowX !== "visible" || style.contain.includes("paint") || style.contain === "strict" || style.contain === "content");
     const children = [...item.element.children];
 
-    for (let index = children.length - 1; index >= 0; index--) stack.push({ element: children[index], contained: item.contained || clipsChildren, fixed, parent: entry });
+    for (let index = children.length - 1; index >= 0; index--) stack.push({ element: children[index], contained: item.contained || clipsChildren, fixed, faded, parent: entry });
   }
 
-  const invisible = (entry: Entry) => entry.style.visibility === "hidden" || entry.style.opacity === "0" || (entry.rect.width <= 1 && entry.rect.height <= 1) || (entry.style.clip !== "auto" && entry.style.clip !== "") || entry.style.clipPath === "inset(50%)";
+  const invisible = (entry: Entry) => entry.style.visibility === "hidden" || entry.faded || (entry.rect.width <= 1 && entry.rect.height <= 1) || (entry.style.clip !== "auto" && entry.style.clip !== "") || entry.style.clipPath === "inset(50%)";
   const meaningful = (element: Element) => !!(element.textContent ?? "").trim() || element.matches("img,svg,video,canvas,picture,iframe,input,select,textarea,button,a[href],table");
   const reported = new Set<Element>();
 

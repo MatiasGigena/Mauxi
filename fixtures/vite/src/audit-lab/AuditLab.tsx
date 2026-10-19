@@ -35,6 +35,11 @@ export function AuditLab() {
 
       {/* Not a finding: off-canvas drawer kept hidden outside the viewport. */}
       <aside className="lab-drawer" aria-hidden="true" data-testid="offcanvas-drawer"><a href="#beans" tabIndex={-1}>Beans</a></aside>
+      {/* Not a finding: closed drawer faded out by opacity: 0 on the container only; its clipped title and tiny, crowded buttons are not shown. */}
+      <aside className="lab-filters" aria-label="Filters" inert data-testid="faded-drawer">
+        <p className="lab-filters-title" data-testid="faded-drawer-title">Filter beans by origin, process, altitude and roast level</p>
+        <button type="button" aria-label="Light roast" data-testid="faded-drawer-light">L</button><button type="button" aria-label="Medium roast" data-testid="faded-drawer-medium">M</button><button type="button" aria-label="Dark roast" data-testid="faded-drawer-dark">D</button>
+      </aside>
       <main>
         {/* Not a finding: visually hidden helper text. */}
         <span className="sr-only">Skip to content</span>

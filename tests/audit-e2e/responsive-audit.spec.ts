@@ -104,6 +104,8 @@ test("audits the lab page across the width matrix, separating bugs from intentio
 
   // Deliberate negatives must stay silent.
   for (const negative of ["origin-carousel", "price-table", "offcanvas-drawer"]) expect(byTestId(report, negative)).toEqual([]);
+  // opacity: 0 on the drawer hides its clipped title and tiny, crowded buttons too, though their own opacity is 1.
+  expect(report.findings.filter((finding) => finding.element?.testId?.startsWith("faded-drawer"))).toEqual([]);
   expect(report.findings.some((finding) => finding.element?.selector.includes("sr-only"))).toBe(false);
   expect(report.summary).toMatchObject({ bug: 9, review: 1, intentional: 2 });
   // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are layout findings only.

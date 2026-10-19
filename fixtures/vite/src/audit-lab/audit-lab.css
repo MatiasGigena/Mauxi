@@ -17,6 +17,9 @@ a { color: inherit; }
 .lab-icons button { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: #f7f1e8; color: #2b211b; font-size: 12px; line-height: 20px; cursor: pointer; }
 
 .lab-drawer { position: fixed; top: 0; right: 0; width: 280px; height: 100vh; padding: 24px; background: #fff; transform: translateX(100%); }
+.lab-filters { position: fixed; top: 0; left: 0; width: 260px; height: 100vh; padding: 24px; background: #fff; opacity: 0; pointer-events: none; }
+.lab-filters-title { width: 160px; margin: 0 0 12px; overflow: hidden; white-space: nowrap; }
+.lab-filters button { width: 16px; height: 16px; margin-right: 2px; padding: 0; border: 0; font-size: 10px; line-height: 16px; }
 
 .lab-hero { padding: 56px 24px 32px; background: #f2e8db; }
 .lab-eyebrow { font-family: system-ui, sans-serif; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #8a5a35; }
