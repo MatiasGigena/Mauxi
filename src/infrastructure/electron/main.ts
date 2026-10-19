@@ -406,13 +406,15 @@ async function activeAgent(): Promise<PiAgentHost> {
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
     }, testStreamIdleMs(), {
-      run: async (route) => {
+      run: async (requested) => {
         const current = manager.snapshot().active;
 
         if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
-        const previous = auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/";
+        const route = requested ?? (auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/");
+        // The audit window shares the workspace session: unlike the user, the agent gets the batch policy for its one route too.
+        siteRoutes([route], current.origin);
 
-        return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route: route ?? previous });
+        return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route });
       },
       site: async (routes) => {
         const current = manager.snapshot().active;
