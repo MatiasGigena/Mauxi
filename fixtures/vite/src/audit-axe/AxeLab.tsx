@@ -22,6 +22,8 @@ export function AxeLab() {
           <h1>Bikes built for the harbor wind.</h1>
           {/* Planted: tagline that drops to low contrast only in the mobile layout (1.4.3). */}
           <p className="axe-tagline" data-testid="mobile-tagline">Hand-tuned in our workshop since 1987.</p>
+          {/* Planted: low contrast in the mobile layout (1.4.3); from 600px it sits on a gradient where axe-core cannot decide, so those widths are unknown, not passing. */}
+          <p className="axe-offer" data-testid="mixed-contrast">Free fitting with every new frame.</p>
           {/* Planted: informative photo without alt text, at every width (1.1.1). */}
           <img className="axe-photo" src={photo} width={640} height={360} data-testid="hero-photo" />
           {/* Not a finding: decorative divider with empty alt. */}

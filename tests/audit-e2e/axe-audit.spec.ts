@@ -74,6 +74,12 @@ test("runs axe-core at every width profile and reports layout-specific violation
   const tagline = only(report, "mobile-tagline");
   expect(tagline).toMatchObject({ kind: "axe", classification: "bug", criterion: { id: "1.4.3", name: "Contrast (Minimum)" }, rule: { id: "color-contrast" }, ranges: [[320, 390]] });
   expect(tagline.detail).toContain("insufficient color contrast");
+  // Failing on phones and inconclusive on the wide gradient: the wide profiles are unknown, never reported as passing.
+  const offer = only(report, "mixed-contrast");
+  expect(offer).toMatchObject({ kind: "axe", classification: "bug", rule: { id: "color-contrast" }, ranges: [[320, 390]], profiles: ["phone-sm", "phone"] });
+  expect(offer.title).not.toContain("only at");
+  expect(offer.detail).toContain("Found at Small phone (320px), Phone (390px); inconclusive at Tablet (768px), Laptop (1280px), Desktop (1440px), where axe-core could not decide.");
+  expect(offer.detail).not.toContain("not at");
 
   // Wide-only and every-width problems.
   expect(only(report, "social-link")).toMatchObject({ kind: "axe", classification: "bug", rule: { id: "link-name" }, ranges: [[1280, 1440]], profiles: ["laptop", "desktop"] });
@@ -87,10 +93,10 @@ test("runs axe-core at every width profile and reports layout-specific violation
   // Deliberate negatives stay silent, and axe never repeats a check Mauxi measures itself.
   for (const negative of ["search-toggle", "decorative-divider", "large-text", "sold-out", "hidden-drawer"]) expect(report.findings.filter((finding) => finding.element?.testId === negative), negative).toEqual([]);
   expect(report.findings.filter((finding) => ["target-size", "meta-viewport", "meta-viewport-large", "scrollable-region-focusable"].includes(finding.rule?.id ?? ""))).toEqual([]);
-  expect(report.summary).toMatchObject({ bug: 4, review: 1, intentional: 0 });
+  expect(report.summary).toMatchObject({ bug: 5, review: 1, intentional: 0 });
 
   // Panel and snapshot markers: the toggle is marked on the phone snapshots only.
-  await expect(panel.locator(".audit-summary [data-kind=bug] dd")).toHaveText("4");
+  await expect(panel.locator(".audit-summary [data-kind=bug] dd")).toHaveText("5");
   await expect(panel.getByRole("note")).toHaveCount(0);
   const card = panel.locator(`.finding-card[data-finding-id="${toggle.id}"]`);
   await expect(card.locator(".finding-rule")).toHaveText("axe · button-name");

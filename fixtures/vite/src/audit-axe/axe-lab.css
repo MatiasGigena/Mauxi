@@ -18,6 +18,9 @@ p { margin: 0 0 12px; line-height: 1.5; }
 .axe-tagline { color: #2d3a45; font-size: 1.05rem; }
 /* planted: mobile-only low contrast */
 @media (max-width: 599px) { .axe-tagline { color: #a7b0b8; } }
+/* planted: mobile-only low contrast, inconclusive on the wide gradient */
+.axe-offer { padding: 12px 16px; border-radius: 10px; background: linear-gradient(90deg, #0b4f6c, #1b6f8f); color: #fff; }
+@media (max-width: 599px) { .axe-offer { background: #fff; color: #a7b0b8; } }
 .axe-photo { display: block; width: 100%; max-width: 640px; height: auto; border-radius: 14px; }
 .axe-divider { display: block; width: 100%; max-width: 400px; margin-top: 20px; }
 
