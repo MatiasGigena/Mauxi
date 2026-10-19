@@ -19,7 +19,7 @@
     "fixtures:dev": "concurrently -k -s first \"npm run dev -w @mauxi-fixture/vite\" \"npm run dev -w @mauxi-fixture/next\"",
     "fixtures:build": "npm run build -w @mauxi-fixture/vite && npm run build -w @mauxi-fixture/next",
     "verify:production": "npm run fixtures:build && tsx scripts/verify-production.ts && playwright test --config playwright.production.config.ts",
-    "test": "vitest run tests/unit",
+    "test": "vitest run --dir tests/unit",
     "test:e2e": "bash scripts/e2e.sh",
     "test:audit-e2e": "bash scripts/e2e.sh --config playwright.audit.config.ts",
     "test:browser-e2e": "npm run build && playwright test --config playwright.browser.config.ts",

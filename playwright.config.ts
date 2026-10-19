@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
-  use: { trace: "retain-on-failure" },
+  use: { trace: "retain-on-failure", launchOptions: { executablePath: process.env.MAUXI_CHROMIUM_PATH || undefined } },
   webServer: [
     { command: "npm run dev -w @mauxi-fixture/vite", url: "http://127.0.0.1:45173", reuseExistingServer: false, timeout: 120_000 },
     { command: "npm run dev -w @mauxi-fixture/next", url: "http://127.0.0.1:45000", reuseExistingServer: false, timeout: 180_000 },
