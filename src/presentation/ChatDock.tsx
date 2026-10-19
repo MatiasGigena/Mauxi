@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent
 import { ArrowRight, ArrowUpRight, Check, ChevronDown, RefreshCw, Settings2, ScanEye, Hand, TriangleAlert, X } from "lucide-react";
 import type { AgentDialog, AgentSnapshot } from "../application/agent-contract";
 import type { StoredSelection } from "../application/selection-state";
+import type { AuditFindingContext } from "../application/audit-contract";
 import { SelectionComposer } from "./SelectionComposer";
 import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
 import { ComposerAction } from "./ComposerAction";
@@ -301,8 +302,11 @@ function AgentSettings({ agent, workspaceId, busy, run, login, onClose }: {
     </section>;
 }
 
-export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, selections, onRemove, onBeforeSend, onSelectionsSent }: {
+const FIX_PROMPT = "Fix the attached responsive accessibility findings, then verify them with responsive_audit.";
+
+export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, selections, onRemove, onBeforeSend, onSelectionsSent, findings = [], onRemoveFinding, onFindingsSent }: {
   workspaceId?: string; minimizeRequest?: number; selections: StoredSelection[];
+  findings?: AuditFindingContext[]; onRemoveFinding?: (id: string) => void; onFindingsSent?: (ids: string[]) => void;
   browserControl?: { ready: boolean; locked: boolean; pending: boolean; onGrant: () => void; onRevoke: () => void };
   onRemove: (id: string) => void;
   onBeforeSend: () => Promise<{ ok: boolean; message?: string; selections?: StoredSelection[] }>;
@@ -344,7 +348,18 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   const showError = !!error && !exchangeContainsError(exchange, error);
   const inlineDialog = dialog?.kind !== "approval" ? dialog : null;
   const loginFocus = useRef<HTMLElement | null>(null);
+  const runFocus = useRef<HTMLElement | null>(null);
+  const modelPicker = useRef<HTMLButtonElement>(null);
   const providerLogin = loginFocus.current !== null;
+  // Disabling the focused control while an action runs can drop focus to the body (browser-dependent); put it back afterwards.
+  useLayoutEffect(() => {
+    if (busy || loginFocus.current) return;
+    const target = runFocus.current;
+    runFocus.current = null;
+
+    if (!target || (document.activeElement && document.activeElement !== document.body)) return;
+    (target.isConnected ? target : modelPicker.current)?.focus({ preventScroll: true });
+  }, [busy]);
   useLayoutEffect(() => {
     if (inlineDialog || busy || !loginFocus.current?.isConnected) return;
     let frame = 0;
@@ -386,6 +401,8 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   }, [workspaceId]);
 
   function run(action: () => Promise<void>) {
+    const active = document.activeElement;
+    runFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
     setBusy(true); setSendError("");
     void action().catch((error) => setSendError(errorMessage(error))).finally(() => setBusy(false));
   }
@@ -406,9 +423,10 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
   }
 
   async function submit(behavior: "prompt" | "followUp") {
-    if (!workspaceId || !window.mauxi || !agent.selectedModel || !draft.trim() || busy || settings || inlineDialog || stopping) return;
+    if (!workspaceId || !window.mauxi || !agent.selectedModel || (!draft.trim() && !findings.length) || busy || settings || inlineDialog || stopping) return;
     const submittedDraft = draft;
-    const text = submittedDraft.trim();
+    const text = submittedDraft.trim() || FIX_PROMPT;
+    const attachedFindings = findings;
     setMinimized(false); setSendingDraft(submittedDraft); setBusy(true); setSendError("");
 
     try {
@@ -420,7 +438,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
 
       const attached = result.selections ?? [];
       const previousUserIds = agent.messages.filter(message => message.role === "user").map(message => message.id);
-      const response = await window.mauxi.agentSend({ workspaceId, text, behavior, selections: attached });
+      const response = await window.mauxi.agentSend({ workspaceId, text, behavior, selections: attached, findings: attachedFindings });
 
       if (!response.accepted) { setSendError("The request was not accepted. Your draft and attachments were kept.");
 
@@ -429,13 +447,14 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
       setAccepted({ text, previousUserIds, workspaceId, sessionId: agent.sessionId });
       setDraft((current) => current === submittedDraft ? "" : current);
       onSelectionsSent(attached.map((item) => item.capture.selectionId));
+      onFindingsSent?.(attachedFindings.map((finding) => finding.id));
     } catch (error) { setSendError(errorMessage(error)); }
     finally { setSendingDraft(null); setBusy(false); }
   }
 
   return <>
     <SelectionComposer selections={selections} onRemove={onRemove} onActivate={() => setMinimized(false)} expansion={dialog?.id ?? ""}
-      contentSize={JSON.stringify([draft, exchange, working, minimized, sendError, agent.error?.message])}
+      contentSize={JSON.stringify([draft, exchange, working, minimized, sendError, agent.error?.message, findings.map(finding => finding.id)])}
       panel={settings && workspaceId ? <AgentSettings agent={agent} workspaceId={workspaceId} busy={busy} run={run} login={login} onClose={() => setSettings(false)} /> : null}
       login={inlineDialog && workspaceId ? active => <AgentPromptDialog key={inlineDialog.id} workspaceId={workspaceId} dialog={inlineDialog} inline active={active} providerLogin={providerLogin} onClose={() => dismissDialog(inlineDialog.id)} /> : undefined}>
       {exchange && <ChatExchange exchange={exchange} running={running} hidden={minimized || settings || !!inlineDialog} />}
@@ -443,8 +462,14 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
       <form className="composer" data-login={!!inlineDialog || undefined}
         onKeyDownCapture={() => { keyboardAction.current = true; }} onPointerDownCapture={() => { keyboardAction.current = false; }} onSubmit={(event) => { event.preventDefault(); void submit(running ? "followUp" : "prompt"); }}>
         <div className="composer-message" data-composer-motion="editor" data-retained-motion="" data-exiting={settings || !!inlineDialog || undefined} inert={settings || !!inlineDialog} aria-hidden={settings || !!inlineDialog || undefined}>
+          {findings.length > 0 && <ul className="finding-chips" aria-label="Attached findings">
+            {findings.map((finding) => <li key={finding.id} className="finding-chip" data-severity={finding.severity} title={`${finding.title} · ${finding.criterion ?? "responsive layout"}`}>
+              <span className="finding-chip-dot" aria-hidden="true" /><span className="finding-chip-label">{finding.title}</span>
+              {onRemoveFinding && <button type="button" aria-label={`Remove finding ${finding.title}`} onClick={() => onRemoveFinding(finding.id)}><X size={12} aria-hidden="true" /></button>}
+            </li>)}
+          </ul>}
           <label className="sr-only" htmlFor="chat-message">Message</label>
-          <textarea ref={editor} id="chat-message" placeholder={working ? "Add a follow-up…" : "Describe a change or ask about the interface…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)}
+          <textarea ref={editor} id="chat-message" placeholder={working ? "Add a follow-up…" : findings.length ? "Send to fix the attached findings, or add instructions…" : "Ask about a finding or describe a responsive fix…"} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)}
             onKeyDown={event => {
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               event.preventDefault();
@@ -453,7 +478,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
             }} />
         </div>
         <div className="composer-toolbar" data-composer-motion="toolbar" data-retained-motion="" data-exiting={!!inlineDialog || undefined} inert={!!inlineDialog} aria-hidden={!!inlineDialog || undefined}>
-          <button className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
+          <button ref={modelPicker} className="model-picker" type="button" aria-label="Models & providers" aria-expanded={settings} disabled={!workspaceId} title={selectedModel ? `${selectedModel.provider} · ${selectedModel.name}` : "Models & providers"} onClick={() => setSettings((open) => !open)}>
             <Settings2 size={16} aria-hidden="true" /><span>{selectedModel ? selectedModel.name : "Models & providers"}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <div className="send-actions">
@@ -461,7 +486,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
               {browserControl.locked ? <Hand size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
             </button>}
             <ComposerAction action={action} instant={keyboardAction.current} type={stopAction ? "button" : "submit"}
-              disabled={settings || !!inlineDialog || !workspaceId || busy || stopping || (!stopAction && (!draft.trim() || !agent.selectedModel))}
+              disabled={settings || !!inlineDialog || !workspaceId || busy || stopping || (!stopAction && ((!draft.trim() && !findings.length) || !agent.selectedModel))}
               title={stopAction ? "Stop agent work" : working ? "Send after the current response" : "Send message"}
               onClick={stopAction ? stop : undefined} />
           </div>

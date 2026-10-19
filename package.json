@@ -1,7 +1,7 @@
 {
   "name": "mauxi",
   "productName": "Mauxi",
-  "description": "A local-first Linux workspace for polishing real web interfaces.",
+  "description": "A local-first Linux workspace for auditing and fixing responsive accessibility in real web interfaces.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -19,8 +19,9 @@
     "fixtures:dev": "concurrently -k -s first \"npm run dev -w @mauxi-fixture/vite\" \"npm run dev -w @mauxi-fixture/next\"",
     "fixtures:build": "npm run build -w @mauxi-fixture/vite && npm run build -w @mauxi-fixture/next",
     "verify:production": "npm run fixtures:build && tsx scripts/verify-production.ts && playwright test --config playwright.production.config.ts",
-    "test": "vitest run tests/unit",
+    "test": "vitest run --dir tests/unit",
     "test:e2e": "bash scripts/e2e.sh",
+    "test:audit-e2e": "bash scripts/e2e.sh --config playwright.audit.config.ts",
     "test:browser-e2e": "npm run build && playwright test --config playwright.browser.config.ts",
     "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
     "test:setup-e2e": "npm run build && playwright test --config playwright.setup.config.ts",
@@ -40,6 +41,7 @@
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@fontsource/poppins": "5.3.0",
     "@vitejs/plugin-react": "5.1.1",
+    "axe-core": "4.13.0",
     "lucide-react": "1.48.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -77,18 +79,6 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "design-references/library",
-        "to": "design-references/library",
-        "filter": ["catalog.json", "images/**/*.webp"]
-      },
-      {
-        "from": "design-skills",
-        "to": "design-skills",
-        "filter": ["**/*.md"]
-      }
     ],
     "linux": {
       "target": [

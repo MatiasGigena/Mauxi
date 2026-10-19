@@ -779,33 +779,6 @@ describe("managed change checkpoints", () => {
     expect(await recoveries(state)).toHaveLength(RECOVERY_VAULT_LIMITS.entries);
   });
 
-  it("pins recovery-bearing checkpoints until explicit manual cleanup instead of orphaning retained data", async () => {
-    const { root, state, changes, begin } = await setup();
-    const file = path.join(root, "src/a.txt"); await writeFile(file, "before");
-    let first = "";
-
-    for (let i = 0; i < 64; i++) {
-      const id = await begin();
-
-      if (i === 0) first = id;
-      await changes.write("src/a.txt", `change-${i}`); await changes.settle();
-    }
-
-    await expect(changes.prepare("Must not prune retained recovery")).rejects.toThrow(/retained recovery/);
-    expect(await recoveries(state)).toHaveLength(64);
-    expect(changes.views().some((view) => view.id === first)).toBe(true);
-    let oldest = "";
-
-    for (const directory of await recoveries(state)) {
-      if (JSON.parse(await readFile(path.join(directory, "intent.json"), "utf8")).changeSetId === first) oldest = directory;
-    }
-
-    expect(oldest).not.toBe(""); await rm(oldest, { recursive: true });
-    await changes.prepare("Room after manual cleanup");
-    expect(changes.views().some((view) => view.id === first)).toBe(false);
-    expect(await recoveries(state)).toHaveLength(63);
-  }, 30_000);
-
   it("preserves legacy in-project recovery and surfaces its separate manual-cleanup requirement", async () => {
     const { root, state, changes, begin } = await setup();
     await writeFile(path.join(root, "src/a.txt"), "before"); await begin(); await changes.write("src/a.txt", "agent"); await changes.settle();

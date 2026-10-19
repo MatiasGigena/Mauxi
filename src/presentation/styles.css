@@ -4,6 +4,7 @@
 @import "@fontsource/poppins/latin-700.css";
 @import "@fontsource/poppins/latin-800.css";
 @import "./workspace.css";
+@import "./audit.css";
 :root { font: 100%/1.5 "Poppins", system-ui, sans-serif; color: #222329; background: #e9e8e5; font-synthesis: none; font-optical-sizing: auto; }
 * { box-sizing: border-box; } html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; } button, input, select, textarea { font: inherit; }
 button { border: 0; color: inherit; cursor: pointer; } button:active:not(:disabled) { background: #d5d2ed; }

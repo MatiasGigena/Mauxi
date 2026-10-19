@@ -39,7 +39,10 @@ test("only the two approved previews may override embedding headers", async ({},
   await writeFile(path.join(root, "vite.config.mjs"), config);
   await writeFile(path.join(root, "index.html"), '<html><body><h1 data-testid="loaded">APP LOADED</h1></body></html>');
 
-  const app = await electron.launch({ chromiumSandbox: true,
+  // Chromium cannot sandbox a root process, so as root only the header policy is checked.
+  const sandboxed = process.getuid?.() !== 0;
+
+  const app = await electron.launch({ chromiumSandbox: sandboxed,
     ...(process.env.MAUXI_APPIMAGE ? { executablePath: process.env.MAUXI_APPIMAGE, args: [] } : { args: [path.resolve("dist-electron/main.js")] }),
     env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: "1", MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "profile") } });
 
@@ -89,7 +92,7 @@ test("only the two approved previews may override embedding headers", async ({},
     await thirdDenied;
     expect(page.frames().some(frame => frame.url().includes('/nested?third'))).toBe(false);
 
-    expect(app.process().spawnargs).not.toContain('--no-sandbox');
+    if (sandboxed) expect(app.process().spawnargs).not.toContain('--no-sandbox');
     expect(await desktop.evaluate(() => [typeof require === "undefined", typeof process === "undefined"])).toEqual([true, true]);
     expect(await desktop.evaluate(() => { try { return !!parent.document; } catch { return false; } })).toBe(false);
     const redirect = page.waitForEvent('requestfailed', { predicate: request => request.url().includes('/redirect-foreign') || request.url() === foreignOrigin + '/', timeout: 10_000 });

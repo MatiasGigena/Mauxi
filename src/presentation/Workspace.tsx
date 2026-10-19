@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -12,11 +12,23 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
+import { ScanSearch } from "lucide-react";
+import { AuditPanel } from "./AuditPanel";
+import { AuditBoards, snapshotBoards } from "./AuditBoards";
+import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
+import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport } from "../application/audit-contract";
+import { Type } from "typebox";
+import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
 
-const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000" } as const;
+const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
+
+/** Proof fixtures served from the same project directory share its source files. */
+const SOURCE_FIXTURES = { vite: "vite", next: "next", "next-turbopack": "next" } as const;
 
 type Fixture = keyof typeof URLS;
+
+const isFixture = (value: string | null): value is Fixture => value === "next" || value === "next-turbopack";
 
 type Command = ShellToBridgeMessage extends infer T ? T extends ShellToBridgeMessage ? Omit<T, "protocol" | "session" | "generation"> : never : never;
 
@@ -25,6 +37,21 @@ interface Runtime { generation: string; ready: boolean; route: string; safe: boo
 function releaseDraftCaptures(files: string[]): void {
   if (!files.length || !window.mauxi) return;
   void window.mauxi.releaseCaptures(files).catch(error => console.warn("Could not release selection captures", error));
+}
+
+/** Horizontal space the audit panel covers on the right of the canvas. */
+const AUDIT_PANEL_SPACE = 400;
+
+function errorText(cause: unknown): string { return (cause instanceof Error ? cause.message : String(cause)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""); }
+
+const IgnoredIds = Type.Array(Type.String({ maxLength: 256 }), { maxItems: 500 });
+
+function readIgnored(key: string): Set<string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+
+    return new Set(Check(IgnoredIds, value) ? value : []);
+  } catch { return new Set(); }
 }
 
 const emptyRuntimes = (): Record<PreviewId, Runtime> => ({ desktop: { generation: "", ready: false, route: "", safe: false }, mobile: { generation: "", ready: false, route: "", safe: false } });
@@ -39,7 +66,35 @@ function previewUrl(base: string, id: PreviewId, session: string): string {
 export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClose?: () => Promise<void> }) {
   const browser = useBrowserControl(active?.workspaceId);
   const browserLocked = useRef(false); browserLocked.current = browser.locked;
-  const [fixture] = useState<Fixture>(() => new URLSearchParams(location.search).get("fixture") === "next" ? "next" : "vite");
+
+  const [fixture] = useState<Fixture>(() => {
+    const value = new URLSearchParams(location.search).get("fixture");
+
+    return isFixture(value) ? value : "vite";
+  });
+
+  const [proofPath] = useState(() => {
+    const value = new URLSearchParams(location.search).get("path");
+
+    return value?.startsWith("/") ? value : "/";
+  });
+
+  const [audit, setAudit] = useState<AuditReport | null>(null);
+  const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  /** A single-route run the host reports, including one the agent started. */
+  const [hostAudit, setHostAudit] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
+  const [auditError, setAuditError] = useState("");
+  const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
+  const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
+  const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
+  const ignoredKey = `mauxi:audit-ignored:${active?.workspaceId ?? `proof:${fixture}`}`;
+  const [ignoredFindings, setIgnoredFindings] = useState(() => readIgnored(ignoredKey));
+  const site = useSiteAudit(active ? { workspaceId: active.workspaceId } : { fixture }, { onOpen: showReport, onActivity: () => setPanelOpen(true) });
+  const { reportArrived } = site;
   const session = useMemo(() => crypto.randomUUID(), [active?.workspaceId, fixture]);
   const [layout, setLayout] = useState<CanvasState>(() => active?.canvas ?? defaultCanvas());
   const layoutRef = useRef(layout); layoutRef.current = layout;
@@ -71,6 +126,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
   const initialFit = useRef(!active?.canvas);
+  const [boardsPlaced, setBoardsPlaced] = useState(!!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const dragMoved = useRef(false);
@@ -109,7 +165,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     return () => { window.removeEventListener("blur", previewFocus); cancelAnimationFrame(frame); };
   }, [minimizeChat]);
-  const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : URLS[fixture];
+  const baseUrl = active ? new URL(active.startPath ?? "/", active.origin).href : new URL(proofPath, URLS[fixture]).href;
   const origin = new URL(baseUrl).origin;
   const routes = useMemo(() => new RouteLink(origin), [origin, session]);
   const urls = useMemo(() => ({ desktop: previewUrl(baseUrl, "desktop", session), mobile: previewUrl(baseUrl, "mobile", session) }), [baseUrl, session]);
@@ -129,11 +185,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const observer = new ResizeObserver(() => {
       if (!canvas.current) return;
       const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      geometry.current = { width: canvas.current.clientWidth, height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
+      geometry.current = { width: Math.max(320, canvas.current.clientWidth - (panelOpenRef.current ? AUDIT_PANEL_SPACE : 0)), height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
 
       if (initialFit.current) {
         initialFit.current = false;
         setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
+        setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
         setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
       }
@@ -143,6 +200,20 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     return () => observer.disconnect();
   }, []);
+
+  // The panel collapses when the window becomes too narrow to show it beside the canvas.
+  useEffect(() => {
+    const wide = matchMedia("(min-width: 1100px)");
+    const follow = () => { if (!wide.matches) setPanelOpen(false); };
+
+    wide.addEventListener("change", follow);
+
+    return () => wide.removeEventListener("change", follow);
+  }, []);
+
+  useEffect(() => {
+    if (canvas.current) geometry.current = { ...geometry.current, width: Math.max(320, canvas.current.clientWidth - (panelOpen ? AUDIT_PANEL_SPACE : 0)) };
+  }, [panelOpen]);
 
   const persist = useCallback(async (state: CanvasState) => {
     if (!active || !window.mauxi) return;
@@ -259,7 +330,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
           };
 
-          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : window.mauxi.resolveFixtureSource({ fixture, ...input });
+          const resolution = active ? window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : window.mauxi.resolveFixtureSource({ fixture: SOURCE_FIXTURES[fixture], ...input });
           void resolution.then((resolved) => {
             setSelections((items) => items.map((item) => {
               if (item.capture.selectionId !== capture.selectionId) return item;
@@ -490,7 +561,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
           locator: { tag: capture.element.tag, testIds: [...new Set(capture.domAncestry.flatMap((entry) => entry.testId ? [entry.testId] : []))].slice(0, 12) },
         };
 
-        const resolved = active ? await window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : await window.mauxi.resolveFixtureSource({ fixture, ...input });
+        const resolved = active ? await window.mauxi.resolveSource({ workspaceId: active.workspaceId, ...input }) : await window.mauxi.resolveFixtureSource({ fixture: SOURCE_FIXTURES[fixture], ...input });
 
         if (!resolved || resolved.filePath !== capture.source.filePath || resolved.fileFingerprint !== capture.source.fileFingerprint) {
           setSelections((items) => items.map((candidate) => candidate.capture.selectionId === capture.selectionId
@@ -571,14 +642,137 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     void browser.owner("agent");
   }
 
+  useEffect(() => {
+    if (!window.mauxi) return;
+    const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
+
+    // Agent-started runs show progress and Stop like the user's own; a new run drops the last run's progress and error.
+    const offState = window.mauxi.onAuditState((running) => {
+      setHostAudit(running);
+
+      if (running) { setAuditProgress(null); setAuditError(""); setPanelOpen(true); }
+    });
+
+    const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); reportArrived(report); });
+
+    return () => { offProgress(); offState(); offReport(); };
+  }, [reportArrived]);
+
+  // Attached findings that a newer run no longer reports (fixed, or a different route) are dropped from the chat.
+  useEffect(() => {
+    if (audit) setAttachedFindings((items) => items.filter((item) => audit.findings.some((finding) => finding.id === item.id)));
+  }, [audit]);
+
+  const snapshots = useMemo(() => snapshotBoards(audit, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, layout.boards]);
+
+  const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
+
+  /** Shows a report in the panel and fits the canvas to the live previews plus its snapshot row. */
+  function showReport(report: AuditReport) {
+    setAudit(report);
+    setSelectedFinding(null);
+    const boards = snapshotBoards(report, PREVIEW_IDS.map((id) => layoutRef.current.boards[id]));
+    setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) }));
+  }
+
+  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). */
+  async function runAudit(target?: string) {
+    if (!window.mauxi || auditRunning || hostAudit) return;
+    const route = target ?? desktopRoute();
+    setAuditRunning(true); setAuditError(""); setAuditProgress(null);
+
+    try { showReport(await window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture })); }
+    catch (error) { setAuditError(errorText(error)); }
+    finally { setAuditRunning(false); }
+  }
+
+  function startSite() {
+    setAuditProgress(null); setAuditError("");
+    void site.discover(desktopRoute());
+  }
+
+  function selectFinding(finding: AuditFinding) {
+    setSelectedFinding((current) => current === finding.id ? null : finding.id);
+  }
+
+  useEffect(() => {
+    if (!showing) return;
+    const runtime = runtimes[showing.id];
+    const settled = runtime.ready && runtime.generation !== showing.stale;
+
+    const timer = window.setTimeout(() => {
+      // Control handed to the agent after Show at was clicked: drop the outline, it would scroll the page under the agent.
+      if (browserLocked.current) setNotice(`Return browser control to show this finding in the ${LABELS[showing.id]} preview.`);
+      else if (settled) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
+      else setNotice(`${LABELS[showing.id]} preview did not open ${showing.route}; the finding was not outlined.`);
+      setShowing((current) => current === showing ? null : current);
+    }, settled ? 350 : Math.max(0, showing.deadline - Date.now()));
+
+    return () => window.clearTimeout(timer);
+  }, [showing, runtimes, send]);
+
+  /** Opens the finding's route in the closest live preview, resizes it to the worst width and outlines the element there. */
+  function showFinding(finding: AuditFinding) {
+    setSelectedFinding(finding.id);
+    const id: PreviewId = finding.worst.width <= 1024 ? "mobile" : "desktop";
+    const runtime = runtimeRef.current[id];
+    const page = (route: string) => route.replace(/#.*$/, "");
+    const route = audit ? supportedRoute(audit.route, origin) : null;
+    const navigating = !!audit && page(projectRoute(audit.route, origin) ?? audit.route) !== page(runtime.route);
+
+    // While the agent holds the browser, resizing, navigating or outlining (which scrolls) would move the page under it.
+    if (browserLocked.current || (navigating && !route)) {
+      setShowing(null);
+      setNotice(browserLocked.current ? `Return browser control to show this finding in the ${LABELS[id]} preview.` : `${audit!.route} cannot be opened in a preview.`);
+
+      return;
+    }
+
+    const width = Math.max(240, Math.min(3840, finding.worst.width));
+    setLayout((current) => {
+      const restored = unfocus(current);
+      const board = { ...restored.boards[id], width, height: Math.max(240, Math.min(2160, finding.worst.height)) };
+
+      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: fitCamera([board], geometry.current, geometry.current.headerHeight) };
+    });
+    setActivePreview(id);
+    setShowing({ id, route: route ?? runtime.route, stale: navigating ? runtime.generation : null, deadline: Date.now() + 15_000, selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) });
+
+    if (navigating) navigate({ previewId: id, route: route!, navigationId: crypto.randomUUID() });
+  }
+
+  function attachFinding(finding: AuditFinding) {
+    if (!audit) return;
+    setAttachedFindings((items) => items.some((item) => item.id === finding.id) ? items : [...items, findingContext(finding, audit.route)].slice(-12));
+  }
+
+  function toggleIgnored(finding: AuditFinding) {
+    setIgnoredFindings((current) => {
+      const next = new Set(current);
+
+      if (next.has(finding.id)) next.delete(finding.id); else next.add(finding.id);
+
+      try { localStorage.setItem(ignoredKey, JSON.stringify([...next])); } catch {}
+
+      return next;
+    });
+  }
+
   const statusText = active?.status === "failed" ? active.statusDetail : notice;
 
-  return <div className="workspace">
+  const siteView = site.mode === "setup"
+    ? <SiteSetup key={site.discovery?.start ?? "discovering"} discovery={site.discovery} discovering={site.discovering} origin={origin} onStart={(routes) => { setAuditProgress(null); void site.start(routes); }} onCancel={site.close} />
+    : site.mode === "summary" && site.report ? <SiteSummary report={site.report} onOpen={(route) => void site.open(route)} /> : null;
+
+  return <div className="workspace" data-audit-panel={panelOpen ? "" : undefined}>
     <div className="canvas-surface">
-    <CanvasBackground />
+    <CanvasBackground settled={boardsPlaced} />
     <header className="topbar">
       {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
-      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min="0.25" max="2" step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
+        <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
+      </button>}
+      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
@@ -591,6 +785,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      {audit && <AuditBoards boards={snapshots} report={audit} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />}
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -619,7 +814,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         </section>;
       })}
     </main>
-    <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))} />
+    <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
+      findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
+    {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
+      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored}
+      onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 

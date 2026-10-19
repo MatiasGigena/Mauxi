@@ -4,10 +4,12 @@ import "./canvas-background.css";
 
 type CanvasGridStyle = CSSProperties & { "--canvas-grid-size": string };
 
-export function CanvasBackground() {
+/** `settled` turns true once the workspace has placed its boards; the trail is routed around them from then on. */
+export function CanvasBackground({ settled = true }: { settled?: boolean }) {
   const layer = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
+    if (!settled) return;
     const node = layer.current!;
     const surface = node.closest(".canvas-surface")!;
     const preference = matchMedia("(prefers-reduced-motion: reduce)");
@@ -96,7 +98,7 @@ export function CanvasBackground() {
       document.removeEventListener("visibilitychange", syncPlayback);
       stop();
     };
-  }, []);
+  }, [settled]);
 
   const style: CanvasGridStyle = { "--canvas-grid-size": `${CANVAS_GRID_SIZE}px` };
 

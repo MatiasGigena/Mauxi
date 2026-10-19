@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Journal · Northwind Roasters</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #2b211b; background: #f7f1e8; }
+  main { max-width: 42rem; margin: 0 auto; padding: 48px 24px; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.15; margin: 0 0 16px; }
+  p { line-height: 1.5; margin: 0 0 16px; }
+  a { color: inherit; }
+  .blog-banner { width: 560px; /* planted: fixed width */ padding: 24px; border-radius: 14px; background: #8a5a35; color: #fff; font-family: system-ui, sans-serif; }
+</style>
+</head>
+<body>
+  <!-- Site audit fixture: one planted reflow bug, the fixed-width banner. -->
+  <main data-testid="blog-page">
+    <h1>Roasting journal</h1>
+    <div class="blog-banner" data-testid="blog-banner">Notes from this week's roast</div>
+    <p>Huila came in lighter than expected, so we stretched development by twenty seconds and lost none of the stone fruit.</p>
+    <p>Go back to <a href="/audit-lab.html">this week's beans</a> or read <a href="/audit-lab-about.html">about the roastery</a> before the next batch.</p>
+  </main>
+</body>
+</html>

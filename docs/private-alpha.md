@@ -1,6 +1,6 @@
 # Private-alpha candidate: setup and recovery
 
-**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete: the real-project live run exists, but the founder's design-quality assessment and tester-delivery approval are missing. This is Linux-only private validation, not a public release or general compatibility promise.
+**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete: the real-project live audit run (AC-19), with the founder's review of the findings and agent fixes and sign-off, has not happened yet (the 2026-10-15 run predates the audit), and tester-delivery approval is missing. This is Linux-only private validation, not a public release or general compatibility promise.
 
 ## Artifact and setup
 
@@ -18,13 +18,22 @@ Extraction mode was tested; FUSE mounting/desktop integration was not. No root p
 
 The AppImage includes Electron and pi's SDK, **not your project's toolchain**. Install your trusted project's dependencies yourself using its lockfile; ensure its Node/package manager is available to the desktop session. Tested external toolchain: Node 22.23.1/npm 10.9.8. No terminal pi installation is needed. Managed writes also require trusted `/usr/bin/python3`, supported Linux metadata operations, and the project and app recovery vault on the **same filesystem**. ACL/xattr/policy-bearing files may be refused; see [file safety limits](changes-and-recovery.md).
 
-Use disposable, trusted copies with non-production data/accounts. Open project → inspect the plan → Confirm & start → Models & providers → configure/select a model → select a preview element → inspect/remove context → send → give agent control using the scan icon beside Send → inspect the result and the agent's verification summary → repository-title menu → Close project. Review source diffs in your editor/Git; the minimal chat has no diff/Undo panel. Commands and consequential browser interactions require their own approvals. Take back control revokes queued browser actions; Stop also aborts the agent, not an unrelated external server.
+Use disposable, trusted copies with non-production data/accounts:
 
-Design guidance works in the background: the visual reference library is available automatically, and previously approved personal skills continue loading without design-direction controls. Personal skills are not bundled or licensed for redistribution. See [background design guidance](agent.md) for resource trust and verification limits. Missing guidance is not permission to install packages or claim design quality.
+1. Open project → inspect the plan → **Confirm & start** → **Models & providers** → configure/select a model.
+2. **Responsive audit** (top right) → **Run audit** for the Desktop preview's route, or **Audit site** to choose linked pages and audit them in a batch.
+3. Inspect the findings, the profile snapshots below the previews and **Interaction checks**. **Show at &lt;width&gt;** resizes a live preview to the failing width and outlines the element.
+4. **Fix with agent** attaches a finding to chat; send it alone or with your own instruction. The agent edits the source and re-checks it with `responsive_audit`; each of its runs updates the panel.
+5. Verify: review the diff, choose **Re-run** and check **Resolved since last run** and that no new findings appeared. Run **Audit site** again when the fix touched layout shared by several pages.
+6. Repository-title menu → **Close project**.
+
+For problems the audit does not report, select a preview element, inspect/remove its context and send; give agent control with the scan icon beside Send when the agent needs to check the visible previews. Review source diffs in your editor/Git; the minimal chat has no diff/Undo panel. Commands and consequential browser interactions require their own approvals. Take back control revokes queued browser actions; Stop also aborts the agent, not an unrelated external server. See [responsive audit](audit.md) for what is measured and its limits.
+
+The agent follows a fixed responsive accessibility policy; there are no design skills, reference libraries or design-direction controls. See [agent guidance](agent.md) for verification limits.
 
 ## Known blockers and limits
 
-- Regression suites cover atomic managed replacement, moved-hook conflicts, owned process-group cleanup, storage admission limits, pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance. Run them against the current source; they do not complete the alpha acceptance matrix. Turbopack coverage is bridge loading only. Other versions/routers, real projects, live auth, real-model quality and other tester environments remain unverified. See the [remaining private run](real-project-acceptance.md).
+- Regression suites cover atomic managed replacement, moved-hook conflicts, owned process-group cleanup, storage admission limits, pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance. The audit suites cover planted findings, the interaction pass, axe-core checks, site audits and the fake-model fix loop on fixture labs. Run them against the current source; they do not complete the alpha acceptance matrix. Turbopack coverage is bridge loading, imports and the Next audit lab. Other versions/routers, audit accuracy on real projects, live auth, real-model fix quality and other tester environments remain unverified. See the [next live audit run](real-project-acceptance.md#next-run-responsive-audit-ac-19).
 - Mobile is a Chromium viewport, not Safari/hardware simulation. Both previews share cookies/storage **inside one workspace**; canonical workspaces have separate browser partitions.
 
 ## Local storage, privacy and network behavior
@@ -39,20 +48,21 @@ Default profile: `${XDG_CONFIG_HOME:-$HOME/.config}/Mauxi/` (Electron `userData`
 | `pi-profile/checkpoints/` | 2 MiB/file, 10 MiB/set, scan 2,000 files/20 MiB, 64 retained records; recovery-bearing records stay pinned. |
 | `pi-profile/checkpoints/recovery/` | 128 entries/128 MiB admission budget, not a filesystem quota. Preserve unfinished/exposed/displaced data; no automatic expiry. |
 | `recovery/` | Instrumentation ownership journals/before-images. At most 64 unfinished records; total admission 128 files / 128 MiB, including completed journals. New instrumentation reserves 2 MiB headroom for bounded before-images and atomic staging. Recovery/cleanup of existing records remains available even at capacity. No automatic pruning. |
+| Responsive audit | Routes load in a hidden offscreen window that shares the workspace's browser session (cookies and local storage), limited to the approved project origin. Loading a route, discovering linked pages and the interaction pass's clicks on menu buttons can issue the same requests as using the page, including to its backend. Reports and their JPEG snapshots stay in memory (at most 16 reports, cleared when the workspace closes) and are not written to `captures/`; **Mark intentional** choices are kept in the workspace window's local storage. Requests to the agent carry a text summary of attached findings, not snapshots. |
 | Browser partitions/workspace metadata | Local canonical-workspace storage/layout. Preview storage is separate from provider auth. No claim that arbitrary page JavaScript state survives reopen. |
 | Logs/checks | Dev logs retain 400 completed lines of up to 4,000 characters, plus at most 4,000 pending characters even without newlines; command output 120,000 bytes; browser diagnostics 40 entries of 1,200 characters per frame. Redaction is limited, not a guarantee. Native sessions/test traces can retain tool context; review before sharing. |
 
 The packaged interface is served from an ephemeral `127.0.0.1` port so ordinary `SameSite=Lax` preview cookies work. It serves only bundled static UI assets, has no project-file or privileged API, and closes with the app. Preview and shell origins remain distinct; browser partitions, context isolation, sandboxing and IPC sender checks remain enabled.
 
-**No Mauxi-operated cloud sync or analytics backend.** Local-first is not offline: configured providers receive prompts, code/context and images; project pages and approved commands can use the network or reach production systems.
+**No Mauxi-operated cloud sync or analytics backend.** Local-first is not offline: configured providers receive prompts, code/context and images; project pages (in the previews and in audits) and approved commands can use the network or reach production systems.
 
 Inherited SDK behavior at pin 0.86.1:
 
 - Mauxi creates `ModelRuntime` with `allowModelNetwork: false` (no initial model-catalog network refresh). The explicit **Refresh catalog** action requests network access. Authentication/login/token refresh and provider availability checks may still contact the configured providers; disabling catalog refresh is not an offline firewall.
 - The SDK can discover credentials from the process environment/provider-supported sources in addition to Mauxi's profile. Launch with a clean environment for isolated testing; Mauxi does not import/mutate the terminal's pi profile automatically.
 - SDK install/update telemetry is a CLI interactive-mode path, not a path Mauxi invokes. SDK provider-attribution headers are enabled by its default settings; `PI_TELEMETRY=0` disables the optional attribution governed by that flag. Provider protocol/client/session headers (for example OpenCode) may remain. Do not describe that flag as disabling all provider-side telemetry.
-- SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 40 model turns/five minutes, and browser verification to 24 calls/four screenshots per run. These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
-- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) used `openai-codex` / `gpt-6-luna` through the founder's ChatGPT OAuth subscription, as authorized; its usage is in the private receipt. Each further live run needs its own provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
+- SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 40 model turns/five minutes, browser verification to 24 calls/four screenshots per run, and `responsive_audit` to four audits per run (a site batch counts as one). These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
+- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) (pre-pivot design tasks) used `openai-codex` / `gpt-6-luna` through the founder's ChatGPT OAuth subscription, as authorized; its usage is in the private receipt. Each further live run needs its own provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
 
 ## Capacity and explicit cleanup
 

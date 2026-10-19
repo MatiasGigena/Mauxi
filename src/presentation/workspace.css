@@ -59,6 +59,17 @@
   .artboard-header { padding-inline: .15rem; gap: .1rem; }
   .artboard-header .board-grip { padding-inline: .125rem; }
 }
+@container artboard (width < 3.5rem) {
+  .artboard-header { padding-inline: 0; gap: 0; }
+  .artboard-header .board-grip { flex: 0 0 .75rem; width: .75rem; padding: 0; }
+  .artboard-header .board-grip > * { display: none; }
+  .artboard-actions button { width: 1.25rem; height: 1.25rem; padding: 0; }
+  .artboard-actions svg { width: .875rem; height: .875rem; }
+}
+@container artboard (width < 2rem) {
+  .artboard-header { justify-content: center; }
+  .artboard-header .board-grip { display: none; }
+}
 .preview-surface { position: relative; background: white; box-shadow: 0 0 0 1px #181b2208; }
 .preview-surface iframe { display: block; border: 0; background: white; transform-origin: 0 0; }
 .input-shield { position: absolute; inset: 0; touch-action: none; }
@@ -72,7 +83,7 @@
 .workspace .browser-control-action:is(:hover, :active):not(:disabled) { background: transparent; color: #147a7a; box-shadow: none; }
 .browser-control-action:focus-visible { outline: 2px solid #218f90; outline-offset: -2px; }
 @media (pointer: coarse) { .workspace .browser-control-action { width: 44px; min-height: 44px; } }
-.agent-dialog-backdrop.browser-approval { pointer-events: none; background: transparent; }
+.agent-dialog-backdrop.browser-approval { pointer-events: none; background: transparent; place-items: start end; padding: 4.5rem .75rem 1rem; }
 .browser-approval .agent-dialog { pointer-events: auto; max-height: min(60vh, 36rem); }
 .chat-dock { --chat-max-height: 55vh; flex: 0 0 auto; position: relative; z-index: 20; width: min(70rem, calc(100% - 48px)); max-height: var(--chat-max-height); margin-inline: auto; border: 1px solid transparent; border-radius: 20px; }
 .canvas-surface > .chat-dock { position: absolute; inset: auto 0 32px; }

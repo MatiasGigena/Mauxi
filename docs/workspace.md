@@ -38,13 +38,19 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 
 - **Move:** drag an artboard header, or use its keyboard move handle with arrows (Shift for larger steps).
 - **Pan:** drag empty canvas or a passive preview; hold **Space** to pan temporarily over an active preview. Wheel on the canvas pans; Ctrl+wheel zooms around the pointer. Click a preview to interact, Escape to return to canvas navigation. Ordinary page scrolling remains independent.
-- **Zoom:** 25–200% via the floating zoom control or Ctrl+wheel. Fresh workspaces fit both boards automatically; agent handoff refits both without discarding positions or viewport settings. There are no separate Fit/Reset buttons.
+- **Zoom:** 10–200% via the floating zoom control or Ctrl+wheel. Fresh workspaces fit both boards automatically; agent handoff refits both without discarding positions or viewport settings. There are no separate Fit/Reset buttons.
 - **Viewports:** initially desktop 1440×900 and mobile 390×844 CSS pixels. **Actions → Viewport** changes iframe dimensions, within 240–3840 wide and 240–2160 high. Camera zoom does not change responsive breakpoints.
 - **Focus:** fits one board and hides, rather than remounts, the other. Unfocus restores the previous camera and positions. Page state survives.
 - **Chat:** stays anchored over the canvas and grows with the draft/latest response up to its height cap. Clicking the canvas minimizes the exchange; clicking chat restores it. There is no manual resize separator.
 - **Actions:** select/focus, reload, viewport, screenshot, route copy, and **Link preview routes**. No diagnostic panel. Screenshot capture requires Electron and the entire preview to be visible; it captures presentation-space pixels, not a zoom-independent native-size export. Capture paths are temporary (24-hour expiry, possibly earlier under capacity pressure); copy files elsewhere for permanent exports. Element-selection PNGs are discarded after accepted submission/removal, while submitted images remain in conversation history. See [capture retention](private-alpha.md#automatic-screenshot-cleanup).
 
 Layout, viewport sizes, focus restore state, and route-link preference are saved with the workspace. Live element handles and preview generations are not persisted.
+
+## Responsive audit panel
+
+The **Responsive audit** button at the top right opens the audit panel, docked on the right (it shows the bug count after a run). The panel also opens whenever an audit report arrives, including runs started by the agent. **Hide audit panel** collapses it, and it collapses automatically when the window becomes narrower than 1100 px; the topbar button opens it again. While open, the topbar and chat sit beside it. Running the audit adds a row of profile snapshots below the live previews and fits the canvas to show them; the canvas zooms out to 10% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
+
+**Audit site** (the stacked-layers button beside **Run audit**) finds the pages linked from the Desktop preview's route, lists them with checkboxes, and audits the checked ones one after another; Stop ends the batch. The panel then shows an **All pages** summary with each page's counts and failing widths. Opening a page replaces the snapshot row with that page's snapshots and shows its findings; **All pages** returns to the summary, and **Re-run** re-audits the open page. Discovery follows the same route policy as [route linking](#routes): authentication, API, action and callback links are never opened. See [audit several pages](audit.md#audit-several-pages).
 
 ## Routes
 
@@ -67,7 +73,7 @@ Canvas/WebGL pixels and cross-origin child-frame contents are unsupported; pseud
 ## Give the agent preview control
 
 1. Choose **Give agent control** (the scan icon beside Send in chat). Mauxi fits both existing previews without remounting them and blocks human pointer/keyboard input into the frames; chat remains reachable.
-2. Inspection and capture operate on those same visible frames. Every interaction, including hover, typing, scroll, and navigation, needs an exact **Approve once** decision. Target identity, label, and geometry are checked again at dispatch.
+2. Inspection and capture operate on those same visible frames. Every interaction, including hover, typing, scroll, and navigation, needs an exact **Approve once** decision. Browser approvals appear at the top right without a backdrop or focus trap, so chat and the previews stay visible while you decide; command approvals remain modal. Target identity, label, and geometry are checked again at dispatch.
 3. **Take back control** (the hand icon in chat, or the emergency action outside chat) cancels pending approvals and queued actions. Already-dispatched bounded work drains before input is returned. **Stop** also aborts the agent, not the project's unrelated dev server.
 4. The agent reports actual checks and remaining desktop/mobile limitations in its response. Observations and PNG tool results remain in native session history; there is no separate Checks popover. A dispatched action is not proof of a successful user journey.
 
@@ -80,12 +86,12 @@ Route linking is paused on handoff and stays paused after return. Approve each p
 - Captures reject hidden, clipped, overlay-obscured, or changing geometry instead of substituting an offscreen browser.
 - Click/type/hover use synthetic events; native trusted-event and OS input fidelity are not guaranteed. Password, file, and hidden-field typing are unsupported.
 - Console observations include at most 40 entries of 1,200 characters from the connected document. An empty log does not prove an error-free page.
-- Each run permits 24 browser calls, 4 screenshots, 40 model turns, a five-minute deadline, and at most one provider retry. Images are capped at 5 MiB/1,600 pixels wide; DOM inspection visits at most 2,000 elements and returns 80 entries. These are execution bounds, not an exact spending cap.
+- Each run permits 24 browser calls, 4 screenshots, 4 `responsive_audit` runs, 40 model turns, a five-minute deadline, and at most one provider retry. Images are capped at 5 MiB/1,600 pixels wide; DOM inspection visits at most 2,000 elements and returns 80 entries. These are execution bounds, not an exact spending cap.
 - Stale documents, replaced nodes, foreign identities, denied actions, errors, Stop, and disconnect revoke control. Loss of the shell heartbeat also stops an active agent.
-- Harmless model mistakes do not end verification: when the model sends malformed arguments to a non-browser tool (for example a misspelled `workspace_edit` field or an empty `design_search` query), nothing runs, the model receives the validation error and can retry, and preview control is kept. Malformed `browser_action` calls, failed browser actions, commands, and checkpointed writes still revoke control.
+- Harmless model mistakes do not end verification: when the model sends malformed arguments to a non-browser tool (for example a misspelled `workspace_edit` field or an empty `workspace_search` query), nothing runs, the model receives the validation error and can retry, and preview control is kept. Malformed `browser_action` calls, failed browser actions, commands, and checkpointed writes still revoke control.
 - A streaming model call that sends no data for 90 seconds is cut off as a timed-out provider error. Like other transient provider errors (HTTP 5xx, rate limits, dropped connections), it gets one automatic retry; control is kept and the failed attempt is hidden while the retry runs. Only a failure that remains after the retry ends the run, with the provider's reason (for example "The model stopped sending data for 90 seconds (timed out).").
 - When the turn limit or deadline stops a run, chat shows the reason instead of a raw abort, for example "Stopped: the request reached its 40-turn limit; partial changes were kept for review."
 
-Desktop emulation does not establish real-device behavior, general internet automation, third-party frame support, or real-model design quality. Review the result yourself, including accessibility and any remote effects.
+Desktop emulation does not establish real-device behavior, general internet automation, third-party frame support, or real-model fix quality. Review the result yourself, including accessibility and any remote effects.
 
 For live edits and disk recovery, see [Changes, approvals, and recovery](changes-and-recovery.md).
