@@ -2,6 +2,8 @@ import { useState } from "react";
 
 const sections = ["Guides", "Gear", "Trails", "Maps", "Weather", "Huts"];
 
+const trails = ["Tour du Mont Blanc", "West Highland Way", "Kungsleden", "Laugavegur", "Alta Via 1", "GR20", "Haute Route", "Camino Primitivo", "Pennine Way", "Rota Vicentina", "Lycian Way", "Dientes de Navarino", "Overland Track", "Milford Track", "Torres del Paine W"];
+
 const stories = [
   { title: "Crossing the Vallée Blanche", text: "Glacier travel with a guide, crampons and an early start." },
   { title: "Three days on the Kungsleden", text: "Hut to hut through birch forest and open fell." },
@@ -11,6 +13,7 @@ const stories = [
 /** Planted interaction cases for the responsive audit. Data-testids name each case the E2E spec asserts. */
 export function InteractionLab() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [trailsOpen, setTrailsOpen] = useState(false);
 
   return (
     <div className="ix">
@@ -59,6 +62,12 @@ export function InteractionLab() {
         <section className="ix-actions">
           {/* Planted: outline removed with no replacement focus style (2.4.7). */}
           <button type="button" className="ix-ghost" data-testid="no-focus-style">Save for later</button>
+          {/* Not a finding: a fixed sheet capped at 40vh whose list scrolls inside it, so every trail stays reachable. */}
+          <button type="button" className="ix-trails" aria-expanded={trailsOpen} aria-controls="ix-trail-sheet" data-testid="trails-toggle" onClick={() => setTrailsOpen((open) => !open)}>Trails</button>
+          <nav id="ix-trail-sheet" className="ix-sheet" aria-label="Trail index" hidden={!trailsOpen} data-testid="trail-sheet">
+            <p className="ix-sheet-title">Long-distance trails</p>
+            <ul className="ix-sheet-list">{trails.map((trail) => <li key={trail}><a href={`#${trail.split(" ")[0].toLowerCase()}`}>{trail}</a></li>)}</ul>
+          </nav>
           {/* Not activated: a disclosure-looking button whose click handler navigates away. */}
           <button type="button" className="ix-share" aria-expanded="false" aria-controls="ix-share-panel" data-testid="navigating-trigger"
             onClick={() => { localStorage.setItem("mauxi-fixture:navigated", "share"); window.location.assign("/audit-lab.html"); }}>Share</button>

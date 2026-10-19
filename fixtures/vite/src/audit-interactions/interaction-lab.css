@@ -32,6 +32,12 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
 .ix-actions { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 16px 120px; }
 .ix-actions button { min-height: 40px; padding: 8px 16px; border-radius: 8px; font: inherit; cursor: pointer; }
 .ix-ghost, .ix-ghost:focus, .ix-ghost:focus-visible { border: 1px solid #c5d1c9; background: #fff; color: #1f2a24; outline: none; /* planted: no focus style */ }
+.ix-trails { border: 1px solid #1d5c3f; background: #fff; color: #1d5c3f; }
+.ix-sheet { position: fixed; top: 0; left: 0; right: 0; z-index: 7; display: flex; flex-direction: column; max-height: 40vh; padding: 12px 16px; background: #fff; box-shadow: 0 8px 24px rgb(0 0 0 / .18); }
+.ix-sheet[hidden] { display: none; }
+.ix-sheet-title { margin: 0 0 8px; font-weight: 600; }
+.ix-sheet-list { flex: 1; min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.ix-sheet-list a { display: block; padding: 10px 0; }
 .ix-share { border: 1px solid #1d5c3f; background: #1d5c3f; color: #fff; }
 .ix-sort { margin: 0; }
 .ix-sort button { border: 1px solid #c5d1c9; background: #fff; }

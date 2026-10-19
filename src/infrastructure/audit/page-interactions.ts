@@ -371,9 +371,44 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
     return null;
   };
 
+  /**
+   * The box the opened content occupies. Each descendant is cut to the overflow boxes of the ancestors (up to and including
+   * content) that clip it, so items inside an inner scroller count where that scroller is: scrolling it reaches them.
+   */
   const unionOf = (content: Element, exclude: Element | null) => {
-    const union = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
-    const add = (rect: DOMRect) => { union.left = Math.min(union.left, rect.left); union.right = Math.max(union.right, rect.right); union.top = Math.min(union.top, rect.top); union.bottom = Math.max(union.bottom, rect.bottom); };
+    type Box = { left: number; right: number; top: number; bottom: number };
+
+    const union: Box = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+    const add = (rect: Box) => { union.left = Math.min(union.left, rect.left); union.right = Math.max(union.right, rect.right); union.top = Math.min(union.top, rect.top); union.bottom = Math.max(union.bottom, rect.bottom); };
+    const styles = new Map<Element, CSSStyleDeclaration>();
+    const styleOf = (element: Element) => styles.get(element) ?? styles.set(element, getComputedStyle(element)).get(element)!;
+    // Fixed boxes escape every ancestor and absolute ones escape static ancestors, unless one of these makes it their containing block.
+    const containsAll = (style: CSSStyleDeclaration) => style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
+
+    const clipped = (element: Element): Box | null => {
+      const rect = element.getBoundingClientRect();
+      const box: Box = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      let position = styleOf(element).position;
+
+      for (let current = parentOf(element); current; current = current === content ? null : parentOf(current)) {
+        const style = styleOf(current);
+
+        if (position === "fixed" ? !containsAll(style) : position === "absolute" && style.position === "static" && !containsAll(style)) continue;
+        position = style.position;
+
+        if (/^(?:inline|contents)$/.test(style.display)) continue;
+        const paint = /paint|strict|content/.test(style.contain);
+        const edge = current.getBoundingClientRect();
+
+        if (paint || style.overflowX !== "visible") { box.left = Math.max(box.left, edge.left); box.right = Math.min(box.right, edge.right); }
+
+        if (paint || style.overflowY !== "visible") { box.top = Math.max(box.top, edge.top); box.bottom = Math.min(box.bottom, edge.bottom); }
+
+        if (box.right - box.left < 1 || box.bottom - box.top < 1) return null;
+      }
+
+      return box;
+    };
 
     add(content.getBoundingClientRect());
     let counted = 0;
@@ -384,8 +419,10 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
       if (exclude && within(element, exclude)) continue;
       const rect = element.getBoundingClientRect();
 
-      if (rect.width < 1 || rect.height < 1 || getComputedStyle(element).visibility === "hidden") continue;
-      add(rect);
+      if (rect.width < 1 || rect.height < 1 || styleOf(element).visibility === "hidden") continue;
+      const box = clipped(element);
+
+      if (box) add(box);
     }
 
     return union;

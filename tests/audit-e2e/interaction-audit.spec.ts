@@ -51,7 +51,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(interactions.profiles).toEqual(["zoom-400", "phone-sm"]);
   expect(interactions.focusStops).toBeGreaterThanOrEqual(20);
   expect(interactions.focusStops).toBeLessThanOrEqual(80);
-  expect(interactions.disclosures).toBe(4);
+  expect(interactions.disclosures).toBe(6);
   expect(interactions.hovers).toBe(1);
   expect(interactions.durationMs).toBeLessThan(10_000);
 
@@ -77,15 +77,17 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(menu.worst.overflowPx).toBeLessThanOrEqual(116);
   expect(menu.detail).toContain('Opened with button "Menu"');
   expect(menu.markers.map((marker) => marker.profileId)).toEqual(["menu-zoom-400", "menu-phone-sm"]);
+  // The trail sheet's list runs far below the viewport, but its own overflow-y: auto list scrolls it into reach.
+  expect(report.findings.filter((finding) => finding.kind === "disclosure-overflow").map((finding) => finding.element?.testId)).toEqual(["wide-menu"]);
 
   // 1.4.13: hover tooltip clipped by the right edge at 320px.
   const tooltip = only(report, "tooltip-trigger");
   expect(tooltip).toMatchObject({ kind: "hover-content", classification: "bug", criterion: { id: "1.4.13" }, profiles: ["phone-sm"] });
   expect(tooltip.detail).toContain("past the right edge");
 
-  // Negatives stay silent: a fitting <details>, a visible unobscured focus, a bottom bar matched by scroll-padding, and
-  // the triggers that would navigate.
-  for (const negative of ["faq", "home-link", "navigating-trigger", "submit-trigger", "menu-toggle", "ix-bar"]) expect(byTestId(report, negative), negative).toEqual([]);
+  // Negatives stay silent: a fitting <details>, a fixed sheet whose overflow scrolls in its own list, a visible unobscured
+  // focus, a bottom bar matched by scroll-padding, and the triggers that would navigate.
+  for (const negative of ["faq", "trail-sheet", "trails-toggle", "home-link", "navigating-trigger", "submit-trigger", "menu-toggle", "ix-bar"]) expect(byTestId(report, negative), negative).toEqual([]);
   expect(interactions.notes).toEqual(expect.arrayContaining([
     expect.stringMatching(/^Not activated: button "Share" \(\[data-testid="navigating-trigger"\]\): its click handler navigates/),
     expect.stringMatching(/^Not activated: button "Sort" \(\[data-testid="submit-trigger"\]\): it submits a form/),
@@ -100,7 +102,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(await mobile.locator("body").evaluate(() => localStorage.getItem("mauxi-fixture:navigated"))).toBeNull();
 
   // The panel lists the interaction checks and the canvas shows the moment focus was hidden.
-  await expect(panel.getByRole("region", { name: "Interaction checks" })).toContainText(`${interactions.focusStops} focus stops · 4 disclosures opened · 1 tooltip hovered · 400% zoom, Small phone`);
+  await expect(panel.getByRole("region", { name: "Interaction checks" })).toContainText(`${interactions.focusStops} focus stops · 6 disclosures opened · 1 tooltip hovered · 400% zoom, Small phone`);
   await expect(page.locator('.snapshot-board[data-profile-id="focus-zoom-400"] .finding-marker')).toHaveCount(1);
   await expect(page.locator('.snapshot-board[data-profile-id="menu-zoom-400"] .finding-marker')).toHaveCount(1);
   await expect(page.locator('.snapshot-board[data-profile-id="hover-phone-sm"] .finding-marker')).toHaveCount(1);
