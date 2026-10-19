@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 const sections = ["Guides", "Gear", "Trails", "Maps", "Weather", "Huts"];
+
 const stories = [
   { title: "Crossing the Vallée Blanche", text: "Glacier travel with a guide, crampons and an early start." },
   { title: "Three days on the Kungsleden", text: "Hut to hut through birch forest and open fell." },
