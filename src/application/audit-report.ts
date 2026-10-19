@@ -1,5 +1,5 @@
 import type { AuditAxeInfo, AuditElement, AuditFinding, AuditProfile, AuditReport, AuditScroller, AuditSnapshot, FindingClassification, FindingCriterion, FindingKind, FindingMarker, FindingSeverity, PageIssue, PageMeasurement } from "./audit-contract";
-import { formatRanges } from "./audit-contract";
+import { formatRanges, PAGE_ISSUE_LIMIT } from "./audit-contract";
 import { AXE_NODE_LIMIT, axeCriterion, axeFix, isAxeHelpUrl, type AxeImpact, type AxeProfileResult } from "./audit-axe";
 import { interactionFindings, type InteractionRun } from "./audit-interactions";
 
@@ -338,7 +338,11 @@ export function buildReport(input: {
 
     if (INTERACTION_KINDS.has(finding.kind)) return !!interactions && !interactions.notes.length && finding.profiles.every((id) => interactions.profiles.includes(id));
 
-    return samples.length > 0;
+    if (!finding.element) return samples.length > 0;
+    // Layout checks: every profile and sweep width where it was found was measured again, without hitting the element or issue limit.
+    const at = samples.filter((sample) => sample.profile ? finding.profiles.includes(sample.profile.id) : finding.ranges.some(([from, to]) => sample.width >= from && sample.width <= to));
+
+    return at.length > 0 && finding.profiles.every((id) => at.some((sample) => sample.profile?.id === id)) && at.every(({ measurement }) => !measurement.truncated && measurement.issues.length < PAGE_ISSUE_LIMIT);
   };
 
   // Unverified findings carry forward until they are found again or their check completes (then they are resolved).

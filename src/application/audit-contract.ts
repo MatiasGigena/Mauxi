@@ -37,6 +37,9 @@ const PageIssueSchema = Type.Object({
   coverage: Type.Optional(finite),
 });
 
+/** The page measurement lists at most this many issues; a full list may have dropped more. */
+export const PAGE_ISSUE_LIMIT = 160;
+
 export const PageMeasurementSchema = Type.Object({
   url: text(4_096),
   viewport: Type.Object({ width: finite, height: finite }),
@@ -44,7 +47,7 @@ export const PageMeasurementSchema = Type.Object({
   pageOverflowPx: finite,
   pageClipsX: Type.Boolean(),
   viewportMeta: Type.Object({ present: Type.Boolean(), content: text(512), deviceWidth: Type.Boolean(), zoomBlocked: Type.Boolean() }),
-  issues: Type.Array(PageIssueSchema, { maxItems: 160 }),
+  issues: Type.Array(PageIssueSchema, { maxItems: PAGE_ISSUE_LIMIT }),
   visited: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
   truncated: Type.Boolean(),
   /** Elements for MeasureOptions.targets, in order; null when a selector no longer matches. */
@@ -181,7 +184,7 @@ export interface AuditReport {
   findings: AuditFinding[];
   scrollers: AuditScroller[];
   resolved: AuditFinding[];
-  /** Previous findings no longer reported whose check did not run completely this time (axe failed or cut off, interaction pass skipped or stopped). */
+  /** Previous findings no longer reported whose check did not run completely this time (layout scan truncated, axe failed or cut off, interaction pass skipped or stopped). */
   unverified?: AuditFinding[];
   summary: { bug: number; review: number; intentional: number; serious: number; moderate: number; minor: number };
   /** Keyboard focus, disclosure and hover checks; absent when the pass did not run. */

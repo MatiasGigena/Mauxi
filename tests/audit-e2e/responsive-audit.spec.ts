@@ -6,6 +6,11 @@ import type { AuditFinding, AuditReport } from "../../src/application/audit-cont
 const LAB_CSS = path.resolve("fixtures/vite/src/audit-lab/audit-lab.css");
 const PLANTED = "width: 600px; /* planted: fixed width */";
 const FIXED = "max-width: 600px; flex-wrap: wrap;";
+const LAB = path.resolve("fixtures/vite/src/audit-lab/AuditLab.tsx");
+const MAIN = "      <main>\n";
+
+// 6,000 empty elements at the top of <main> exhaust the 6,000-element scan limit before the pricing table is reached.
+const FILLER = '        <div data-testid="scan-filler">{Array.from({ length: 6_000 }, (_, index) => <span key={index} />)}</div>\n';
 
 declare global { interface Window { lastAuditReport?: AuditReport | null } }
 
@@ -127,20 +132,40 @@ test("audits the lab page across the width matrix, separating bugs from intentio
   await expect(card.getByRole("button", { name: "Attached to chat" })).toBeDisabled();
 });
 
-test("re-running after a source fix reports the finding as resolved", async ({}, testInfo) => {
+test("a truncated scan keeps the finding unverified; re-running after a source fix resolves it", async ({}, testInfo) => {
   const original = await readFile(LAB_CSS, "utf8");
+  const lab = await readFile(LAB, "utf8");
   expect(original).toContain(PLANTED);
+  expect(lab).toContain(MAIN);
+  const testIds = (findings: AuditFinding[] | undefined) => (findings ?? []).map((finding) => finding.element?.testId);
+  const served = () => expect.poll(() => fetch("http://127.0.0.1:45173/src/audit-lab/AuditLab.tsx").then((response) => response.text()), { timeout: 15_000 });
 
   try {
+    // The table still overflows but is past the element limit: absence from a truncated scan is not a fix.
+    await writeFile(LAB, lab.replace(MAIN, MAIN + FILLER));
+    await served().toContain("scan-filler");
+    const truncated = await runAudit("Re-run");
+    await saveArtifacts(truncated, "audit-truncated", (file) => testInfo.outputPath(file));
+    expect(byTestId(truncated, "pricing-table")).toEqual([]);
+    expect(testIds(truncated.resolved)).not.toContain("pricing-table");
+    expect(testIds(truncated.unverified)).toContain("pricing-table");
+    await page.getByRole("button", { name: /Not re-checked this run/ }).click();
+    const pricing = truncated.unverified!.find((finding) => finding.element?.testId === "pricing-table")!;
+    await expect(page.locator(".unverified-group li").filter({ hasText: pricing.title })).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath("unverified-truncated.png") });
+
+    await writeFile(LAB, lab);
+    await served().not.toContain("scan-filler");
     await writeFile(LAB_CSS, original.replace(PLANTED, FIXED));
     const report = await runAudit("Re-run");
     await saveArtifacts(report, "audit-after-fix", (file) => testInfo.outputPath(file));
 
     expect(byTestId(report, "pricing-table")).toEqual([]);
-    expect(report.resolved.map((finding) => finding.element?.testId)).toContain("pricing-table");
+    expect(testIds(report.resolved)).toContain("pricing-table");
+    expect(testIds(report.unverified)).not.toContain("pricing-table");
     expect(report.findings.map((finding) => finding.element?.testId)).toEqual(expect.arrayContaining(["tracking-link", "feature-grid", "promo-card"]));
     await expect(page.getByRole("button", { name: /Resolved since last run/ })).toBeVisible();
     await expect(page.getByRole("list", { name: "Attached findings" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("resolved.png") });
-  } finally { await writeFile(LAB_CSS, original); }
+  } finally { await writeFile(LAB_CSS, original); await writeFile(LAB, lab); }
 });
