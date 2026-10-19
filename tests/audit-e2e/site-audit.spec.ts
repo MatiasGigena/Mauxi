@@ -108,6 +108,26 @@ test("discovers linked pages, skips unsafe links, audits them in a batch and ope
   await expect.poll(() => page.locator('.snapshot-board[data-profile-id="phone-sm"] img').evaluate((image) => image instanceof HTMLImageElement ? image.naturalWidth : 0)).toBe(160);
   await page.screenshot({ path: testInfo.outputPath("site-page.png") });
 
+  // The previews still show the lab; Show at opens the blog in the mobile preview before outlining its banner.
+  const mobile = page.frameLocator('[data-testid="mobile-preview"]');
+  await expect.poll(() => mobile.locator("body").evaluate(() => location.pathname)).toBe(LAB);
+  await card.getByRole("button", { name: "Show at 320px" }).click();
+  await expect.poll(() => mobile.locator("body").evaluate(() => location.pathname), { timeout: 30_000 }).toBe(BLOG);
+  const overlay = mobile.locator("[data-mauxi-overlay]", { hasText: (await card.locator(".finding-summary strong").textContent())! });
+  await expect(overlay).toBeVisible({ timeout: 30_000 });
+  expect(await mobile.locator("body").evaluate(() => innerWidth)).toBe(320);
+
+  const outlined = await overlay.evaluate((box) => {
+    const outline = box.getBoundingClientRect();
+    const banner = document.querySelector('[data-testid="blog-banner"]')!.getBoundingClientRect();
+
+    return { dx: outline.x - banner.x, dy: outline.y - banner.y };
+  });
+
+  expect(outlined.dx).toBeCloseTo(-3, 0);
+  expect(outlined.dy).toBeCloseTo(-3, 0);
+  await page.screenshot({ path: testInfo.outputPath("site-show-finding.png") });
+
   await panel().getByRole("button", { name: "All pages" }).click();
   await expect(rows).toBeVisible();
 

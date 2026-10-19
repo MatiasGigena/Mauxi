@@ -86,6 +86,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
+  const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
   const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
   const ignoredKey = `mauxi:audit-ignored:${active?.workspaceId ?? `proof:${fixture}`}`;
   const [ignoredFindings, setIgnoredFindings] = useState(() => readIgnored(ignoredKey));
@@ -683,10 +685,36 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setSelectedFinding((current) => current === finding.id ? null : finding.id);
   }
 
-  /** Resizes the closest live preview to the worst width and outlines the element there. */
+  useEffect(() => {
+    if (!showing) return;
+    const runtime = runtimes[showing.id];
+    const settled = runtime.ready && runtime.generation !== showing.stale;
+
+    const timer = window.setTimeout(() => {
+      if (settled) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
+      else setNotice(`${LABELS[showing.id]} preview did not open ${showing.route}; the finding was not outlined.`);
+      setShowing((current) => current === showing ? null : current);
+    }, settled ? 350 : Math.max(0, showing.deadline - Date.now()));
+
+    return () => window.clearTimeout(timer);
+  }, [showing, runtimes, send]);
+
+  /** Opens the finding's route in the closest live preview, resizes it to the worst width and outlines the element there. */
   function showFinding(finding: AuditFinding) {
     setSelectedFinding(finding.id);
     const id: PreviewId = finding.worst.width <= 1024 ? "mobile" : "desktop";
+    const runtime = runtimeRef.current[id];
+    const page = (route: string) => route.replace(/#.*$/, "");
+    const route = audit ? supportedRoute(audit.route, origin) : null;
+    const navigating = !!audit && page(projectRoute(audit.route, origin) ?? audit.route) !== page(runtime.route);
+
+    if (navigating && (!route || browserLocked.current)) {
+      setShowing(null);
+      setNotice(route ? `Return browser control to open ${route} in the ${LABELS[id]} preview.` : `${audit!.route} cannot be opened in a preview.`);
+
+      return;
+    }
+
     const width = Math.max(240, Math.min(3840, finding.worst.width));
     setLayout((current) => {
       const restored = unfocus(current);
@@ -695,7 +723,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       return { ...restored, boards: { ...restored.boards, [id]: board }, camera: fitCamera([board], geometry.current, geometry.current.headerHeight) };
     });
     setActivePreview(id);
-    window.setTimeout(() => send(id, { kind: "highlight", selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) }), 350);
+    setShowing({ id, route: route ?? runtime.route, stale: navigating ? runtime.generation : null, deadline: Date.now() + 15_000, selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) });
+
+    if (navigating) navigate({ previewId: id, route: route!, navigationId: crypto.randomUUID() });
   }
 
   function attachFinding(finding: AuditFinding) {
