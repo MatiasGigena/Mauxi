@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const sections = ["Guides", "Gear", "Trails", "Maps", "Weather", "Huts"];
 
@@ -14,6 +14,17 @@ const stories = [
 export function InteractionLab() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [trailsOpen, setTrailsOpen] = useState(false);
+  const [hutsOpen, setHutsOpen] = useState(false);
+
+  // The open drawer covers its own trigger, so like most drawers it closes on Escape.
+  useEffect(() => {
+    if (!hutsOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setHutsOpen(false); };
+
+    document.addEventListener("keydown", close);
+
+    return () => document.removeEventListener("keydown", close);
+  }, [hutsOpen]);
 
   return (
     <div className="ix">
@@ -67,6 +78,12 @@ export function InteractionLab() {
           <nav id="ix-trail-sheet" className="ix-sheet" aria-label="Trail index" hidden={!trailsOpen} data-testid="trail-sheet">
             <p className="ix-sheet-title">Long-distance trails</p>
             <ul className="ix-sheet-list">{trails.map((trail) => <li key={trail}><a href={`#${trail.split(" ")[0].toLowerCase()}`}>{trail}</a></li>)}</ul>
+          </nav>
+          {/* Planted: a fixed drawer below a 64px offset, 100vh tall with its own scroll. The list scrolls, but the scrollport
+              itself ends 64px below the viewport, so the last huts never come into view (1.4.10). */}
+          <button type="button" className="ix-trails" aria-expanded={hutsOpen} aria-controls="ix-hut-drawer" data-testid="huts-toggle" onClick={() => setHutsOpen((open) => !open)}>Huts</button>
+          <nav id="ix-hut-drawer" className="ix-drawer" aria-label="Hut index" hidden={!hutsOpen} data-testid="hut-drawer">
+            <ul>{trails.map((trail) => <li key={trail}><a href={`#${trail.split(" ")[0].toLowerCase()}-huts`}>{trail} huts</a></li>)}</ul>
           </nav>
           {/* Not activated: a disclosure-looking button whose click handler navigates away. */}
           <button type="button" className="ix-share" aria-expanded="false" aria-controls="ix-share-panel" data-testid="navigating-trigger"

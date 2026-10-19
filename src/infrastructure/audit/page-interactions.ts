@@ -454,17 +454,27 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
     }
 
     if (fixed && union.bottom > viewportHeight + 1) {
-      let scrolls = false;
+      // A scroller up to the fixed box brings its overflow into reach, but only within its scrollport: a scrollport that itself
+      // runs below the viewport leaves that strip unreachable at every scroll position.
+      let port = Infinity;
+      let scroller: Element | null = null;
 
-      for (let current: Element | null = content; current && !scrolls; current = current === fixed ? null : parentOf(current)) {
-        const style = getComputedStyle(current);
-        scrolls = ["auto", "scroll"].includes(style.overflowY) && current.scrollHeight > current.clientHeight + 1;
+      for (let current: Element | null = content; current; current = current === fixed ? null : parentOf(current)) {
+        if (!["auto", "scroll"].includes(getComputedStyle(current).overflowY) || current.scrollHeight <= current.clientHeight + 1) continue;
+        const bottom = current.getBoundingClientRect().top + current.clientTop + current.clientHeight;
+
+        if (bottom < port) { port = bottom; scroller = current; }
       }
 
-      if (!scrolls) {
+      const below = round(Math.min(union.bottom, port) - viewportHeight);
+
+      if (below > 1) {
         variant = horizontal > 1 ? variant : "clipped";
-        overflowPx = Math.max(overflowPx, round(union.bottom - viewportHeight));
-        details.push(`It is position: fixed and runs ${round(union.bottom - viewportHeight)}px below the ${viewportWidth}×${viewportHeight} viewport without its own scroll, so its last items cannot be reached.`);
+        overflowPx = Math.max(overflowPx, below);
+        const subject = details.length ? "It" : `Opened ${name}`;
+        details.push(scroller
+          ? `${subject} is position: fixed and its scroll area ${selectorOf(scroller)} ends ${below}px below the ${viewportWidth}×${viewportHeight} viewport, so that strip cannot be scrolled into view.`
+          : `${subject} is position: fixed and runs ${below}px below the ${viewportWidth}×${viewportHeight} viewport without its own scroll, so its last items cannot be reached.`);
       }
     }
 
