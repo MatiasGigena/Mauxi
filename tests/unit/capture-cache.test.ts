@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -21,6 +22,19 @@ function seed(root: string, name: string, age = 0, content = "png"): string {
   utimesSync(file, new Date(now - age), new Date(now - age));
 
   return file;
+}
+
+/** Denies creating and deleting entries. Root ignores mode bits, so it gets the immutable attribute instead. */
+function lockDirectory(root: string): () => void {
+  if (process.getuid?.() !== 0) {
+    chmodSync(root, 0o500);
+
+    return () => chmodSync(root, 0o700);
+  }
+
+  execFileSync("chattr", ["+i", root]);
+
+  return () => execFileSync("chattr", ["-i", root]);
 }
 
 afterEach(() => {
@@ -164,13 +178,13 @@ it("bounds a complete cleanup scan before removing anything", () => {
 it("reports deletion failures without writing past the budget or deleting protected drafts", () => {
   const { root, cache } = setup(); const draft = cache.write("desktop", Buffer.from("draft"), "active");
   const orphan = seed(root, `mobile-selection-orphan-${now}.png`);
-  chmodSync(root, 0o500);
+  const unlock = lockDirectory(root);
 
   try {
     expect(() => cache.write("mobile", Buffer.from("new"))).toThrow();
     expect(existsSync(draft)).toBe(true); expect(existsSync(orphan)).toBe(true);
     expect(readdirSync(root)).toHaveLength(2);
-  } finally { chmodSync(root, 0o700); }
+  } finally { unlock(); }
 });
 
 it("uses private, collision-free filenames for repeated captures in the same millisecond", () => {
