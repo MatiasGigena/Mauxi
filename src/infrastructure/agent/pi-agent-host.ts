@@ -52,7 +52,21 @@ import { watchStreamIdle } from "./stream-watchdog";
 import { findingContext, formatRanges, type AuditReport, type AuditSiteReport } from "../../application/audit-contract";
 import { mergeRanges, SITE_ROUTE_LIMIT } from "../../application/audit-site";
 
-export interface AuditPort { run(route?: string): Promise<AuditReport>; site?(routes: string[]): Promise<AuditSiteReport> }
+/** The signal cancels the run or batch this call started; an already-aborted signal starts nothing. */
+export interface AuditPort { run(route?: string, signal?: AbortSignal): Promise<AuditReport>; site?(routes: string[], signal?: AbortSignal): Promise<AuditSiteReport> }
+
+/** Settles with the work, or rejects as soon as the signal aborts; the work's own cancellation runs behind it. */
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error("Audit cancelled"));
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    if (signal.aborted) onAbort();
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
 
 type AgentMessage = AgentSession["messages"][number];
 
@@ -501,7 +515,9 @@ export class PiAgentHost {
       name: "responsive_audit", label: "Run responsive audit",
       description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px, plus axe-core rules (contrast, names, labels, ARIA, landmarks) at the phone, tablet, laptop and desktop profiles. Returns findings with width ranges, which earlier findings are resolved, and which could not be re-checked (unverified: do not claim them fixed). It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused, for one route or a batch. At most four audits (a batch counts as one) per request.`,
       parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })), routes: Type.Optional(Type.Array(Type.String({ maxLength: 2_048, pattern: "^/" }), { minItems: 1, maxItems: SITE_ROUTE_LIMIT })) }),
-      execute: async (_id, input) => {
+      execute: async (_id, input, signal) => {
+        signal?.throwIfAborted();
+
         if (!this.audit) throw new Error("The responsive audit is unavailable in this workspace.");
 
         if (this.auditsRun >= 4) throw new Error("Audit budget reached for this request. Report the latest results instead of re-running.");
@@ -509,7 +525,7 @@ export class PiAgentHost {
 
         if (input.routes) {
           if (!this.audit.site) throw new Error("Site audits are unavailable in this workspace.");
-          const site = await this.audit.site(input.routes);
+          const site = await untilAborted(this.audit.site(input.routes, signal), signal);
           const pages = site.pages.map((page) => ({ route: page.route, status: page.status, summary: page.summary, bugWidths: formatRanges(mergeRanges(page.bugRanges)), resolved: page.resolved, error: page.error ?? null }));
 
           const findings = site.pages.reduce((sum, page) => sum + (page.summary ? page.summary.bug + page.summary.review + page.summary.intentional : 0), 0);
@@ -517,7 +533,7 @@ export class PiAgentHost {
           return { content: [{ type: "text", text: JSON.stringify({ state: site.state, pages }) }], details: { findings, resolved: site.pages.reduce((sum, page) => sum + page.resolved, 0) } };
         }
 
-        const report = await this.audit.run(input.route);
+        const report = await untilAborted(this.audit.run(input.route, signal), signal);
 
         const result = {
           route: report.route, widthsScanned: report.widthsScanned, summary: report.summary,

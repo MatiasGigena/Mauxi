@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import type { AuditSiteReport } from "../../src/application/audit-contract";
 import { launch, text, toolCall } from "../helpers/fake-provider";
+
+declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
 
 const SignOutCounter = Type.Object({ signOuts: Type.Integer() });
 const ToolMessages = Type.Object({ messages: Type.Array(Type.Object({ role: Type.String(), content: Type.Unknown() })) });
@@ -72,5 +75,37 @@ test("the agent cannot audit an excluded route, even when the user audited it la
     const after = await signOuts();
     await writeFile(testInfo.outputPath("agent-excluded-routes.json"), JSON.stringify({ userAudit: login.route, toolResults: requests.slice(1).map((body) => JSON.stringify(Value.Parse(ToolMessages, JSON.parse(body)).messages.filter((message) => message.role === "tool").at(-1)?.content)), signOuts: { before, after } }, null, 2));
     expect(after).toBe(before);
+  } finally { await close(); }
+});
+
+test("stopping the agent mid-batch cancels its site audit and frees the audit for the user", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-stop-"));
+  const routes = ["/audit-lab.html", "/audit-lab-about.html", "/audit-lab-blog.html"];
+
+  const { page, requests, close } = await launch(state, request => request === 1 ? toolCall("responsive_audit", JSON.stringify({ routes })) : text("Stopped."), {}, "/audit-lab.html");
+
+  try {
+    const active = (await page.evaluate(() => window.mauxi!.getBootstrap())).active!;
+    await page.evaluate(() => { window.mauxi!.onAuditSite((report) => { window.lastSiteReport = report; }); });
+    await page.getByLabel("Message", { exact: true }).fill("Audit the lab, about and journal pages");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.lastSiteReport?.pages.find((item) => item.status === "running")?.route), { timeout: 60_000 }).toBe(routes[0]);
+
+    const stopped = Date.now();
+    await page.locator('button[title="Stop agent work"]').click();
+    // The batch this agent call started is cancelled with it: the page in flight and the rest are skipped, none load later.
+    await expect.poll(() => page.evaluate(() => window.lastSiteReport?.state), { timeout: 30_000 }).toBe("cancelled");
+    const cancelledMs = Date.now() - stopped;
+    const site = (await page.evaluate(() => window.lastSiteReport))!;
+    expect(site.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
+    await expect.poll(async () => (await page.evaluate(() => window.mauxi!.agentBootstrap())).runState, { timeout: 30_000 }).toBe("idle");
+
+    // The audit lock is free at once: the user's own audit runs right after, and no batch page completes late.
+    const user = await page.evaluate(workspaceId => window.mauxi!.auditRun({ workspaceId, route: "/audit-cards.html" }), active.workspaceId);
+    expect(user.route).toBe("/audit-cards.html");
+    expect((await page.evaluate(() => window.lastSiteReport))!.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
+    await page.screenshot({ path: testInfo.outputPath("agent-site-stopped.png") });
+    await writeFile(testInfo.outputPath("agent-site-stopped.json"), JSON.stringify({ cancelledMs, pages: site.pages.map(({ route, status, error }) => ({ route, status, error })), userAudit: { route: user.route, summary: user.summary }, modelRequests: requests.length }, null, 2));
   } finally { await close(); }
 });

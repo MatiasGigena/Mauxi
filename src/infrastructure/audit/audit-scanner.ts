@@ -65,8 +65,9 @@ export class AuditScanner {
 
   cancel(reason = "Audit cancelled"): void { this.controller?.abort(new Error(reason)); }
 
-  run(request: AuditScanRequest): Promise<AuditReport> {
-    return this.exclusive(request, RUN_LIMIT_MS, "The audit exceeded its time limit.", (window, signal, fence) => this.scan(window, request, signal, fence));
+  /** The caller's signal cancels only this run; cancel() stops whichever run holds the lock. */
+  run(request: AuditScanRequest, caller?: AbortSignal): Promise<AuditReport> {
+    return this.exclusive(request, RUN_LIMIT_MS, "The audit exceeded its time limit.", (window, signal, fence) => this.scan(window, request, signal, fence), caller);
   }
 
   /** Lists same-origin pages linked from the starting route, for a site audit. Shares the one-run-at-a-time lock. */
@@ -74,13 +75,17 @@ export class AuditScanner {
     return this.exclusive(request, DISCOVERY_LIMIT_MS, "Route discovery exceeded its time limit.", (window, signal, fence) => discoverRoutes(window, request, signal, fence));
   }
 
-  private async exclusive<T>(request: { url: string; origin: string }, limitMs: number, timeout: string, work: (window: BrowserWindow, signal: AbortSignal, fence: Fence) => Promise<T>): Promise<T> {
+  private async exclusive<T>(request: { url: string; origin: string }, limitMs: number, timeout: string, work: (window: BrowserWindow, signal: AbortSignal, fence: Fence) => Promise<T>, caller?: AbortSignal): Promise<T> {
+    if (caller?.aborted) throw new Error("Audit cancelled");
+
     if (this.controller) throw new Error("An audit is already running.");
 
     if (!sameOrigin(request.url, request.origin)) throw new Error("Audits are limited to the approved project origin.");
     const controller = new AbortController();
     this.controller = controller;
     const timer = setTimeout(() => controller.abort(new Error(timeout)), limitMs);
+    const stop = () => controller.abort(new Error("Audit cancelled"));
+    caller?.addEventListener("abort", stop, { once: true });
     // Stop and the deadline settle the run at once: a page hung inside a CDP command cannot keep the window or the lock.
     // The abandoned work fails on its next step against the destroyed window; the race keeps its late rejection handled.
     const aborted = new Promise<never>((_resolve, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }));
@@ -95,7 +100,7 @@ export class AuditScanner {
 
       return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]);
     } finally {
-      clearTimeout(timer);
+      clearTimeout(timer); caller?.removeEventListener("abort", stop);
 
       if (this.controller === controller) this.controller = undefined;
 

@@ -194,8 +194,8 @@ async function verifyFindingSources(report: AuditReport, root: string): Promise<
   }
 }
 
-/** Runs one route. A site batch captures half-resolution snapshots and reports through site events instead. */
-async function runAudit(target: AuditTarget, batch = false): Promise<AuditReport> {
+/** Runs one route. A site batch captures half-resolution snapshots and reports through site events instead. An aborted signal cancels this run only and stores nothing. */
+async function runAudit(target: AuditTarget, batch = false, signal?: AbortSignal): Promise<AuditReport> {
   const url = new URL(target.route, target.origin);
 
   if (url.origin !== new URL(target.origin).origin) throw new Error("Audits are limited to the approved project origin.");
@@ -203,10 +203,10 @@ async function runAudit(target: AuditTarget, batch = false): Promise<AuditReport
   if (!batch && siteRun) throw new Error("A site audit is running.");
   const key = `${target.workspaceId}:${target.route}`;
   const epoch = auditEpoch;
-  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 });
-  assertAuditEpoch(epoch);
+  const report = await auditScanner.run({ url: url.href, route: target.route, origin: target.origin, previous: auditReports.get(key) ?? null, snapshotScale: batch ? 0.5 : 1 }, signal);
+  assertAuditEpoch(epoch); signal?.throwIfAborted();
   await verifyFindingSources(report, target.root);
-  assertAuditEpoch(epoch);
+  assertAuditEpoch(epoch); signal?.throwIfAborted();
   auditReports.delete(key); auditReports.set(key, report);
 
   while (auditReports.size > 16) auditReports.delete(auditReports.keys().next().value!);
@@ -242,16 +242,19 @@ function siteRoutes(routes: string[], origin: string): string[] {
   return result.slice(0, SITE_ROUTE_LIMIT);
 }
 
-/** Audits routes one after another. A failing page is recorded and the batch continues; Stop skips the rest. */
-async function runSiteAudit(base: AuditBase, requested: string[]): Promise<AuditSiteReport> {
+/** Audits routes one after another. A failing page is recorded and the batch continues; Stop, or the caller's signal, skips the rest. */
+async function runSiteAudit(base: AuditBase, requested: string[], signal?: AbortSignal): Promise<AuditSiteReport> {
   if (siteRun || auditScanner.running) throw new Error("An audit is already running.");
   const routes = siteRoutes(requested, base.origin);
+  signal?.throwIfAborted();
   const run = { cancelled: false };
   const epoch = auditEpoch;
   const send = () => { if (epoch === auditEpoch) sendSite(report); };
+  const stop = () => { run.cancelled = true; };
   const started = Date.now();
   const report: AuditSiteReport = { id: crypto.randomUUID(), startedAt: new Date(started).toISOString(), durationMs: 0, state: "running", pages: routes.map((route) => ({ route, status: "pending", summary: null, bugRanges: [], resolved: 0, durationMs: 0 })) };
   siteRun = run;
+  signal?.addEventListener("abort", stop, { once: true });
   siteReports.set(base.workspaceId, report);
   send();
 
@@ -263,14 +266,14 @@ async function runSiteAudit(base: AuditBase, requested: string[]): Promise<Audit
       report.pages[index].status = "running";
       send();
 
-      try { report.pages[index] = sitePage(await runAudit({ ...base, route }, true)); }
+      try { report.pages[index] = sitePage(await runAudit({ ...base, route }, true, signal)); }
       catch (error) { report.pages[index] = { ...report.pages[index], status: run.cancelled ? "skipped" : "failed", error: (error instanceof Error ? error.message : String(error)).slice(0, 600) }; }
 
       report.durationMs = Date.now() - started;
       send();
     }
   } finally {
-    siteRun = null; siteStep = null;
+    siteRun = null; siteStep = null; signal?.removeEventListener("abort", stop);
     report.state = run.cancelled ? "cancelled" : "done";
     report.durationMs = Date.now() - started;
     send();
@@ -418,7 +421,9 @@ async function activeAgent(): Promise<PiAgentHost> {
       if (url.protocol !== "https:") throw new Error("Invalid authentication URL");
       await shell.openExternal(url.toString());
     }, testStreamIdleMs(), {
-      run: async (requested) => {
+      // The tool's signal cancels the run or batch this call started, never a user-started audit.
+      run: async (requested, signal) => {
+        signal?.throwIfAborted();
         const current = manager.snapshot().active;
 
         if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
@@ -426,14 +431,15 @@ async function activeAgent(): Promise<PiAgentHost> {
         // The audit window shares the workspace session: unlike the user, the agent gets the batch policy for its one route too.
         siteRoutes([route], current.origin);
 
-        return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route });
+        return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route }, false, signal);
       },
-      site: async (routes) => {
+      site: async (routes, signal) => {
+        signal?.throwIfAborted();
         const current = manager.snapshot().active;
 
         if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
 
-        return runSiteAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot }, routes);
+        return runSiteAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot }, routes, signal);
       },
     });
 
