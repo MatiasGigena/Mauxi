@@ -3,7 +3,8 @@ import { formatRanges, PAGE_ISSUE_LIMIT } from "./audit-contract";
 import { AXE_NODE_LIMIT, axeCriterion, axeFix, isAxeHelpUrl, type AxeImpact, type AxeProfileResult } from "./audit-axe";
 import { interactionFindings, type InteractionRun } from "./audit-interactions";
 
-export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement; axe?: AxeProfileResult[] }
+/** axeIgnored: rules whose inconclusive nodes axe-run left out (AXE_IGNORED_INCOMPLETE). */
+export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement; axe?: AxeProfileResult[]; axeIgnored?: string[] }
 
 interface Occurrence { sample: AuditSample; issue: PageIssue }
 
@@ -331,11 +332,16 @@ export function buildReport(input: {
   findings.sort((a, b) => CLASS_ORDER[a.classification] - CLASS_ORDER[b.classification] || SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.ranges[0]?.[0] ?? 0) - (b.ranges[0]?.[0] ?? 0));
   const ids = new Set(findings.map((finding) => finding.id));
   const interactions = input.interactions;
-  const axeAt = new Map(samples.flatMap((sample) => sample.profile && sample.axe ? [[sample.profile.id, sample.axe] as const] : []));
+  const axeAt = new Map(samples.flatMap((sample) => sample.profile && sample.axe ? [[sample.profile.id, sample] as const] : []));
 
   // A missing finding is resolved only when its check ran again, completely, where it was found; otherwise it is unverified.
   const remeasured = (finding: AuditFinding) => {
-    if (finding.kind === "axe") return !!finding.rule && finding.profiles.length > 0 && finding.profiles.every((id) => axeAt.get(id)?.every((item) => item.rule !== finding.rule!.id || item.total <= item.nodes.length));
+    // axe: the rule's node list was not cut off, and none of its inconclusive nodes were left out (they may include this element).
+    if (finding.kind === "axe") return !!finding.rule && finding.profiles.length > 0 && finding.profiles.every((id) => {
+      const sample = axeAt.get(id);
+
+      return !!sample?.axe && !sample.axeIgnored?.includes(finding.rule!.id) && sample.axe.every((item) => item.rule !== finding.rule!.id || item.total <= item.nodes.length);
+    });
 
     if (INTERACTION_KINDS.has(finding.kind)) return !!interactions && !interactions.notes.length && finding.profiles.every((id) => interactions.profiles.includes(id));
 

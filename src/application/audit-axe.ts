@@ -49,7 +49,11 @@ const AxeRuleResultSchema = Type.Object({
   nodes: Type.Array(AxeNodeSchema, { maxItems: AXE_NODE_LIMIT }),
 });
 
-export const AxeRunSchema = Type.Object({ version: text(32), durationMs: finite, results: Type.Array(AxeRuleResultSchema, { maxItems: 64 }) });
+export const AxeRunSchema = Type.Object({
+  version: text(32), durationMs: finite, results: Type.Array(AxeRuleResultSchema, { maxItems: 64 }),
+  /** Rules whose inconclusive nodes were left out (AXE_IGNORED_INCOMPLETE); those elements are undecided, not passing. */
+  ignored: Type.Array(text(64), { maxItems: 64 }),
+});
 
 export type AxeRun = Static<typeof AxeRunSchema>;
 

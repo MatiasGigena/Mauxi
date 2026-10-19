@@ -9,6 +9,10 @@ const HERO = '<img className="axe-photo" src={photo} width={640} height={360} da
 // Eight unnamed images ahead of the photo fill axe-core's image-alt node list, so the photo is no longer listed.
 const FILLER = '{Array.from({ length: 8 }, (_, index) => <img key={index} src={divider} width={8} height={8} data-testid="alt-filler" />)}';
 const NAMED = HERO.replace("<img ", '<img alt="Two bikes by the harbor" ');
+const TAGLINE = '<p className="axe-tagline" data-testid="mobile-tagline">';
+
+// A "fix" that paints the tagline in its background color: axe-core cannot decide it (equalRatio), and that reason is ignored.
+const PAINTED = TAGLINE.replace("<p ", '<p style={{ color: "#ffffff" }} ');
 
 declare global { interface Window { lastAuditReport?: AuditReport | null } }
 
@@ -150,5 +154,34 @@ test("keeps a cut-off finding unverified across runs until a complete check reso
     await expect(panel.getByRole("button", { name: /Resolved since last run/ })).toBeVisible();
     await expect(panel.getByRole("button", { name: /Not re-checked this run/ })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("axe-resolved.png") });
+  } finally { await writeFile(LAB, original); }
+});
+
+test("keeps a contrast finding unverified when axe-core's answer for its rule becomes an ignored inconclusive result", async ({}, testInfo) => {
+  const original = await readFile(LAB, "utf8");
+  expect(original).toContain(TAGLINE);
+  const ids = (findings: AuditFinding[] | undefined) => (findings ?? []).map((finding) => finding.id);
+
+  try {
+    const baseline = await runAudit();
+    const tagline = only(baseline, "mobile-tagline");
+
+    await writeLab(original.replace(TAGLINE, PAINTED), "#ffffff");
+    const painted = await runAudit();
+    await writeFile(testInfo.outputPath("axe-ignored.json"), JSON.stringify({ ...painted, snapshots: [] }, null, 2));
+    // Ignored reasons never become findings: the tagline is simply no longer listed, and nothing else changes.
+    expect(painted.findings.filter((finding) => finding.element?.testId === "mobile-tagline")).toEqual([]);
+    expect(ids(painted.findings)).toEqual(ids(baseline.findings).filter((id) => id !== tagline.id));
+    expect(painted.axe?.note).toBeNull();
+    // Not decided is not passing: the tagline is carried forward instead of resolved.
+    expect(ids(painted.unverified)).toEqual([tagline.id]);
+    expect(ids(painted.resolved)).toEqual([]);
+
+    // The real contrast problem comes back with the same id, and nothing is left unverified.
+    await writeFile(LAB, original);
+    await expect.poll(() => fetch("http://127.0.0.1:45173/src/audit-axe/AxeLab.tsx").then((response) => response.text()), { timeout: 15_000 }).not.toContain("#ffffff");
+    const restored = await runAudit();
+    expect(only(restored, "mobile-tagline").id).toBe(tagline.id);
+    expect(restored.unverified ?? []).toEqual([]);
   } finally { await writeFile(LAB, original); }
 });

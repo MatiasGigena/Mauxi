@@ -26,6 +26,8 @@ export async function runAxe(axe: AxeApi, options: AxeRunOptions): Promise<AxeRu
   } finally { clearTimeout(timer); }
 
   const results: Result[] = [];
+  // Rules with inconclusive nodes left out by ignoredIncomplete: their elements were not decided, so they are not passing.
+  const ignored: string[] = [];
   const outcomes = [["violation", raw.violations], ["incomplete", raw.incomplete]] as const;
 
   for (const [outcome, list] of outcomes) {
@@ -37,7 +39,11 @@ export async function runAxe(axe: AxeApi, options: AxeRunOptions): Promise<AxeRu
         const checks = [...node.none, ...node.all, ...node.any];
         const reason = String(checks.find((check) => check.data?.messageKey)?.data?.messageKey ?? "");
 
-        if (outcome === "incomplete" && options.ignoredIncomplete.includes(reason)) continue;
+        if (outcome === "incomplete" && options.ignoredIncomplete.includes(reason)) {
+          if (ignored.length < 64 && !ignored.includes(clip(result.id, 64))) ignored.push(clip(result.id, 64));
+          continue;
+        }
+
         total++;
 
         if (nodes.length >= options.maxNodes) continue;
@@ -53,5 +59,5 @@ export async function runAxe(axe: AxeApi, options: AxeRunOptions): Promise<AxeRu
     }
   }
 
-  return { version: clip(String(axe.version), 32), durationMs: Math.round(performance.now() - started), results };
+  return { version: clip(String(axe.version), 32), durationMs: Math.round(performance.now() - started), results, ignored };
 }

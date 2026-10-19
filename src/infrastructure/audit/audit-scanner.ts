@@ -256,6 +256,7 @@ export class AuditScanner {
 
       if (axeRun) {
         sample.axe = axeRun.results.map((result): AxeProfileResult => ({ ...result, nodes: result.nodes.map((node) => ({ ...node, element: measurement.targets?.[targets.indexOf(node.target)] ?? null })) }));
+        sample.axeIgnored = axeRun.ignored;
         axe.profiles.push(profile.id);
       }
 
