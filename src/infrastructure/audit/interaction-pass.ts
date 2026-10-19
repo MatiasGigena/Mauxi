@@ -126,6 +126,12 @@ export async function runInteractionPass(driver: InteractionDriver, profiles: re
         check = await driver.step({ action: "disclosure-check", index });
       }
 
+      // A menu still fading out is not stuck: give it time before forcing it.
+      if (!check.restored && !check.urlChanged) {
+        await driver.settle(400);
+        check = await driver.step({ action: "disclosure-check", index });
+      }
+
       if (!check.restored) check = await driver.step({ action: "disclosure-force-close", index });
 
       if (!check.restored || check.urlChanged) { note(`Could not return ${target.label} to its initial state at ${profile.label}; the remaining interaction checks were skipped.`);

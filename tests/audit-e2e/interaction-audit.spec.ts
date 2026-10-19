@@ -30,7 +30,7 @@ function only(report: AuditReport, testId: string): AuditFinding {
 test("audits keyboard focus, opened menus and hover content without activating navigating triggers", async ({}, testInfo) => {
   const mobile = page.frameLocator('[data-testid="mobile-preview"]');
   await expect(mobile.locator('[data-testid="menu-toggle"]')).toBeVisible({ timeout: 30_000 });
-  await mobile.locator("body").evaluate(() => localStorage.removeItem("mauxi-fixture:navigated"));
+  await mobile.locator("body").evaluate(() => { localStorage.removeItem("mauxi-fixture:navigated"); localStorage.removeItem("mauxi-fixture:filters"); });
 
   await page.evaluate(() => { window.lastAuditReport = null; });
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
@@ -51,7 +51,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(interactions.profiles).toEqual(["zoom-400", "phone-sm"]);
   expect(interactions.focusStops).toBeGreaterThanOrEqual(20);
   expect(interactions.focusStops).toBeLessThanOrEqual(80);
-  expect(interactions.disclosures).toBe(8);
+  expect(interactions.disclosures).toBe(10);
   expect(interactions.hovers).toBe(1);
   expect(interactions.durationMs).toBeLessThan(10_000);
 
@@ -92,7 +92,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
 
   // Negatives stay silent: a fitting <details>, a fixed sheet whose overflow scrolls in its own list, a visible unobscured
   // focus, a bottom bar matched by scroll-padding, and the triggers that would navigate.
-  for (const negative of ["faq", "trail-sheet", "trails-toggle", "huts-toggle", "home-link", "navigating-trigger", "submit-trigger", "menu-toggle", "ix-bar"]) expect(byTestId(report, negative), negative).toEqual([]);
+  for (const negative of ["faq", "trail-sheet", "trails-toggle", "huts-toggle", "home-link", "navigating-trigger", "submit-trigger", "menu-toggle", "ix-bar", "filters-toggle", "filters-popup"]) expect(byTestId(report, negative), negative).toEqual([]);
   expect(interactions.notes).toEqual(expect.arrayContaining([
     expect.stringMatching(/^Not activated: button "Share" \(\[data-testid="navigating-trigger"\]\): its click handler navigates/),
     expect.stringMatching(/^Not activated: button "Sort" \(\[data-testid="submit-trigger"\]\): it submits a form/),
@@ -105,9 +105,12 @@ test("audits keyboard focus, opened menus and hover content without activating n
 
   // The navigating triggers were never clicked: their handlers would have written to the shared session storage.
   expect(await mobile.locator("body").evaluate(() => localStorage.getItem("mauxi-fixture:navigated"))).toBeNull();
+  // The filter popup has no aria-expanded and ignores a second click on its button. It was opened, and the pass saw it still
+  // showing and closed it with Escape instead of trusting the unchanged (absent) aria-expanded and leaving it open.
+  expect(await mobile.locator("body").evaluate(() => localStorage.getItem("mauxi-fixture:filters"))).toBe("closed");
 
   // The panel lists the interaction checks and the canvas shows the moment focus was hidden.
-  await expect(panel.getByRole("region", { name: "Interaction checks" })).toContainText(`${interactions.focusStops} focus stops · 8 disclosures opened · 1 tooltip hovered · 400% zoom, Small phone`);
+  await expect(panel.getByRole("region", { name: "Interaction checks" })).toContainText(`${interactions.focusStops} focus stops · 10 disclosures opened · 1 tooltip hovered · 400% zoom, Small phone`);
   await expect(page.locator('.snapshot-board[data-profile-id="focus-zoom-400"] .finding-marker')).toHaveCount(1);
   await expect(page.locator('.snapshot-board[data-profile-id="menu-zoom-400"] .finding-marker')).toHaveCount(1);
   await expect(page.locator('.snapshot-board[data-profile-id="hover-phone-sm"] .finding-marker')).toHaveCount(1);

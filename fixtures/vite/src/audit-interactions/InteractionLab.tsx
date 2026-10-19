@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const sections = ["Guides", "Gear", "Trails", "Maps", "Weather", "Huts"];
 
@@ -10,11 +10,16 @@ const stories = [
   { title: "Winter on the Pentland Hills", text: "Short days, long views and a flask of tea." },
 ];
 
+/** Shared with the E2E spec through session storage: whether the audit left the filter popup open. */
+const rememberFilters = (open: boolean) => localStorage.setItem("mauxi-fixture:filters", open ? "open" : "closed");
+
 /** Planted interaction cases for the responsive audit. Data-testids name each case the E2E spec asserts. */
 export function InteractionLab() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [trailsOpen, setTrailsOpen] = useState(false);
   const [hutsOpen, setHutsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filters = useRef<HTMLDivElement>(null);
 
   // The open drawer covers its own trigger, so like most drawers it closes on Escape.
   useEffect(() => {
@@ -25,6 +30,19 @@ export function InteractionLab() {
 
     return () => document.removeEventListener("keydown", close);
   }, [hutsOpen]);
+
+  // Like many popup menus, the filter list ignores further clicks on its button and closes only on Escape or a click outside.
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const close = () => { rememberFilters(false); setFiltersOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const outside = (event: MouseEvent) => { if (!(event.target instanceof Node && filters.current?.contains(event.target))) close(); };
+
+    document.addEventListener("keydown", key);
+    document.addEventListener("mousedown", outside);
+
+    return () => { document.removeEventListener("keydown", key); document.removeEventListener("mousedown", outside); };
+  }, [filtersOpen]);
 
   return (
     <div className="ix">
@@ -85,6 +103,14 @@ export function InteractionLab() {
           <nav id="ix-hut-drawer" className="ix-drawer" aria-label="Hut index" hidden={!hutsOpen} data-testid="hut-drawer">
             <ul>{trails.map((trail) => <li key={trail}><a href={`#${trail.split(" ")[0].toLowerCase()}-huts`}>{trail} huts</a></li>)}</ul>
           </nav>
+          {/* Not a finding: a popup button without aria-expanded whose list fits. Clicking it again leaves the list open, so the
+              audit must see the list itself still showing and close it with Escape before going on. Last trigger, so no later click closes it. */}
+          <div className="ix-filters" ref={filters}>
+            <button type="button" className="ix-trails" aria-haspopup="true" data-testid="filters-toggle" onClick={() => { rememberFilters(true); setFiltersOpen(true); }}>Filters</button>
+            <ul className="ix-popup" aria-label="Filters" hidden={!filtersOpen} data-testid="filters-popup">
+              {["Open now", "Dog friendly", "Bunk rooms"].map((filter) => <li key={filter}><a href={`#${filter.split(" ")[0].toLowerCase()}`}>{filter}</a></li>)}
+            </ul>
+          </div>
           {/* Not activated: a disclosure-looking button whose click handler navigates away. */}
           <button type="button" className="ix-share" aria-expanded="false" aria-controls="ix-share-panel" data-testid="navigating-trigger"
             onClick={() => { localStorage.setItem("mauxi-fixture:navigated", "share"); window.location.assign("/audit-lab.html"); }}>Share</button>

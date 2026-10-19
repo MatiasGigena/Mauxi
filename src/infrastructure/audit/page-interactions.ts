@@ -14,7 +14,8 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
 
   type Point = { x: number; y: number };
 
-  interface Initial { url: string; expanded: string; scrollX: number; scrollY: number; scrollWidth: number }
+  /** stateless: the trigger shows no aria-expanded before or after opening, so only witness (what it revealed) tells whether it closed. */
+  interface Initial { url: string; expanded: string; scrollX: number; scrollY: number; scrollWidth: number; content: Element | null; shown: boolean; popups: Set<Element>; stateless: boolean; witness: Element | null }
 
   interface State { baseline: WeakMap<Element, Map<string, string>>; visited: Set<Element>; stops: number; sentinel: HTMLElement | null; triggers: Element[]; tooltips: Array<{ trigger: Element; tip: Element }>; initial: Map<number, Initial> }
 
@@ -346,6 +347,9 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
     return trigger.nextElementSibling;
   };
 
+  const POPUPS = '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="tree"],[role="grid"],[aria-modal="true"],dialog[open],[popover]';
+  const openPopups = () => new Set([...document.querySelectorAll(POPUPS)].slice(0, 200).filter((element) => !element.closest("[data-mauxi-overlay]") && visible(element)));
+
   const NAVIGATES = /\blocation\b|navigate|router|\bhref\b|submit|window\.open|history\.(?:push|replace)State|\.assign\(/i;
   const ACTION = /\b(?:delete|remove|buy|pay|purchase|checkout|sign ?out|log ?out|send|unsubscribe)\b/i;
 
@@ -574,7 +578,9 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
 
       if (!trigger?.isConnected) return { point: null, reason: "the trigger left the page" };
       const scrolling = document.scrollingElement ?? doc;
-      state.initial.set(request.index, { url: location.href, expanded: expandedOf(trigger), scrollX, scrollY, scrollWidth: scrolling.scrollWidth });
+      const content = contentOf(trigger);
+      const expanded = expandedOf(trigger);
+      state.initial.set(request.index, { url: location.href, expanded, scrollX, scrollY, scrollWidth: scrolling.scrollWidth, content, shown: !!content && visible(content), popups: openPopups(), stateless: expanded === "null", witness: null });
       const point = reveal(trigger);
 
       return { point, label: `${trigger.tagName.toLowerCase()} "${labelOf(trigger)}"`, reason: point ? "" : `it is covered by ${coverOf(trigger)}` };
@@ -589,6 +595,10 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
       if (location.href !== initial.url) return { opened: false, urlChanged: true, reason: "activating it changed the URL" };
       const content = contentOf(trigger);
       const changed = expandedOf(trigger) !== initial.expanded;
+      initial.stateless &&= !changed;
+
+      // Content that was already showing proves nothing opened; otherwise a newly shown popup elsewhere is what must close again.
+      if (initial.stateless) initial.witness = content && visible(content) && !(content === initial.content && initial.shown) ? content : [...openPopups()].find((popup) => !initial.popups.has(popup) && !within(trigger, popup)) ?? null;
 
       if (!content || !visible(content)) return { opened: changed, reason: "it revealed no visible content", point: hitPoint(trigger) };
 
@@ -611,7 +621,11 @@ export function interactionStep(request: InteractionRequest): InteractionResult 
       if (location.href !== initial.url) return { restored: false, urlChanged: true };
       scrollTo(initial.scrollX, initial.scrollY);
 
-      return { restored: !trigger.isConnected || expandedOf(trigger) === initial.expanded, urlChanged: false };
+      const witness = initial.witness;
+      // Without aria-expanded, "null" === "null" says nothing: the revealed content must be gone, or no popup newly shown.
+      const closed = !initial.stateless || (witness ? !witness.isConnected || !visible(witness) : [...openPopups()].every((popup) => initial.popups.has(popup)));
+
+      return { restored: !trigger.isConnected || (expandedOf(trigger) === initial.expanded && closed), urlChanged: false };
     }
 
     case "hover-list": {
