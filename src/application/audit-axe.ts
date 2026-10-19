@@ -30,9 +30,12 @@ export const AXE_IGNORED_INCOMPLETE: readonly string[] = ["bgOverlap", "elmParti
 
 export const AXE_NODE_LIMIT = 8;
 
+/** Rule results kept per profile; the rules past it are listed in AxeRun.overLimit. */
+export const AXE_RESULT_LIMIT = 64;
+
 export const AXE_TIMEOUT_MS = 10_000;
 
-export interface AxeRunOptions { rules: readonly string[]; maxNodes: number; timeoutMs: number; ignoredIncomplete: readonly string[] }
+export interface AxeRunOptions { rules: readonly string[]; maxNodes: number; maxResults: number; timeoutMs: number; ignoredIncomplete: readonly string[] }
 
 const ImpactSchema = Type.Union([Type.Null(), Type.Literal("critical"), Type.Literal("serious"), Type.Literal("moderate"), Type.Literal("minor")]);
 
@@ -50,9 +53,11 @@ const AxeRuleResultSchema = Type.Object({
 });
 
 export const AxeRunSchema = Type.Object({
-  version: text(32), durationMs: finite, results: Type.Array(AxeRuleResultSchema, { maxItems: 64 }),
+  version: text(32), durationMs: finite, results: Type.Array(AxeRuleResultSchema, { maxItems: AXE_RESULT_LIMIT }),
   /** Rules whose inconclusive nodes were left out (AXE_IGNORED_INCOMPLETE); those elements are undecided, not passing. */
   ignored: Type.Array(text(64), { maxItems: 64 }),
+  /** Rules with results past maxResults, left out of results; their elements are unknown at this profile. */
+  overLimit: Type.Array(text(64), { maxItems: 64 }),
 });
 
 export type AxeRun = Static<typeof AxeRunSchema>;

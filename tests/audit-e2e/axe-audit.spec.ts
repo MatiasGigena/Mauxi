@@ -185,3 +185,31 @@ test("keeps a contrast finding unverified when axe-core's answer for its rule be
     expect(restored.unverified ?? []).toEqual([]);
   } finally { await writeFile(LAB, original); }
 });
+
+test("keeps findings unverified when their rule falls past axe-core's result limit", async ({}, testInfo) => {
+  const baseline = await runAudit();
+  const ids = (findings: AuditFinding[] | undefined) => (findings ?? []).map((finding) => finding.id).sort();
+  const past = ["mobile-tagline", "mixed-contrast", "social-link", "gradient-banner"].map((testId) => only(baseline, testId).id).sort();
+
+  // Test mode lowers the 64-result limit to 1: each profile keeps its first result (violations first, by rule id), so
+  // button-name leads at the phone widths, image-alt from the tablet up, and color-contrast and link-name fall past it.
+  await application.evaluate(() => { process.env.MAUXI_TEST_MODE = "1"; process.env.MAUXI_TEST_AXE_RESULT_LIMIT = "1"; });
+
+  try {
+    const capped = await runAudit();
+    await writeFile(testInfo.outputPath("axe-over-limit.json"), JSON.stringify({ ...capped, snapshots: [] }, null, 2));
+    expect(capped.axe?.note).toBe("General checks (axe-core) at Small phone kept only the first 1 rule results and left out color-contrast, image-alt, so findings for those rules are not re-checked there.");
+    // Kept rules still report; the photo's phone widths are unknown, not passing.
+    expect(only(capped, "mobile-menu-toggle").id).toBe(only(baseline, "mobile-menu-toggle").id);
+    const photo = only(capped, "hero-photo");
+    expect(photo).toMatchObject({ id: only(baseline, "hero-photo").id, ranges: [[768, 1440]] });
+    expect(photo.title).not.toContain("only at");
+    expect(photo.detail).toContain("unknown at Small phone (320px), Phone (390px), where this rule fell past axe-core's result limit.");
+    expect(photo.detail).not.toContain("not at");
+    // Rules past the limit prove nothing: their findings are carried forward, never resolved, and nothing is added.
+    expect(ids(capped.findings)).toEqual(ids(baseline.findings).filter((id) => !past.includes(id)));
+    expect(ids(capped.unverified)).toEqual(past);
+    expect(capped.resolved).toEqual([]);
+    await expect(page.getByRole("complementary", { name: "Responsive audit" }).getByRole("note")).toContainText("left out color-contrast, image-alt");
+  } finally { await application.evaluate(() => { delete process.env.MAUXI_TEST_MODE; delete process.env.MAUXI_TEST_AXE_RESULT_LIMIT; }); }
+});

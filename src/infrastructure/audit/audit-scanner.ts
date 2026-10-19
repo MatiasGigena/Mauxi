@@ -2,7 +2,7 @@ import { BrowserWindow, type Session } from "electron";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import axeSource from "axe-core/axe.min.js" with { type: "text" };
-import { AXE_IGNORED_INCOMPLETE, AXE_NODE_LIMIT, AXE_RULES, AXE_TIMEOUT_MS, isAxeRun, type AxeProfileResult, type AxeRun, type AxeRunOptions } from "../../application/audit-axe";
+import { AXE_IGNORED_INCOMPLETE, AXE_NODE_LIMIT, AXE_RESULT_LIMIT, AXE_RULES, AXE_TIMEOUT_MS, isAxeRun, type AxeProfileResult, type AxeRun, type AxeRunOptions } from "../../application/audit-axe";
 import { AUDIT_PROFILES, isPageMeasurement, SWEEP_HEIGHT, sweepWidths, type AuditAxeInfo, type AuditProgress, type AuditReport, type AuditSnapshot, type PageMeasurement, type RouteDiscovery } from "../../application/audit-contract";
 import { INTERACTION_PROFILE_IDS, isInteractionResult, type InteractionRun } from "../../application/audit-interactions";
 import { buildReport, type AuditSample } from "../../application/audit-report";
@@ -25,7 +25,7 @@ type CdpParams = { [key: string]: CdpValue };
 const MEASURE = `(${measurePage.toString()})`;
 const INTERACT = `(${interactionStep.toString()})`;
 const RUN_AXE = `(${runAxe.toString()})`;
-const AXE_OPTIONS: AxeRunOptions = { rules: AXE_RULES, maxNodes: AXE_NODE_LIMIT, timeoutMs: AXE_TIMEOUT_MS, ignoredIncomplete: AXE_IGNORED_INCOMPLETE };
+const AXE_OPTIONS: AxeRunOptions = { rules: AXE_RULES, maxNodes: AXE_NODE_LIMIT, maxResults: AXE_RESULT_LIMIT, timeoutMs: AXE_TIMEOUT_MS, ignoredIncomplete: AXE_IGNORED_INCOMPLETE };
 const SNAPSHOT_MAX_HEIGHT = 2_400;
 const RUN_LIMIT_MS = 180_000;
 const DISCOVERY_LIMIT_MS = 45_000;
@@ -44,6 +44,13 @@ const HYDRATED = `new Promise(resolve => {
   const tick = () => done() || Date.now() > deadline ? resolve(true) : setTimeout(tick, 50);
   tick();
 })`;
+
+/** Test mode may lower the axe-core result limit, read per run, so a capped run is testable without a page failing 64 rules. */
+function axeOptions(): AxeRunOptions {
+  const value = Number(process.env.MAUXI_TEST_AXE_RESULT_LIMIT);
+
+  return process.env.MAUXI_TEST_MODE === "1" && Number.isInteger(value) && value > 0 && value < AXE_RESULT_LIMIT ? { ...AXE_OPTIONS, maxResults: value } : AXE_OPTIONS;
+}
 
 function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
@@ -216,9 +223,12 @@ export class AuditScanner {
       if (axeContext === null) return null;
 
       try {
-        const { value } = await evaluate(`${RUN_AXE}(axe, ${JSON.stringify(AXE_OPTIONS)})`, axeContext);
+        const options = axeOptions();
+        const { value } = await evaluate(`${RUN_AXE}(axe, ${JSON.stringify(options)})`, axeContext);
 
         if (!isAxeRun(value)) throw new Error("axe-core returned an invalid result.");
+
+        if (value.overLimit.length) axe.note ??= `General checks (axe-core) at ${label} kept only the first ${options.maxResults} rule results and left out ${value.overLimit.join(", ")}, so findings for those rules are not re-checked there.`.slice(0, 600);
         axe.version = value.version;
         axe.durationMs += value.durationMs;
 
@@ -257,6 +267,7 @@ export class AuditScanner {
       if (axeRun) {
         sample.axe = axeRun.results.map((result): AxeProfileResult => ({ ...result, nodes: result.nodes.map((node) => ({ ...node, element: measurement.targets?.[targets.indexOf(node.target)] ?? null })) }));
         sample.axeIgnored = axeRun.ignored;
+        sample.axeOverLimit = axeRun.overLimit;
         axe.profiles.push(profile.id);
       }
 

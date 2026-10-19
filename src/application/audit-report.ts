@@ -3,8 +3,8 @@ import { formatRanges, PAGE_ISSUE_LIMIT } from "./audit-contract";
 import { AXE_NODE_LIMIT, axeCriterion, axeFix, isAxeHelpUrl, type AxeImpact, type AxeProfileResult } from "./audit-axe";
 import { interactionFindings, type InteractionRun } from "./audit-interactions";
 
-/** axeIgnored: rules whose inconclusive nodes axe-run left out (AXE_IGNORED_INCOMPLETE). */
-export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement; axe?: AxeProfileResult[]; axeIgnored?: string[] }
+/** axeIgnored: rules whose inconclusive nodes axe-run left out (AXE_IGNORED_INCOMPLETE). axeOverLimit: rules whose results fell past AXE_RESULT_LIMIT. */
+export interface AuditSample { width: number; height: number; profile: AuditProfile | null; measurement: PageMeasurement; axe?: AxeProfileResult[]; axeIgnored?: string[]; axeOverLimit?: string[] }
 
 interface Occurrence { sample: AuditSample; issue: PageIssue }
 
@@ -275,8 +275,9 @@ export function buildReport(input: {
     // Where axe could not decide for this element, or cut this rule's node list off, absence proves nothing: those profiles are unknown, not passing.
     const undecided = new Set(items.filter((hit) => !found.has(hit.sample)).map((hit) => hit.sample));
     const cut = new Set(axeSamples.filter((sample) => !found.has(sample) && !undecided.has(sample) && sample.axe!.some((item) => item.rule === result.rule && item.total > item.nodes.length)));
-    const unknown = [...undecided, ...cut].map(label);
-    const missing = axeSamples.flatMap((sample) => found.has(sample) || undecided.has(sample) || cut.has(sample) ? [] : [label(sample)]);
+    const over = new Set(axeSamples.filter((sample) => !found.has(sample) && !undecided.has(sample) && !cut.has(sample) && sample.axeOverLimit?.includes(result.rule)));
+    const unknown = [...undecided, ...cut, ...over].map(label);
+    const missing = axeSamples.flatMap((sample) => found.has(sample) || undecided.has(sample) || cut.has(sample) || over.has(sample) ? [] : [label(sample)]);
     const everywhere = !missing.length && !unknown.length;
     const more = Math.max(...chosen.map((hit) => hit.result.total - hit.result.nodes.length));
     const criterion = axeCriterion(result.tags);
@@ -297,7 +298,7 @@ export function buildReport(input: {
       detail: [
         `${violations.length ? "" : "axe-core could not decide this automatically: "}${node.message.replace(/[\s.]*$/, ".")}`,
         `${element ? "" : `Target: ${node.target}. `}axe-core rule ${result.rule}.`,
-        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}${missing.length ? `; not at ${missing.join(", ")}` : ""}${undecided.size ? `; inconclusive at ${[...undecided].map(label).join(", ")}, where axe-core could not decide` : ""}${cut.size ? `; unknown at ${[...cut].map(label).join(", ")}, where axe-core's list for this rule was cut off` : ""}.`,
+        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}${missing.length ? `; not at ${missing.join(", ")}` : ""}${undecided.size ? `; inconclusive at ${[...undecided].map(label).join(", ")}, where axe-core could not decide` : ""}${cut.size ? `; unknown at ${[...cut].map(label).join(", ")}, where axe-core's list for this rule was cut off` : ""}${over.size ? `; unknown at ${[...over].map(label).join(", ")}, where this rule fell past axe-core's result limit` : ""}.`,
         more > 0 ? `${more} more elements fail this rule (only the first ${AXE_NODE_LIMIT} per profile are listed).` : "",
       ].join(" ").trim(),
       fixHint: axeFix(result.rule, result.help), criterion,
@@ -336,11 +337,11 @@ export function buildReport(input: {
 
   // A missing finding is resolved only when its check ran again, completely, where it was found; otherwise it is unverified.
   const remeasured = (finding: AuditFinding) => {
-    // axe: the rule's node list was not cut off, and none of its inconclusive nodes were left out (they may include this element).
+    // axe: the rule's node list was not cut off, none of its inconclusive nodes were left out (they may include this element), and it was within the result limit.
     if (finding.kind === "axe") return !!finding.rule && finding.profiles.length > 0 && finding.profiles.every((id) => {
       const sample = axeAt.get(id);
 
-      return !!sample?.axe && !sample.axeIgnored?.includes(finding.rule!.id) && sample.axe.every((item) => item.rule !== finding.rule!.id || item.total <= item.nodes.length);
+      return !!sample?.axe && !sample.axeIgnored?.includes(finding.rule!.id) && !sample.axeOverLimit?.includes(finding.rule!.id) && sample.axe.every((item) => item.rule !== finding.rule!.id || item.total <= item.nodes.length);
     });
 
     if (INTERACTION_KINDS.has(finding.kind)) return !!interactions && !interactions.notes.length && finding.profiles.every((id) => interactions.profiles.includes(id));
