@@ -183,10 +183,17 @@ export function buildReport(input: {
     });
   }
 
-  for (const items of group(occurrences("hidden-overflow", base), (item) => elementKey(item.issue.element)).values()) {
+  const fullBase = base.filter((sample) => sample.profile);
+  const clippedText = group(occurrences("text-clipped", fullBase), (item) => elementKey(item.issue.element));
+  const hiddenContent = group(occurrences("hidden-overflow", base), (item) => elementKey(item.issue.element));
+
+  for (const [key, items] of hiddenContent) {
     const widths = items.map((item) => item.sample.width);
 
     if (Math.max(...widths) >= widest) continue;
+
+    // The full text check describes the same clipping more precisely. Its finding below also keeps these sweep widths.
+    if (clippedText.has(key) && !clippedText.get(key)!.some((item) => item.issue.ellipsis)) continue;
     add("content-clipped", items, {
       title: `Content hidden by overflow at ${formatRanges(widthRanges(widths, scanned))}`,
       detail: `${items[0].issue.detail ?? "Content is clipped."} The same container fits at wider widths, so narrow layouts lose content.`,
@@ -196,15 +203,14 @@ export function buildReport(input: {
   }
 
   // Clipped text: compare narrow profiles with wide ones, and text-spacing profiles with their base profile.
-  const fullBase = base.filter((sample) => sample.profile);
   const wideKeys = new Set(occurrences("text-clipped", fullBase.filter((sample) => sample.width >= 1280)).map((item) => elementKey(item.issue.element)));
 
-  for (const [key, items] of group(occurrences("text-clipped", fullBase), (item) => elementKey(item.issue.element))) {
+  for (const [key, items] of clippedText) {
     const ellipsis = items.some((item) => item.issue.ellipsis);
 
     if (wideKeys.has(key) && ellipsis) continue;
     const narrowOnly = !wideKeys.has(key);
-    add(ellipsis ? "text-truncated" : "content-clipped", items, {
+    add(ellipsis ? "text-truncated" : "content-clipped", ellipsis ? items : [...items, ...hiddenContent.get(key) ?? []], {
       title: ellipsis ? "Text truncated at narrow widths" : narrowOnly ? "Text cut off at narrow widths" : "Text cut off at every width",
       detail: `${items[0].issue.detail ?? ""}${narrowOnly ? " It fits at desktop widths, so the narrow layout loses information." : ""}`.trim(),
       fixHint: ellipsis ? "Make sure the full text is available elsewhere (title, expandable row, detail view), or let it wrap at narrow widths." : "Remove fixed heights/widths and white-space: nowrap from the text container so it can grow with its content.",
@@ -274,10 +280,11 @@ export function buildReport(input: {
     const label = (sample: AuditSample) => `${sample.profile?.label ?? "Width"} (${sample.width}px)`;
     // Where axe could not decide for this element, or cut this rule's node list off, absence proves nothing: those profiles are unknown, not passing.
     const undecided = new Set(items.filter((hit) => !found.has(hit.sample)).map((hit) => hit.sample));
+    const ignored = new Set(axeSamples.filter((sample) => !found.has(sample) && !undecided.has(sample) && sample.axeIgnored?.includes(result.rule)));
     const cut = new Set(axeSamples.filter((sample) => !found.has(sample) && !undecided.has(sample) && sample.axe!.some((item) => item.rule === result.rule && item.total > item.nodes.length)));
     const over = new Set(axeSamples.filter((sample) => !found.has(sample) && !undecided.has(sample) && !cut.has(sample) && sample.axeOverLimit?.includes(result.rule)));
-    const unknown = [...undecided, ...cut, ...over].map(label);
-    const missing = axeSamples.flatMap((sample) => found.has(sample) || undecided.has(sample) || cut.has(sample) || over.has(sample) ? [] : [label(sample)]);
+    const unknown = [...new Set([...undecided, ...ignored, ...cut, ...over])].map(label);
+    const missing = axeSamples.flatMap((sample) => found.has(sample) || undecided.has(sample) || ignored.has(sample) || cut.has(sample) || over.has(sample) ? [] : [label(sample)]);
     const everywhere = !missing.length && !unknown.length;
     const more = Math.max(...chosen.map((hit) => hit.result.total - hit.result.nodes.length));
     const criterion = axeCriterion(result.tags);
@@ -298,7 +305,7 @@ export function buildReport(input: {
       detail: [
         `${violations.length ? "" : "axe-core could not decide this automatically: "}${node.message.replace(/[\s.]*$/, ".")}`,
         `${element ? "" : `Target: ${node.target}. `}axe-core rule ${result.rule}.`,
-        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}${missing.length ? `; not at ${missing.join(", ")}` : ""}${undecided.size ? `; inconclusive at ${[...undecided].map(label).join(", ")}, where axe-core could not decide` : ""}${cut.size ? `; unknown at ${[...cut].map(label).join(", ")}, where axe-core's list for this rule was cut off` : ""}${over.size ? `; unknown at ${[...over].map(label).join(", ")}, where this rule fell past axe-core's result limit` : ""}.`,
+        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}${missing.length ? `; not at ${missing.join(", ")}` : ""}${undecided.size ? `; inconclusive at ${[...undecided].map(label).join(", ")}, where axe-core could not decide` : ""}${ignored.size ? `; unknown at ${[...ignored].map(label).join(", ")}, where inconclusive nodes for this rule were left out` : ""}${cut.size ? `; unknown at ${[...cut].map(label).join(", ")}, where axe-core's list for this rule was cut off` : ""}${over.size ? `; unknown at ${[...over].map(label).join(", ")}, where this rule fell past axe-core's result limit` : ""}.`,
         more > 0 ? `${more} more elements fail this rule (only the first ${AXE_NODE_LIMIT} per profile are listed).` : "",
       ].join(" ").trim(),
       fixHint: axeFix(result.rule, result.help), criterion,

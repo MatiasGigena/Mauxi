@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { AgentModelView, AgentSnapshot } from "../../src/application/agent-contract";
 import { mockDesktop } from "./fixtures";
+import { writeFile } from "node:fs/promises";
 
 
 function setupTest(page: Page) {
@@ -182,5 +183,39 @@ for (const width of [1500, 390]) {
     await expect(settings).toBeVisible();
     await expect(page.getByRole("alert")).toHaveText("Model selection failed");
     await expect(trigger).toContainText("Claude Opus 5.5");
+  });
+}
+
+for (const { key, expected } of [{ key: "Home", expected: "Alpha" }, { key: "End", expected: "Zulu" }, { key: "z", expected: "Zulu" }]) {
+  test(`closed model picker honors ${key} before Enter selects`, async ({ page }, testInfo) => {
+    await mockDesktop(page);
+    await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
+    await (await setupTest(page)).evaluate(state => {
+      const snapshot: AgentSnapshot = {
+        ready: true, workspaceId: "test-workspace", providers: [{ id: "fake", name: "Fake", authenticated: true, authMethods: [] }],
+        models: ["Alpha", "Middle", "Zulu"].map(name => ({ key: `fake/${name}`, provider: "fake", id: name, name, available: true, supportsImages: true, thinkingLevels: ["off"] })),
+        selectedModel: "fake/Middle", messages: [], thinkingLevel: "off", runState: "idle", queued: { steering: 0, followUp: 0 }, status: "Ready",
+      };
+
+      window.mauxi!.agentSelectModel = async ({ modelKey }) => {
+        snapshot.selectedModel = modelKey;
+        state.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
+      };
+
+      state.agentListeners.forEach(listener => listener({ type: "snapshot", snapshot }));
+    });
+    const picker = page.getByRole("button", { name: "Models & providers", exact: true });
+    await picker.click();
+    const trigger = page.getByRole("combobox", { name: "Model", exact: true });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.press(key);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const active = page.getByRole("option", { name: `${expected} (Fake)`, exact: true });
+    await writeFile(testInfo.outputPath("keyboard-opening.json"), JSON.stringify({ key, expected, active: await page.locator('.model-option[data-active="true"] .model-name strong').innerText() }, null, 2));
+    await page.screenshot({ path: testInfo.outputPath("keyboard-opening.png") });
+    await expect(active).toHaveAttribute("data-active", "true");
+    await trigger.press("Enter");
+    await expect(picker).toContainText(expected);
+    await expect(picker).toHaveAttribute("aria-expanded", "false");
   });
 }

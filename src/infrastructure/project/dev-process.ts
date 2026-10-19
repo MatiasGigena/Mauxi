@@ -119,13 +119,30 @@ export class OwnedDevProcess {
 
 export async function waitForHttp(origin: string, timeoutMs: number, aborted: () => boolean, requiredHtml?: string): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  const expectedOrigin = new URL(origin).origin;
   let lastError = "No response";
 
   while (Date.now() < deadline) {
     if (aborted()) throw new Error("Development server stopped before it became ready.");
 
     try {
-      const response = await fetch(origin, { redirect: "manual", signal: AbortSignal.timeout(1_500) });
+      const signal = AbortSignal.timeout(Math.max(1, Math.min(1_500, deadline - Date.now())));
+      let target = origin;
+      let response = await fetch(target, { redirect: "manual", signal });
+
+      if (requiredHtml) {
+        for (let redirects = 0; response.status >= 300 && response.status < 400 && response.headers.has("location"); redirects++) {
+          if (redirects >= 10) throw new Error("Too many development server redirects");
+          const next = new URL(response.headers.get("location")!, target);
+
+          if (next.origin !== expectedOrigin || next.username || next.password) throw new Error("Development server redirected outside the project origin");
+
+          if (aborted()) throw new Error("Development server stopped before it became ready.");
+          await response.body?.cancel();
+          target = next.href;
+          response = await fetch(target, { redirect: "manual", signal });
+        }
+      }
 
       if (response.status >= 200 && response.status < 500) {
         if (!requiredHtml || (await response.text()).includes(requiredHtml)) return;

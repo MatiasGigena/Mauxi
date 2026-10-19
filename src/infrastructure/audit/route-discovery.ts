@@ -102,12 +102,14 @@ export async function discoverRoutes(window: BrowserWindow, request: DiscoveryRe
 
       if (verdict.route === null) { external++; continue; }
 
-      if (found.has(verdict.route) || excluded.has(verdict.route)) continue;
+      // A download attribute excludes that link, not a later ordinary link to the same page.
+      if (found.has(verdict.route) || excluded.has(verdict.route) && excluded.get(verdict.route) !== "Download link") continue;
 
       if (verdict.reason !== null) { excluded.set(verdict.route, verdict.reason); continue; }
 
       if (found.size >= SITE_ROUTE_LIMIT) { truncated = true; continue; }
 
+      excluded.delete(verdict.route);
       found.set(verdict.route, { route: verdict.route, depth: node.depth + 1, from: route });
       queue.push(verdict.route);
     }

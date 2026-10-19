@@ -112,11 +112,11 @@ function ModelSelect({ agent, busy, onSelect, children }: {
   const options = groups.flatMap(provider => matching.filter(model => model.provider === provider));
   const activeIndex = Math.min(active, Math.max(0, options.length - 1));
 
-  function setExpanded(next: boolean, fromKeyboard: boolean) {
+  function setExpanded(next: boolean, fromKeyboard: boolean, activeOption?: number) {
     if (next && !available.length) return;
     setOpen(next); setKeyboard(fromKeyboard);
 
-    if (next) { activeFromPointer.current = false; setQuery(""); setActive(Math.max(0, options.findIndex(model => model.key === agent.selectedModel))); typeahead.current = { text: "", time: 0 }; }
+    if (next) { activeFromPointer.current = false; setQuery(""); setActive(activeOption ?? Math.max(0, options.findIndex(model => model.key === agent.selectedModel))); typeahead.current = { text: "", time: 0 }; }
     else setQuery("");
   }
 
@@ -169,8 +169,10 @@ function ModelSelect({ agent, busy, onSelect, children }: {
       event.preventDefault(); event.stopPropagation();
       activeFromPointer.current = false;
 
-      if (!open) setExpanded(true, true);
-      else setActive(event.key === "Home" ? 0 : options.length - 1);
+      const index = event.key === "Home" ? 0 : options.length - 1;
+
+      if (!open) setExpanded(true, true, index);
+      else setActive(index);
     } else if (event.key.length === 1 && event.key !== " ") {
       event.preventDefault(); event.stopPropagation();
       activeFromPointer.current = false;
@@ -180,7 +182,7 @@ function ModelSelect({ agent, busy, onSelect, children }: {
       const candidates = options.map((_, offset) => (activeIndex + offset + 1) % options.length);
       const index = candidates.find(index => options[index].name.toLowerCase().startsWith(prefix) || options[index].id.toLowerCase().startsWith(prefix));
 
-      if (!open) setExpanded(true, true);
+      if (!open) setExpanded(true, true, index);
       else if (index !== undefined) setActive(index);
       typeahead.current = { text, time: now };
     }
