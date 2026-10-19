@@ -81,21 +81,25 @@ export class AuditScanner {
     const controller = new AbortController();
     this.controller = controller;
     const timer = setTimeout(() => controller.abort(new Error(timeout)), limitMs);
+    // Stop and the deadline settle the run at once: a page hung inside a CDP command cannot keep the window or the lock.
+    // The abandoned work fails on its next step against the destroyed window; the race keeps its late rejection handled.
+    const aborted = new Promise<never>((_resolve, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }));
+    let window: BrowserWindow | undefined;
 
-    const window = new BrowserWindow({
-      show: false, width: 1440, height: SWEEP_HEIGHT,
-      // Offscreen rendering keeps painting and CDP emulation working without a visible or hidden native window.
-      webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
-    });
+    try {
+      window = new BrowserWindow({
+        show: false, width: 1440, height: SWEEP_HEIGHT,
+        // Offscreen rendering keeps painting and CDP emulation working without a visible or hidden native window.
+        webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
+      });
 
-    const fence = confine(window, request.origin, request.url);
-
-    try { return await work(window, controller.signal, fence); }
-    finally {
+      return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]);
+    } finally {
       clearTimeout(timer);
-      this.controller = undefined;
 
-      if (!window.isDestroyed()) window.destroy();
+      if (this.controller === controller) this.controller = undefined;
+
+      if (window && !window.isDestroyed()) window.destroy();
     }
   }
 
@@ -163,7 +167,8 @@ export class AuditScanner {
       const update: AuditProgress = { phase, done, total };
 
       if (width) update.width = width;
-      this.options.onProgress(update);
+
+      if (!signal.aborted) this.options.onProgress(update);
     };
 
     progress("loading", 0);
