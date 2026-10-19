@@ -703,7 +703,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const timer = window.setTimeout(() => {
       // Control handed to the agent after Show at was clicked: drop the outline, it would scroll the page under the agent.
       if (browserLocked.current) setNotice(`Return browser control to show this finding in the ${LABELS[showing.id]} preview.`);
-      else if (settled) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
+      else if (settled && runtime.route.replace(/#.*$/, "") === showing.route.replace(/#.*$/, "")) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
       else setNotice(`${LABELS[showing.id]} preview did not open ${showing.route}; the finding was not outlined.`);
       setShowing((current) => current === showing ? null : current);
     }, settled ? 350 : Math.max(0, showing.deadline - Date.now()));
