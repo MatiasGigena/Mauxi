@@ -691,7 +691,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const settled = runtime.ready && runtime.generation !== showing.stale;
 
     const timer = window.setTimeout(() => {
-      if (settled) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
+      // Control handed to the agent after Show at was clicked: drop the outline, it would scroll the page under the agent.
+      if (browserLocked.current) setNotice(`Return browser control to show this finding in the ${LABELS[showing.id]} preview.`);
+      else if (settled) send(showing.id, { kind: "highlight", selector: showing.selector, label: showing.label });
       else setNotice(`${LABELS[showing.id]} preview did not open ${showing.route}; the finding was not outlined.`);
       setShowing((current) => current === showing ? null : current);
     }, settled ? 350 : Math.max(0, showing.deadline - Date.now()));
@@ -708,9 +710,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const route = audit ? supportedRoute(audit.route, origin) : null;
     const navigating = !!audit && page(projectRoute(audit.route, origin) ?? audit.route) !== page(runtime.route);
 
-    if (navigating && (!route || browserLocked.current)) {
+    // While the agent holds the browser, resizing, navigating or outlining (which scrolls) would move the page under it.
+    if (browserLocked.current || (navigating && !route)) {
       setShowing(null);
-      setNotice(route ? `Return browser control to open ${route} in the ${LABELS[id]} preview.` : `${audit!.route} cannot be opened in a preview.`);
+      setNotice(browserLocked.current ? `Return browser control to show this finding in the ${LABELS[id]} preview.` : `${audit!.route} cannot be opened in a preview.`);
 
       return;
     }

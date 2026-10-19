@@ -148,7 +148,7 @@ The panel shows a 320–1920 px ruler of the widths where bugs were measured, co
 
 - Source locations marked with a check are **host-verified**: the element has a unique literal `data-testid` found in one project file. Otherwise the file and component name are an unverified hint from the React development build.
 - Snapshots of every profile appear below the live previews with numbered markers. Click a marker to select its finding.
-- **Show at &lt;width&gt;** resizes the closest live preview (Mobile at 1024 px or less, Desktop otherwise) to the worst width and outlines the element in the live page for eight seconds.
+- **Show at &lt;width&gt;** resizes the closest live preview (Mobile at 1024 px or less, Desktop otherwise) to the worst width and outlines the element in the live page for eight seconds. It is refused while the agent holds browser control.
 - **Re-run** compares with the previous report for the same route and lists what was **Resolved since last run**.
 
 ## Fix with the agent
