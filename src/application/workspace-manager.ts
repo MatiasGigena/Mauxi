@@ -36,6 +36,7 @@ export class WorkspaceManager {
   private discovery: ProjectDiscovery | null = null;
   private recoveryConflicts: string[] = [];
   private closeTask: Promise<WorkspaceEvent> | null = null;
+  private confirmation: Promise<ActiveWorkspace> | null = null;
   private readonly listeners = new Set<(event: WorkspaceEvent) => void>();
 
   constructor(
@@ -89,7 +90,7 @@ export class WorkspaceManager {
   }
 
   async inspect(selectedPath: string): Promise<ProjectDiscovery> {
-    if (this.active) throw new Error("Close the active project before opening another one.");
+    if (this.active || this.confirmation) throw new Error("Close the active project before opening another one.");
     const initial = await discoverProject(selectedPath);
     const remembered = await this.workspaces.rememberedPlan(initial.canonicalRoot);
     this.discovery = remembered ? await discoverProject(selectedPath, remembered) : initial;
@@ -100,8 +101,16 @@ export class WorkspaceManager {
     return structuredClone(this.discovery);
   }
 
-  async confirm(request: ConfirmProjectRequest): Promise<ActiveWorkspace> {
-    if (this.active) throw new Error("Only one project can be active.");
+  confirm(request: ConfirmProjectRequest): Promise<ActiveWorkspace> {
+    if (this.active || this.confirmation) return Promise.reject(new Error("Only one project can be active."));
+    const confirmation = this.confirmProject(request);
+    this.confirmation = confirmation;
+    void confirmation.finally(() => { if (this.confirmation === confirmation) this.confirmation = null; }).catch(() => undefined);
+
+    return confirmation;
+  }
+
+  private async confirmProject(request: ConfirmProjectRequest): Promise<ActiveWorkspace> {
 
     if (!this.discovery || request.discoveryId !== this.discovery.discoveryId) throw new Error("This project plan is stale. Inspect the folder again.");
     const selectedPlan = this.discovery.plans.find((candidate) => candidate.id === request.planId);
@@ -286,6 +295,7 @@ export class WorkspaceManager {
   }
 
   private async closeActive(): Promise<WorkspaceEvent> {
+    if (!this.active && this.confirmation) await this.confirmation.catch(() => undefined);
     const active = this.active;
 
     if (!active) return this.snapshot();
