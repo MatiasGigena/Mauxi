@@ -29,7 +29,15 @@ a { color: inherit; }
 .origin-carousel:focus-visible { outline: 3px solid #8a5a35; outline-offset: 4px; }
 
 .partner-rail { display: flex; gap: 12px; overflow-x: auto; }
+.partner-rail:focus-visible { outline: 3px solid #8a5a35; outline-offset: 4px; }
 .partner { flex: 0 0 140px; padding: 14px 0; border: 1px solid #d9c6ae; border-radius: 999px; text-align: center; font-family: system-ui, sans-serif; font-size: 14px; }
+
+.stockist-rail { display: flex; gap: 12px; overflow-x: auto; font-family: system-ui, sans-serif; font-size: 14px; }
+.stockist-rail > * { flex: 0 0 140px; border: 1px solid #d9c6ae; border-radius: 999px; text-align: center; }
+.stockist-rail > span, .stockist-rail a, .stockist-rail button, .stockist-rail summary { display: block; padding: 14px 0; }
+.stockist-rail button { width: 100%; border: 0; background: none; font: inherit; }
+.stockist-ghost { visibility: hidden; }
+@media (max-width: 480px) { .stockist-rail .stockist-all { display: none; } }
 
 .pricing { display: flex; gap: 16px; width: 600px; /* planted: fixed width */ }
 .plan { flex: 1; padding: 20px; border-radius: 14px; background: #fff; }

@@ -161,12 +161,16 @@ export function buildReport(input: {
     if (intentional) {
       const allSignals = atWidest && !signals.length ? ["scrolls-at-all-widths"] : signals;
       scrollers.push({ key: elementKey(element), element, signals: allSignals, ranges });
-      const sample = items[items.length - 1].issue.scroller!;
-      const problems = [...(sample.keyboard ? [] : ["it cannot be reached with the keyboard (no tabindex=\"0\" and no focusable children)"]), ...(sample.role === "region" && !sample.named ? ["role=\"region\" has no accessible name"] : [])];
+      // Every occurrence counts: a scroller reachable at one profile can still be unreachable at another.
+      const unreachable = items.filter((item) => item.issue.scroller && !item.issue.scroller.keyboard);
+      const unnamed = items.filter((item) => item.issue.scroller?.role === "region" && !item.issue.scroller.named);
+      const failing = items.filter((item) => unreachable.includes(item) || unnamed.includes(item));
+      const problems = [...(unreachable.length ? ["it cannot be reached with the keyboard (no tabindex=\"0\" and no focusable children)"] : []), ...(unnamed.length ? ["role=\"region\" has no accessible name"] : [])];
+      const where = failing.length < items.length ? ` at ${formatRanges(widthRanges(failing.map((item) => item.sample.width), scanned))}` : "";
 
-      if (problems.length) add("scroller-a11y", items, {
+      if (failing.length) add("scroller-a11y", failing, {
         title: "Intentional scroller is not keyboard accessible",
-        detail: `Kept as a deliberate horizontal scroller (${allSignals.join(", ")}), but ${problems.join(" and ")}. Safari does not focus scroll containers by default.`,
+        detail: `Kept as a deliberate horizontal scroller (${allSignals.join(", ")}), but ${problems.join(" and ")}${where}. Safari does not focus scroll containers by default.`,
         fixHint: "Keep the scrolling. Add tabindex=\"0\", role=\"region\" and an aria-label to the scroll container (or give it focusable items), and keep a visible focus style.",
         criterion: KEYBOARD, severity: "moderate", classification: "intentional",
       });

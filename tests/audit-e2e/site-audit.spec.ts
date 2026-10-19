@@ -80,7 +80,7 @@ test("discovers linked pages, skips unsafe links, audits them in a batch and ope
   expect(site.pages.map((item) => [item.route, item.status])).toEqual([[LAB, "done"], [ABOUT, "done"], [BLOG, "done"]]);
   const byRoute = new Map(site.pages.map((item) => [item.route, item]));
   // The lab keeps exactly the counts of a single-route audit.
-  expect(byRoute.get(LAB)?.summary).toMatchObject({ bug: 9, review: 1, intentional: 1 });
+  expect(byRoute.get(LAB)?.summary).toMatchObject({ bug: 9, review: 1, intentional: 2 });
   expect(byRoute.get(ABOUT)?.summary).toMatchObject({ bug: 0, review: 0, intentional: 0 });
   expect(byRoute.get(BLOG)?.summary).toMatchObject({ bug: 1, review: 0, intentional: 0 });
   expect(byRoute.get(BLOG)?.bugRanges[0][0]).toBe(320);

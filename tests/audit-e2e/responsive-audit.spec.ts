@@ -83,14 +83,24 @@ test("audits the lab page across the width matrix, separating bugs from intentio
 
   // Scrollers: accidental one reviewed, intentional ones kept, inaccessible intentional one flagged.
   expect(only(report, "filter-row")).toMatchObject({ kind: "scroller-review", classification: "review" });
-  expect(only(report, "partner-rail")).toMatchObject({ kind: "scroller-a11y", classification: "intentional", criterion: { id: "2.1.1" } });
+  // The rail is focusable only at the short 400% zoom viewport, measured last; every other profile still fails.
+  const rail = only(report, "partner-rail");
+  expect(rail).toMatchObject({ kind: "scroller-a11y", classification: "intentional", criterion: { id: "2.1.1" } });
+  expect(rail.profiles).toEqual(expect.arrayContaining(["phone-sm", "phone"]));
+  expect(rail.profiles).not.toContain("zoom-400");
+  expect(rail.markers.map((marker) => marker.profileId)).not.toContain("zoom-400");
+  // Its descendants are links and controls, but none can be tabbed to at phone widths; at tablet width and up "All stockists" can.
+  const stockists = only(report, "stockist-rail");
+  expect(stockists).toMatchObject({ kind: "scroller-a11y", classification: "intentional", criterion: { id: "2.1.1" } });
+  expect(stockists.profiles).toEqual(expect.arrayContaining(["phone-sm", "phone"]));
+  expect(stockists.profiles).not.toContain("tablet");
   const scrollers = report.scrollers.map((scroller) => scroller.element.testId);
-  expect(scrollers).toEqual(expect.arrayContaining(["origin-carousel", "price-table", "partner-rail"]));
+  expect(scrollers).toEqual(expect.arrayContaining(["origin-carousel", "price-table", "partner-rail", "stockist-rail"]));
 
   // Deliberate negatives must stay silent.
   for (const negative of ["origin-carousel", "price-table", "offcanvas-drawer"]) expect(byTestId(report, negative)).toEqual([]);
   expect(report.findings.some((finding) => finding.element?.selector.includes("sr-only"))).toBe(false);
-  expect(report.summary).toMatchObject({ bug: 9, review: 1, intentional: 1 });
+  expect(report.summary).toMatchObject({ bug: 9, review: 1, intentional: 2 });
   // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are layout findings only.
   expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
   expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);

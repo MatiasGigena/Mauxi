@@ -255,7 +255,20 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
   // 2. Containers that scroll or clip horizontally: classify deliberate scrollers vs. accidental ones.
   const scrollerNames = /carousel|slider|slides?\b|swiper|embla|splide|slick|keen|glide|flickity|marquee|scroller|scroll-x|gallery|track|rail|ticker|tabs?\b|tablist|chips|logos/i;
   const controlNames = /prev|next|previous|anterior|siguiente|scroll (?:left|right)|^[‹›←→<>]$/i;
-  const focusable = "a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select,textarea,[tabindex]:not([tabindex='-1']),summary,[contenteditable]:not([contenteditable=false])";
+  const native = "a[href],button,input:not([type=hidden]),select,textarea,iframe,details > summary,audio[controls],video[controls],[contenteditable]:not([contenteditable=false])";
+
+  /** Whether Tab can land on it: rendered (no display: none or content-visibility ancestor), visible itself, not inert, disabled, tabindex < 0 or inside a closed <details>. */
+  const tabbable = (target: Element) => {
+    const index = Number.parseInt(target.getAttribute("tabindex") ?? "", 10);
+
+    if (Number.isNaN(index) ? !target.matches(native) : index < 0) return false;
+
+    if (target.matches(":disabled") || target.closest("[inert]")) return false;
+
+    for (let details = target.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])") ?? null) if (!details.querySelector(":scope > summary")?.contains(target)) return false;
+
+    return target.checkVisibility({ visibilityProperty: true });
+  };
 
   for (const entry of entries) {
     const element = entry.element;
@@ -296,7 +309,7 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
     const scrollable = ["auto", "scroll"].includes(entry.style.overflowX);
     const strong = signals.filter((signal) => signal !== "uniform-items" && !signal.startsWith("role=list") && signal !== "role=group");
     const intentional = strong.length > 0 || (scrollable && signals.includes("uniform-items"));
-    const keyboard = (element instanceof HTMLElement && element.tabIndex >= 0) || !!element.querySelector(focusable);
+    const keyboard = [element, ...element.querySelectorAll(`${native},[tabindex]`)].some(tabbable);
     const named = !!(element.getAttribute("aria-label") || element.getAttribute("aria-labelledby") || element.getAttribute("title"));
 
     if (scrollable) push({ kind: "scroller", element: describe(element), overflowPx: round(element.scrollWidth - element.clientWidth), scroller: { overflowX: entry.style.overflowX, intentional, signals, keyboard, named, role }, detail: `Scrolls ${round(element.scrollWidth - element.clientWidth)}px horizontally.` });

@@ -1,9 +1,22 @@
+import { useSyncExternalStore } from "react";
 import { PricingTable } from "./PricingTable";
 
 const origins = ["Huila", "Sidamo", "Antigua", "Yirgacheffe", "Cerrado", "Tarrazú"];
 const partners = ["Lumen", "Okra", "Fable & Co", "Northbeam", "Quill", "Arbor", "Tidal"];
+const stockists = ["Grocer & Sons", "Marlow Deli"];
+
+const SHORT = "(max-height: 300px)";
+
+function subscribeShort(change: () => void) {
+  const query = matchMedia(SHORT);
+  query.addEventListener("change", change);
+
+  return () => query.removeEventListener("change", change);
+}
 
 export function AuditLab() {
+  const short = useSyncExternalStore(subscribeShort, () => matchMedia(SHORT).matches);
+
   return (
     <div className="lab">
       {/* Planted: sticky header that grows at narrow widths (2.4.11 at 400% zoom). */}
@@ -40,11 +53,26 @@ export function AuditLab() {
           </div>
         </section>
 
-        {/* Planted: intentional marquee-style rail with no keyboard access. */}
+        {/* Planted: intentional marquee-style rail with no keyboard access, except at short viewports (400% zoom, measured last). */}
         <section className="lab-section">
           <h2>Served by</h2>
-          <div className="partner-rail" data-testid="partner-rail">
+          <div className="partner-rail" data-testid="partner-rail" tabIndex={short ? 0 : undefined}>
             {partners.map((partner) => <span className="partner" key={partner}>{partner}</span>)}
+          </div>
+        </section>
+
+        {/* Planted: named rail whose links are all out of Tab order at phone widths (2.1.1): "All stockists" is display: none
+            there, and the others are tabindex="-1", disabled, inert, visibility: hidden or inside a closed <details>. */}
+        <section className="lab-section">
+          <h2>Find us at</h2>
+          <div className="stockist-rail" role="region" aria-label="Stockists" data-testid="stockist-rail">
+            {stockists.map((stockist) => <span key={stockist}>{stockist}</span>)}
+            <a href="#visit" tabIndex={-1}>Map</a>
+            <button type="button" disabled>Reserve</button>
+            <span inert><a href="#visit">Hours</a></span>
+            <a href="#visit" className="stockist-ghost">Directions</a>
+            <details><summary tabIndex={-1}>More</summary><a href="#visit">Wholesale</a></details>
+            <a href="#visit" className="stockist-all">All stockists</a>
           </div>
         </section>
 
