@@ -269,10 +269,13 @@ export function buildReport(input: {
     const { result, node } = narrowest;
     const widths = chosen.map((hit) => hit.sample.width);
     const ranges = widthRanges(widths, axeWidths);
-    const everywhere = axeWidths.every((width) => widths.includes(width));
     const found = new Set(chosen.map((hit) => hit.sample));
     const label = (sample: AuditSample) => `${sample.profile?.label ?? "Width"} (${sample.width}px)`;
-    const missing = axeSamples.flatMap((sample) => found.has(sample) ? [] : [label(sample)]);
+    // Where axe cut this rule's node list off, absence proves nothing: those profiles are unknown, not passing.
+    const cut = new Set(axeSamples.filter((sample) => !found.has(sample) && sample.axe!.some((item) => item.rule === result.rule && item.total > item.nodes.length)));
+    const unknown = [...cut].map(label);
+    const missing = axeSamples.flatMap((sample) => found.has(sample) || cut.has(sample) ? [] : [label(sample)]);
+    const everywhere = !missing.length && !unknown.length;
     const more = Math.max(...chosen.map((hit) => hit.result.total - hit.result.nodes.length));
     const criterion = axeCriterion(result.tags);
     const severities = chosen.map((hit) => IMPACT_SEVERITY[hit.node.impact ?? hit.result.impact ?? "moderate"]);
@@ -288,11 +291,11 @@ export function buildReport(input: {
 
     findings.push({
       id: `axe:${result.rule}:${hash(key)}`, kind: "axe",
-      title: (everywhere ? result.help : `${result.help} (only at ${formatRanges(ranges)})`).slice(0, 512),
+      title: (!missing.length ? result.help : `${result.help} (${unknown.length ? "found" : "only"} at ${formatRanges(ranges)})`).slice(0, 512),
       detail: [
         `${violations.length ? "" : "axe-core could not decide this automatically: "}${node.message.replace(/[\s.]*$/, ".")}`,
         `${element ? "" : `Target: ${node.target}. `}axe-core rule ${result.rule}.`,
-        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}; not at ${missing.join(", ")}.`,
+        everywhere ? "Found at every profile width." : `Found at ${[...found].map(label).join(", ")}${missing.length ? `; not at ${missing.join(", ")}` : ""}${unknown.length ? `; unknown at ${unknown.join(", ")}, where axe-core's list for this rule was cut off` : ""}.`,
         more > 0 ? `${more} more elements fail this rule (only the first ${AXE_NODE_LIMIT} per profile are listed).` : "",
       ].join(" ").trim(),
       fixHint: axeFix(result.rule, result.help), criterion,
