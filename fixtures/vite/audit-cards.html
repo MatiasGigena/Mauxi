@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brew guides · Northwind Roasters</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #2b211b; background: #f7f1e8; }
+  main { max-width: 42rem; margin: 0 auto; padding: 48px 24px; }
+  .card { margin: 0 0 16px; padding: 16px; border: 1px solid #d9c6ae; border-radius: 12px; }
+  .card-title { margin: 0 0 8px; font-size: 1.1rem; }
+  .card-body { margin: 0; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <!-- Selector fixture: identical sibling cards; only the second card's body has the planted fixed width, so its finding must not resolve to the first card. -->
+  <main>
+    <h1>Brew guides</h1>
+    <article class="card" data-card="1"><h2 class="card-title">Pour over</h2><p class="card-body">Bloom for thirty seconds, then pour in slow circles.</p></article>
+    <article class="card" data-card="2"><h2 class="card-title">Cold brew</h2><p class="card-body" style="width: 520px">Steep coarse grounds for sixteen hours, then filter twice.</p></article>
+    <article class="card" data-card="3"><h2 class="card-title">Espresso</h2><p class="card-body">Eighteen grams in, thirty-six out, in about half a minute.</p></article>
+  </main>
+</body>
+</html>

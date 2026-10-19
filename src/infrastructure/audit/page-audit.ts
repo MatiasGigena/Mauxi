@@ -61,35 +61,36 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
     return clip(value || element.tagName.toLowerCase(), 160);
   };
 
+  /** A readable selector that resolves to this element first: same-class siblings get :nth-of-type, and longer paths are tried when the short one is ambiguous. */
   const selectorOf = (element: Element) => {
+    const resolves = (selector: string) => { try { return selector.length <= 1_024 && document.querySelector(selector) === element; } catch { return false; } };
     const testId = element.getAttribute("data-testid");
+    const byTestId = testId && testId.length <= 200 ? `[data-testid=${JSON.stringify(testId)}]` : "";
 
-    if (testId && testId.length <= 200) return `[data-testid=${JSON.stringify(testId)}]`;
-    const parts: string[] = [];
-    let current: Element | null = element;
+    if (byTestId && resolves(byTestId)) return byTestId;
+    // readable stops at the nearest usable id; exact numbers every step up to body.
+    const readable: string[] = [];
+    const exact: string[] = [];
+    let anchored = false;
 
-    while (current && current !== doc && parts.length < 5) {
-      if (current.id && /^[A-Za-z][\w-]{0,80}$/.test(current.id)) { parts.unshift(`#${current.id}`); break; }
+    for (let current: Element | null = element; current && current !== doc; current = current.parentElement) {
+      if (!anchored && current.id && /^[A-Za-z][\w-]{0,80}$/.test(current.id)) { readable.unshift(`#${current.id}`); anchored = true; }
 
-      let part = current.tagName.toLowerCase();
+      const tag = current.tagName.toLowerCase();
       const classes = [...current.classList].filter((name) => /^[A-Za-z_][\w-]{0,40}$/.test(name) && !/^(?:css|sc|jsx|svelte|astro)-/.test(name)).slice(0, 2);
+      const peers = current.parentElement ? [...current.parentElement.children].filter((peer) => peer.tagName === current!.tagName) : [];
+      const nth = peers.length > 1 ? `:nth-of-type(${peers.indexOf(current) + 1})` : "";
+      const twins = !classes.length || peers.some((peer) => peer !== current && classes.every((name) => peer.classList.contains(name)));
 
-      if (classes.length) part += classes.map((name) => `.${name}`).join("");
-      const parent: Element | null = current.parentElement;
-
-      if (parent) {
-        const peers = [...parent.children].filter((peer) => peer.tagName === current!.tagName);
-
-        if (peers.length > 1 && !classes.length) part += `:nth-of-type(${peers.indexOf(current) + 1})`;
-      }
-
-      parts.unshift(part);
+      if (!anchored) readable.unshift(tag + classes.map((name) => `.${name}`).join("") + (twins ? nth : ""));
+      exact.unshift(tag + nth);
 
       if (current === body) break;
-      current = parent;
     }
 
-    return clip(parts.join(" > "), 1_024);
+    for (const candidate of [readable.slice(-5).join(" > "), readable.join(" > "), exact.join(" > ")]) if (resolves(candidate)) return candidate;
+
+    return clip(byTestId || readable.slice(-5).join(" > "), 1_024);
   };
 
   /**
