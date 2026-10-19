@@ -14,7 +14,18 @@ Normal chat shows a short working phrase followed by final text, not intermediat
 
 ## Project tools and trust
 
-Only host-defined tools are exposed: bounded project read/list/search, managed edit/write/delete, exact-command approval, structured questions, and explicit visible-preview control. Project text and DOM content are untrusted input, not permission.
+Only host-defined tools are exposed:
+
+| Tool | Purpose |
+| --- | --- |
+| `workspace_read`, `workspace_list`, `workspace_search` | Bounded, project-confined reads |
+| `workspace_edit`, `workspace_write`, `workspace_delete` | Managed, checkpointed source changes |
+| `workspace_command` | One command per exact, one-time approval |
+| `ask_question` | Structured questions to the user |
+| `responsive_audit` | Re-runs the [responsive audit](audit.md) in the hidden audit window |
+| `browser_targets`, `browser_action` | Checks of the visible previews after an explicit handoff |
+
+Project text and DOM content are untrusted input, not permission.
 
 Project/global resource discovery and executable extensions are disabled. The app does not silently load packages, TUI factories, project context files, or a terminal configuration. These are application-level boundaries for trusted local projects, **not an OS sandbox**. See [changes and recovery](changes-and-recovery.md) for command, filesystem, and undo limits and the [workspace guide](workspace.md) for preview control.
 
@@ -22,6 +33,15 @@ Project/global resource discovery and executable extensions are disabled. The ap
 
 The agent works under a fixed host policy focused on responsive accessibility: the WCAG 2.2 criteria that depend on the viewport (1.4.10 Reflow, 1.4.4 Resize text, 1.4.12 Text spacing, 2.5.8 Target size, 2.4.11 Focus not obscured, 1.3.4 Orientation). It prefers intrinsic, fluid fixes that hold across the whole width range over breakpoint-specific patches, keeps intentional horizontal scrollers (carousels, tables, code blocks) scrollable, and preserves the project's framework, tokens, brand and conventions. It never claims full WCAG conformance.
 
-There are no bundled design skills, visual reference libraries, or design tools. Audit findings attached to a request are deterministic DOM measurements; the agent treats them as evidence but reads the source before changing it. Missing browser capabilities or packages do not grant permission to install or simulate them.
+There are no bundled design skills, visual reference libraries, or design tools. Audit findings attached with **Fix with agent** are deterministic DOM measurements sent as a compact text description (criterion, width ranges, element, source, measurement and fix direction; no snapshots). The agent treats them as evidence but reads the source before changing it. Missing browser capabilities or packages do not grant permission to install or simulate them.
+
+### `responsive_audit`
+
+- `route` (optional, a path starting with `/`) audits one route. Without it, the tool audits the route last audited (or opened from **All pages**) in this workspace, or `/`. The result lists up to 30 findings in the same compact form, the findings resolved since the previous run of that route, intentional scrollers and the interaction pass counts with up to eight notes.
+- `routes` (1–12 paths) runs a site audit in one call instead. Each route goes through the [discovery link policy](audit.md#what-discovery-leaves-out-and-why): one authentication, API, action or callback route refuses the whole batch before anything loads, hashes are dropped and duplicates removed. It returns each page's status, counts, bug widths, resolved count and any error, not the findings themselves.
+- At most four audits per run; a batch counts as one. Only one audit runs at a time, so a call made while the panel is auditing is refused.
+- It needs no approval or preview handoff, never touches the visible previews, and every run updates the panel like a run started there (a batch opens the **All pages** summary).
+
+The host policy tells the agent to confirm a fix with `responsive_audit` on the same route and to use `routes` when a fix touches layout shared by several pages.
 
 Automated fake-provider tests cover tool availability, quiet chat, capability checks, and safety boundaries—not real-model fix quality or live authentication compatibility. Human assessment remains necessary.

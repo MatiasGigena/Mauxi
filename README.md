@@ -7,9 +7,11 @@ Open a local project, run the **responsive audit**, and Mauxi sweeps the page fr
 ## What it does
 
 - Audits the route in the Desktop preview across a width sweep and full-check profiles without touching the visible previews, with snapshots of every profile on the canvas. See [responsive audit](docs/audit.md).
+- Adds a bounded interaction pass at narrow widths: a Tab-only keyboard focus walk, closed menus opened one at a time, and tooltips hovered.
+- **Audit site** finds the pages linked from the current route (at most 12, skipping authentication, API, action and download links) and audits the ones you check in a batch, with an **All pages** summary.
 - Classifies findings as bugs, needs review or intentional patterns with accessibility gaps; resolved findings are tracked between runs.
-- **Show at <width>** resizes a live preview to the failing width and outlines the element; **Fix with agent** attaches the finding to chat, and the agent verifies its fix with the same audit.
-- Opens React + Vite and supported Next.js projects with an explicit launch plan and temporary preview integration.
+- **Show at &lt;width&gt;** resizes a live preview to the failing width and outlines the element; **Fix with agent** attaches the finding to chat, and the agent verifies its fix with the same audit.
+- Opens React + Vite and supported Next.js projects (Webpack or Turbopack dev server) with an explicit launch plan and temporary preview integration.
 - Keeps desktop and mobile previews live while you pan, zoom, focus, resize, and select elements linked to their source.
 - Offers resumable agent conversations and provider/model setup, with a host policy focused on responsive accessibility fixes.
 - Applies live edits with retained checkpoints, conflict-aware recovery, and one-time command approval.
@@ -45,5 +47,7 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
 - [AC-01–AC-25 acceptance gate and blockers](docs/alpha-acceptance.md)
 - [Development and automated checks](docs/development.md)
+
+axe-core is © Deque Systems, Inc. and bundled unmodified under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
 
 The application uses one simple layered architecture: **presentation → application → infrastructure**. Automated tests and their fixtures stay in the repository; generated screenshots, logs, traces, and reports do not.
