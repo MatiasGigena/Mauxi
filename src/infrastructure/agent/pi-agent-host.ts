@@ -222,6 +222,9 @@ export async function executeCommand(executable: string, args: string[], directo
   });
 }
 
+/** The person cancelled provider setup; callers treat it as a normal outcome, not a failure. */
+export class ProviderSetupCancelled extends Error { name = "AbortError"; }
+
 export class PiAgentHost {
   private runtime?: AgentSessionRuntime;
   private modelRuntime?: ModelRuntime;
@@ -1124,10 +1127,11 @@ export class PiAgentHost {
           : /token exchange failed \((\d{3})\)/i.test(reason) ? `The provider rejected sign-in (HTTP ${reason.match(/token exchange failed \((\d{3})\)/i)![1]}). Start a new login attempt.`
             : "Provider setup failed. Start a new login attempt and try again.";
 
-      const failure: NonNullable<AgentSnapshot["error"]> = { kind: "auth", message: cancelled ? "Provider setup cancelled." : message };
-      this.lastError = failure;
-      this.status = failure.message;
-      throw new Error(this.status);
+      if (cancelled) { this.status = "Provider setup cancelled."; throw new ProviderSetupCancelled(this.status); }
+
+      this.lastError = { kind: "auth", message };
+      this.status = message;
+      throw new Error(message);
     } finally {
       controller.abort();
       this.pendingDialogs.delete(noticeId);

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import { THINKING_LEVELS } from "../../application/agent-contract";
-import { PiAgentHost } from "../agent/pi-agent-host";
+import { PiAgentHost, ProviderSetupCancelled } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
 import { assertBrowserRequest, type BrowserPort, type BrowserState } from "../../application/browser-contract";
@@ -787,7 +787,9 @@ function registerIpc(): void {
     assertTrustedSender(event);
 
     if (!Value.Check(AgentLoginInput, input)) throw new Error("Invalid provider setup request");
-    await (await activeAgent()).login(input);
+
+    try { await (await activeAgent()).login(input); }
+    catch (error) { if (!(error instanceof ProviderSetupCancelled)) throw error; }
   });
 
   ipcMain.handle("mauxi:agent-logout", async (event, input) => {
