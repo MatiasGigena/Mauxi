@@ -752,7 +752,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
 
   // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
-  // While the agent holds the browser it waits, so a run the agent may start next is not refused as "already running".
+  // While the agent holds the browser it waits: the agent is checking the previews and audits them itself when it needs to.
   useEffect(() => {
     if (entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
 

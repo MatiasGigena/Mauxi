@@ -312,6 +312,16 @@ function auditBase(scope: AuditScope): AuditBase {
   return { workspaceId: `proof:${scope.fixture}`, origin: PROOF_ORIGINS[scope.fixture], root: path.resolve(process.cwd(), "fixtures", PROOF_ROOTS[scope.fixture]) };
 }
 
+/** The canvas audits its page when it opens: an agent's audit waits for a single-route run in progress instead of being refused. */
+async function afterRunningAudit(signal?: AbortSignal): Promise<void> {
+  const deadline = Date.now() + 180_000;
+
+  while (auditScanner.running && !siteRun && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    signal?.throwIfAborted();
+  }
+}
+
 function cancelAudits(reason?: string): void {
   if (siteRun) siteRun.cancelled = true;
   auditScanner.cancel(reason);
@@ -443,6 +453,7 @@ async function activeAgent(): Promise<PiAgentHost> {
         const route = requested ?? (auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/");
         // The audit window shares the workspace session: unlike the user, the agent gets the batch policy for its one route too.
         siteRoutes([route], current.origin);
+        await afterRunningAudit(signal);
 
         return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route }, false, signal);
       },
@@ -451,6 +462,7 @@ async function activeAgent(): Promise<PiAgentHost> {
         const current = manager.snapshot().active;
 
         if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
+        await afterRunningAudit(signal);
 
         return runSiteAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot }, routes, signal);
       },
