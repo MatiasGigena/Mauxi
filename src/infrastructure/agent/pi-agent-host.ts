@@ -72,14 +72,15 @@ type AgentMessage = AgentSession["messages"][number];
 
 const RUN_TURN_LIMIT = 40;
 const RUN_DEADLINE_MS = 300_000;
+const COMMAND_DENIED = "Command denied by the user. It was not executed.";
 const STREAM_IDLE_MS = 90_000;
 
-/** Schema rejections happen before a tool executes, so nothing ran and the model can simply retry. */
+/** Schema rejections and denied commands end before a tool executes, so nothing ran and the model can simply continue. */
 function rejectedBeforeExecution(event: Extract<AgentSessionEvent, { type: "tool_execution_end" }>): boolean {
   const first = event.result?.content?.[0];
   const text = first?.type === "text" ? first.text : "";
 
-  return text.startsWith(`Validation failed for tool "${event.toolName}"`) || text === `Tool ${event.toolName} not found`;
+  return text.startsWith(`Validation failed for tool "${event.toolName}"`) || text === `Tool ${event.toolName} not found` || text === COMMAND_DENIED;
 }
 
 type AgentDialogInput = AgentDialog extends infer Dialog ? Dialog extends AgentDialog ? Omit<Dialog, "id"> : never : never;
@@ -727,9 +728,9 @@ export class PiAgentHost {
 
     try {
       response = await this.requestDialog({ kind: "approval", title: install ? "Approve dependency operation" : "Approve command", message: operation.purpose, operation: exact, cwd: operation.cwd, warnings }, AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])]));
-    } catch { throw new Error("Command denied, timed out, or lost its approval UI. It was not executed."); }
+    } catch (error) { throw new Error(error instanceof Error && error.message === "User cancelled" ? COMMAND_DENIED : "Command approval timed out or lost its approval UI. It was not executed."); }
 
-    if (response !== "approve") throw new Error("Command denied. It was not executed.");
+    if (response !== "approve") throw new Error(COMMAND_DENIED);
   }
 
   private async bindSession(session: AgentSession): Promise<void> {
@@ -847,7 +848,7 @@ export class PiAgentHost {
       }
 
       case "tool_execution_end": {
-        // Arguments the model malformed never reached a non-browser tool: let the model correct them
+        // Malformed arguments and commands the person denied never ran: let the model continue
         // without failing the run or revoking preview control. Browser actions stay fail-closed.
         const harmless = event.isError && !event.toolName.startsWith("browser_") && rejectedBeforeExecution(event);
 
