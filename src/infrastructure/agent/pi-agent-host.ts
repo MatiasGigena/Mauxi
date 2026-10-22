@@ -653,7 +653,7 @@ export class PiAgentHost {
   }
 
   private async resolveCommandDirectory(input: string): Promise<string> {
-    if (!input || input.includes("\0") || path.isAbsolute(input)) throw new Error("Command cwd must be a relative project directory.");
+    if (!input || input.includes("\0")) throw new Error("Command cwd must be a project directory.");
     const root = await realpath(this.cwd);
     const candidate = await realpath(path.resolve(root, input));
     const relative = path.relative(root, candidate);
