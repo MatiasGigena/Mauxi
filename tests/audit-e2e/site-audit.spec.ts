@@ -1,9 +1,10 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import type { AuditSiteReport } from "../../src/application/audit-contract";
+import { AUDIT_PROFILES, type AuditSiteReport } from "../../src/application/audit-contract";
 
 declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
 
@@ -23,7 +24,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditSite((report) => { window.lastSiteReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
@@ -102,7 +103,7 @@ test("discovers linked pages, skips unsafe links, audits them in a batch and ope
   await expect(card).toHaveCount(1);
   await card.locator(".finding-summary").click();
   await expect(card.locator(".finding-element code")).toHaveText('[data-testid="blog-banner"]');
-  await expect(page.locator(".snapshot-board")).toHaveCount(7);
+  await expect(page.locator(".snapshot-board")).toHaveCount(AUDIT_PROFILES.length);
   await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"] .finding-marker')).toHaveCount(1);
   // Batch snapshots are kept at half resolution to bound memory.
   await expect.poll(() => page.locator('.snapshot-board[data-profile-id="phone-sm"] img').evaluate((image) => image instanceof HTMLImageElement ? image.naturalWidth : 0)).toBe(160);

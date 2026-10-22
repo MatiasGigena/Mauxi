@@ -124,6 +124,8 @@ test("the panel shows the agent's own audit running, and its Stop cancels it", a
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
     const stop = panel.getByRole("button", { name: "Stop", exact: true });
     const rerun = panel.getByRole("button", { name: "Re-run", exact: true });
+    // The workspace's entry audit opened the panel; hidden, it comes back with the agent's run.
+    await panel.getByRole("button", { name: "Hide audit panel", exact: true }).click();
     await expect(panel).toHaveCount(0);
     await page.getByLabel("Message", { exact: true }).fill("Audit the cards page, then re-run it");
     await page.getByRole("button", { name: "Send", exact: true }).click();

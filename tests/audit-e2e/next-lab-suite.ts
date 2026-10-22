@@ -1,7 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AuditFinding, AuditReport } from "../../src/application/audit-contract";
+import { entryAuditSettled } from "../helpers/entry-audit";
+import { AUDIT_PROFILES, type AuditFinding, type AuditReport } from "../../src/application/audit-contract";
 
 const LAB_CSS = path.resolve("fixtures/next/app/audit-lab/audit-lab.module.css");
 const PLANTED = "width: 600px; /* planted: fixed width */";
@@ -31,7 +32,7 @@ export function describeNextAuditLab(fixture: "next" | "next-turbopack"): void {
   let application: ElectronApplication;
   let page: Page;
 
-  async function runAudit(label: "Run audit" | "Re-run"): Promise<AuditReport> {
+  async function runAudit(label: "Re-run"): Promise<AuditReport> {
     await page.evaluate(() => { window.lastAuditReport = null; });
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
     await panel.getByRole("button", { name: label, exact: true }).click();
@@ -52,18 +53,20 @@ export function describeNextAuditLab(fixture: "next" | "next-turbopack"): void {
       page = await application.firstWindow();
       await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 90_000 });
       await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
-      await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+      await entryAuditSettled(page);
     });
 
     test.afterAll(async () => { await application?.close(); });
 
     test("finds the planted problems on a Next dev route and keeps the negatives silent", async ({}, testInfo) => {
-      const report = await runAudit("Run audit");
+      // The canvas audited the route when it opened.
+      await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 150_000 }).toBe(true);
+      const report = (await page.evaluate(() => window.lastAuditReport))!;
       await saveArtifacts(report, "next-audit-initial", (file) => testInfo.outputPath(file));
 
       expect(report.route).toBe("/audit-lab");
       expect(report.widthsScanned).toBeGreaterThanOrEqual(70);
-      expect(report.snapshots.map((snapshot) => snapshot.profileId)).toEqual(["phone-sm", "phone", "tablet", "laptop", "desktop", "zoom-400", "text-spacing"]);
+      expect(report.snapshots.map((snapshot) => snapshot.profileId)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
 
       // Planted bugs. The pricing row lives in a client component; its source is host-verified by the literal test ID.
       const pricing = only(report, "pricing-table");
@@ -108,7 +111,7 @@ export function describeNextAuditLab(fixture: "next" | "next-turbopack"): void {
       expect(unexpected.map((finding) => `${finding.kind} ${finding.element?.selector}`)).toEqual([]);
       expect(report.summary).toMatchObject({ bug: 10, review: 1, intentional: 1 });
       // axe-core ran at every width profile; the lab and Next's dev UI are clean for its rules.
-      expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+      expect(report.axe).toMatchObject({ profiles: AUDIT_PROFILES.filter((profile) => profile.axe).map((profile) => profile.id), note: null });
       expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
       // Hints name the component that wrote the JSX (never Next internals) and project files (never bundler chunks).
@@ -122,7 +125,7 @@ export function describeNextAuditLab(fixture: "next" | "next-turbopack"): void {
 
       const panel = page.getByRole("complementary", { name: "Responsive audit" });
       await expect(panel.locator(".audit-summary [data-kind=bug] dd")).toHaveText("10");
-      await expect(page.locator(".snapshot-board")).toHaveCount(7);
+      await expect(page.locator(".snapshot-board")).toHaveCount(AUDIT_PROFILES.length);
       await expect(page.locator('.snapshot-board[data-profile-id="zoom-400"] .finding-marker')).not.toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath("next-workspace-matrix.png") });
 

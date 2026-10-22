@@ -1,7 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AuditFinding, AuditReport } from "../../src/application/audit-contract";
+import { entryAuditSettled } from "../helpers/entry-audit";
+import { AUDIT_PROFILES, type AuditFinding, type AuditReport } from "../../src/application/audit-contract";
 
 declare global { interface Window { lastAuditReport?: AuditReport | null } }
 
@@ -13,7 +14,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
@@ -34,7 +35,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
 
   await page.evaluate(() => { window.lastAuditReport = null; });
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
-  await panel.getByRole("button", { name: "Run audit", exact: true }).click();
+  await panel.getByRole("button", { name: "Re-run", exact: true }).click();
   await expect(panel.getByRole("status")).toContainText("Checking keyboard focus and menus", { timeout: 60_000 });
   await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 120_000 }).toBe(true);
   const report = await page.evaluate(() => window.lastAuditReport);
@@ -100,7 +101,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(interactions.notes.join("\n")).not.toMatch(/tried to change the page URL|Could not return|stopped/);
   expect(report.summary).toMatchObject({ bug: 4, review: 1, intentional: 0 });
   // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are interaction findings only.
-  expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+  expect(report.axe).toMatchObject({ profiles: AUDIT_PROFILES.filter((profile) => profile.axe).map((profile) => profile.id), note: null });
   expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
   // The navigating triggers were never clicked: their handlers would have written to the shared session storage.

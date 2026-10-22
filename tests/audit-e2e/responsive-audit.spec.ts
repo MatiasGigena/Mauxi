@@ -1,7 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AuditFinding, AuditReport } from "../../src/application/audit-contract";
+import { entryAuditSettled } from "../helpers/entry-audit";
+import { AUDIT_PROFILES, type AuditFinding, type AuditReport } from "../../src/application/audit-contract";
 
 const LAB_CSS = path.resolve("fixtures/vite/src/audit-lab/audit-lab.css");
 const PLANTED = "width: 600px; /* planted: fixed width */";
@@ -22,12 +23,19 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
 
-async function runAudit(label: "Run audit" | "Re-run"): Promise<AuditReport> {
+/** The report of the audit the canvas ran by itself when it opened. */
+async function entryReport(): Promise<AuditReport> {
+  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 150_000 }).toBe(true);
+
+  return (await page.evaluate(() => window.lastAuditReport))!;
+}
+
+async function runAudit(label: "Re-run"): Promise<AuditReport> {
   await page.evaluate(() => { window.lastAuditReport = null; });
   await page.getByRole("complementary", { name: "Responsive audit" }).getByRole("button", { name: label, exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Responsive audit" }).getByRole("status")).toBeVisible();
@@ -55,12 +63,12 @@ async function saveArtifacts(report: AuditReport, name: string, outputPath: (fil
 }
 
 test("audits the lab page across the width matrix, separating bugs from intentional scrollers", async ({}, testInfo) => {
-  const report = await runAudit("Run audit");
+  const report = await entryReport();
   await saveArtifacts(report, "audit-initial", (file) => testInfo.outputPath(file));
 
   expect(report.route).toBe("/audit-lab.html");
   expect(report.widthsScanned).toBeGreaterThanOrEqual(70);
-  expect(report.snapshots.map((snapshot) => snapshot.profileId)).toEqual(["phone-sm", "phone", "tablet", "laptop", "desktop", "zoom-400", "text-spacing"]);
+  expect(report.snapshots.map((snapshot) => snapshot.profileId)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
 
   // Planted bugs, each attributed to its element with a host-verified source file.
   const pricing = only(report, "pricing-table");
@@ -109,13 +117,13 @@ test("audits the lab page across the width matrix, separating bugs from intentio
   expect(report.findings.some((finding) => finding.element?.selector.includes("sr-only"))).toBe(false);
   expect(report.summary).toMatchObject({ bug: 9, review: 1, intentional: 2 });
   // axe-core ran at every width profile and the lab is clean for its rules, so the counts above are layout findings only.
-  expect(report.axe).toMatchObject({ profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+  expect(report.axe).toMatchObject({ profiles: AUDIT_PROFILES.filter((profile) => profile.axe).map((profile) => profile.id), note: null });
   expect(report.findings.filter((finding) => finding.kind === "axe")).toEqual([]);
 
   // The panel and canvas reflect the report.
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
   await expect(panel.locator(".audit-summary [data-kind=bug] dd")).toHaveText("9");
-  await expect(page.locator(".snapshot-board")).toHaveCount(7);
+  await expect(page.locator(".snapshot-board")).toHaveCount(AUDIT_PROFILES.length);
   await expect(page.locator('.snapshot-board[data-profile-id="zoom-400"] .finding-marker')).not.toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("workspace-matrix.png") });
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { ConfirmProjectRequest } from "../../src/application/project-contract";
+import { entryAuditSettled } from "./entry-audit";
 
 export interface ChatDelta {
   role?: "assistant";
@@ -67,6 +68,8 @@ export async function launch(state: string, replies: (request: number) => Reply,
   page = await next;
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 45_000 });
   await expect.poll(async () => (await page.evaluate(() => window.mauxi!.agentBootstrap())).selectedModel).toBe("recovery-local/recovery");
+  // Every opened workspace audits its start page first; tests begin once that run has finished.
+  await entryAuditSettled(page);
 
   const close = async () => {
     await app.close();
