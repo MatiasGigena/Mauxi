@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
 import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
@@ -120,6 +121,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const hiddenPickerCaptures = useRef(new Map<string, number>());
   const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
+  const [closing, setClosing] = useState(false);
   const [chatMinimizeRequest, setChatMinimizeRequest] = useState(0);
   const minimizeChat = useCallback(() => setChatMinimizeRequest(request => request + 1), []);
   const [dragging, setDragging] = useState(false);
@@ -768,7 +770,13 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <div className="canvas-surface">
     <CanvasBackground settled={boardsPlaced} />
     <header className="topbar">
-      {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => {
+        await persist(layoutRef.current);
+        // Detach the previews first so stopping the dev server cannot fail their in-flight loads.
+        flushSync(() => setClosing(true));
+
+        try { await onClose(); } catch (error) { setClosing(false); throw error; }
+      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
       {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
         <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
       </button>}
@@ -798,7 +806,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             onMove={delta => setLayout(current => ({ ...current, boards: { ...current.boards, [id]: dragBoard(current.boards[id], delta, current.camera.zoom) } }))}
             onSelect={() => toggleSelection(id)} onFocus={() => focus(id)} onTools={() => { setTools(id); setActivePreview(id); }} />
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
-            <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            {!closing && <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />}
             {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
             {!browser.locked && shielded && <button type="button" className="input-shield preview-activate" aria-label={`Interact with ${LABELS[id]} preview`} title="Click to interact · scroll to pan · pinch to zoom" tabIndex={navigationHeld || dragging || navigation.wheeling ? -1 : 0}
               onPointerDown={(event) => startDrag(null, event)}
