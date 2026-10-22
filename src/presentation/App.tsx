@@ -4,10 +4,7 @@ import type { ProjectDiscovery, WorkspaceBootstrap } from "../application/projec
 import { Workspace } from "./Workspace";
 import { ProjectSetup } from "./ProjectSetup";
 import logoText from "./assets/logo-mauxi-text.png";
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
+import { errorText } from "./error-text";
 
 export function App() {
   const [bootstrap, setBootstrap] = useState<WorkspaceBootstrap | null>(null);
@@ -23,7 +20,7 @@ export function App() {
       return;
     }
 
-    void window.mauxi.getBootstrap().then(setBootstrap).catch((reason) => setError(errorMessage(reason)));
+    void window.mauxi.getBootstrap().then(setBootstrap).catch((reason) => setError(errorText(reason)));
 
     return window.mauxi.onWorkspaceEvent((event) => {
       setBootstrap((current) => ({ mode: current?.mode ?? "project", ...event }));
@@ -42,7 +39,7 @@ export function App() {
       if (!result) return;
       setDiscovery(result);
       setSelectedPlanId(result.rememberedPlanId ?? result.plans[0]?.id ?? "");
-    } catch (reason) { setError(errorMessage(reason)); }
+    } catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
   }
 
@@ -54,7 +51,7 @@ export function App() {
       const active = await window.mauxi.confirmProject({ discoveryId: discovery.discoveryId, planId: selectedPlan.id, mode: "start", startPath: "/" });
       setBootstrap((current) => ({ mode: current?.mode ?? "project", active, recoveryConflicts: current?.recoveryConflicts ?? [] }));
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorText(reason));
       setBusy(false);
     }
   }

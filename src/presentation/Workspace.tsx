@@ -20,6 +20,7 @@ import { findingContext, type AuditFinding, type AuditFindingContext, type Audit
 import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
+import { errorText } from "./error-text";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
 
@@ -42,7 +43,6 @@ function releaseDraftCaptures(files: string[]): void {
 /** Horizontal space the audit panel covers on the right of the canvas. */
 const AUDIT_PANEL_SPACE = 400;
 
-function errorText(cause: unknown): string { return (cause instanceof Error ? cause.message : String(cause)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""); }
 
 const IgnoredIds = Type.Array(Type.String({ maxLength: 256 }), { maxItems: 500 });
 
@@ -219,7 +219,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!active || !window.mauxi) return;
 
     try { await window.mauxi.saveCanvas({ workspaceId: active.workspaceId, canvas: state }); }
-    catch (error) { setNotice(`Layout not saved: ${String(error)}`); }
+    catch (error) { setNotice(`Layout not saved: ${errorText(error)}`); }
   }, [active?.workspaceId]);
 
   useEffect(() => {
@@ -249,7 +249,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         runtimeRef.current = { ...runtimeRef.current, [id]: { ...previous, generation: message.generation, ready: true, route: projectRoute(message.url, origin)! } };
         setRuntimes(runtimeRef.current);
 
-        if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(String(error)));
+        if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(errorText(error)));
 
         return;
       }
@@ -347,7 +347,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
               ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, verification: "missing-or-ambiguous" as const } } }
               : item));
-            setNotice(`Source unavailable: ${String(error)}`);
+            setNotice(`Source unavailable: ${errorText(error)}`);
           });
         } else if (capture.source.verification === "unverified") {
           setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
@@ -538,7 +538,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
       });
     } catch (error) {
-      finish({ ...capture.screenshot, status: "unavailable", reason: String(error) });
+      finish({ ...capture.screenshot, status: "unavailable", reason: errorText(error) });
     }
   }
 
@@ -631,7 +631,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       });
 
       setNotice(`Captured ${id} only · ${result.width}×${result.height} · ${result.path}`);
-    } catch (error) { setNotice(`Capture failed: ${String(error)}`); }
+    } catch (error) { setNotice(`Capture failed: ${errorText(error)}`); }
   }
 
   function grantBrowserControl() {
