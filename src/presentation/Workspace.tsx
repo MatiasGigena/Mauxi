@@ -15,9 +15,9 @@ import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
 import { ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
-import { AuditBoards, snapshotBoards } from "./AuditBoards";
+import { auditMatrix, AuditBoards } from "./AuditBoards";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
-import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport } from "../application/audit-contract";
+import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
@@ -83,6 +83,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  /** Profile snapshots of the single-route run in progress, as they stream in. */
+  const [streamed, setStreamed] = useState<AuditSnapshot[]>([]);
   /** A single-route run the host reports, including one the agent started. */
   const [hostAudit, setHostAudit] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -646,13 +648,22 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   useEffect(() => {
     if (!window.mauxi) return;
-    const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
+
+    const offProgress = window.mauxi.onAuditProgress(({ snapshot, ...progress }) => {
+      setAuditProgress(progress);
+
+      if (progress.site) return;
+
+      if (progress.phase === "loading") setStreamed([]);
+
+      if (snapshot) setStreamed((items) => [...items.filter((item) => item.profileId !== snapshot.profileId), snapshot]);
+    });
 
     // Agent-started runs show progress and Stop like the user's own; a new run drops the last run's progress and error.
     const offState = window.mauxi.onAuditState((running) => {
       setHostAudit(running);
 
-      if (running) { setAuditProgress(null); setAuditError(""); setPanelOpen(true); }
+      if (running) { setAuditProgress(null); setStreamed([]); setAuditError(""); setPanelOpen(true); }
     });
 
     const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); reportArrived(report); });
@@ -665,7 +676,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (audit) setAttachedFindings((items) => items.filter((item) => audit.findings.some((finding) => finding.id === item.id)));
   }, [audit]);
 
-  const snapshots = useMemo(() => snapshotBoards(audit, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, layout.boards]);
+  // A single-route run (the user's or the agent's) forms the matrix on the canvas; a site batch reports in the panel only.
+  const forming = auditRunning || hostAudit;
+  const measuring = forming && auditProgress?.phase === "profiles" ? auditProgress.profile ?? null : null;
+  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, forming, streamed, measuring, layout.boards]);
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
@@ -673,15 +687,18 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   function showReport(report: AuditReport) {
     setAudit(report);
     setSelectedFinding(null);
-    const boards = snapshotBoards(report, PREVIEW_IDS.map((id) => layoutRef.current.boards[id]));
-    setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) }));
+    setLayout((current) => {
+      const live = PREVIEW_IDS.map((id) => current.boards[id]);
+
+      return { ...unfocus(current), camera: fitCamera([...live, ...auditMatrix(report, null, live).boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) };
+    });
   }
 
   /** Audits the Desktop preview's route, or the given route (an open page of a site audit). */
   async function runAudit(target?: string) {
     if (!window.mauxi || auditRunning || hostAudit) return;
     const route = target ?? desktopRoute();
-    setAuditRunning(true); setAuditError(""); setAuditProgress(null);
+    setAuditRunning(true); setAuditError(""); setAuditProgress(null); setStreamed([]);
 
     try { showReport(await window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture })); }
     catch (error) { setAuditError(errorText(error)); }
@@ -793,7 +810,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      {audit && <AuditBoards boards={snapshots} report={audit} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />}
+      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;

@@ -17,6 +17,29 @@ const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.
 
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
+/** What a run is doing, for the panel and the canvas matrix title. */
+export function progressText(progress: AuditProgress | null): string {
+  const profile = progress?.profile && AUDIT_PROFILES.find((item) => item.id === progress.profile);
+
+  if (!progress || progress.phase === "loading") return "Loading the page…";
+
+  if (progress.phase === "sweep") return `Sweeping widths · ${progress.width}px`;
+
+  if (progress.phase === "profiles") return profile ? `Checking ${profile.label} · ${profile.width} × ${profile.height}` : `Checking profiles · ${progress.width}px`;
+
+  if (progress.phase === "interactions") return `Checking keyboard focus and menus · ${progress.width}px`;
+
+  return "Building report…";
+}
+
+/** Whole-run completion, across the pages of a site audit. */
+export function progressPercent(progress: AuditProgress | null): number {
+  const site = progress?.site;
+  const fraction = progress ? progress.done / Math.max(1, progress.total) : 0;
+
+  return Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
+}
+
 const position = (width: number) => `${((Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)) - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`;
 
 /** A 320–1920px ruler with the width ranges where a problem was measured. */
@@ -92,8 +115,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
   const hidden = report?.findings.filter((finding) => ignored.has(finding.id)) ?? [];
   const failing = mergeRanges(visible.filter((finding) => finding.classification === "bug").flatMap((finding) => finding.ranges));
   const site = progress?.site;
-  const fraction = progress ? progress.done / Math.max(1, progress.total) : 0;
-  const percent = Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
+  const percent = progressPercent(progress);
 
   const card = (finding: AuditFinding) => <FindingCard key={finding.id} finding={finding} index={report!.findings.indexOf(finding) + 1} selected={selected === finding.id} attached={attached.has(finding.id)} ignored={ignored.has(finding.id)}
     onSelect={() => onSelect(finding)} onShow={() => onShow(finding)} onFix={() => onFix(finding)} onIgnore={() => onIgnore(finding)} />;
@@ -115,7 +137,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
 
     {running && (progress || !siteView) && <div className="audit-progress" role="status" aria-live="polite">
       <div className="audit-progress-label"><LoaderCircle size={14} className="spin" aria-hidden="true" />
-        <span>{site && `Page ${site.index + 1} of ${site.total} · `}{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : progress.phase === "interactions" ? `Checking keyboard focus and menus · ${progress.width}px` : "Building report…"}</span>
+        <span>{site && `Page ${site.index + 1} of ${site.total} · `}{progressText(progress)}</span>
         <span className="audit-progress-count">{percent}%</span>
       </div>
       <div className="audit-progress-bar"><span style={{ width: `${percent}%` }} /></div>
