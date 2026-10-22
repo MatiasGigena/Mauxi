@@ -39,7 +39,7 @@ There are no bundled design skills, visual reference libraries, or design tools.
 
 - `route` (optional, a path starting with `/`) audits one route. Without it, the tool audits the route last audited (or opened from **All pages**) in this workspace, or `/`. The result lists up to 30 findings in the same compact form, the findings resolved since the previous run of that route, intentional scrollers and the interaction pass counts with up to eight notes.
 - `routes` (1–12 paths) runs a site audit in one call instead. Each route goes through the [discovery link policy](audit.md#what-discovery-leaves-out-and-why): one authentication, API, action or callback route refuses the whole batch before anything loads, hashes are dropped and duplicates removed. It returns each page's status, counts, bug widths, resolved count and any error, not the findings themselves.
-- At most four audits per run; a batch counts as one. Only one audit runs at a time, so a call made while the panel is auditing is refused.
+- At most four audits per run; a batch counts as one. Only one audit runs at a time: a call made while a single-route audit is running (such as the one the canvas starts when it opens) waits for it to finish, up to three minutes; a call made during a site audit is refused.
 - It needs no approval or preview handoff, never touches the visible previews, and every run updates the panel like a run started there (a batch opens the **All pages** summary).
 
 The host policy tells the agent to confirm a fix with `responsive_audit` on the same route and to use `routes` when a fix touches layout shared by several pages.

@@ -21,7 +21,7 @@ The AppImage includes Electron and pi's SDK, **not your project's toolchain**. I
 Use disposable, trusted copies with non-production data/accounts:
 
 1. Open project → inspect the plan → **Confirm & start** → **Models & providers** → configure/select a model.
-2. **Responsive audit** (top right) → **Run audit** for the Desktop preview's route, or **Audit site** to choose linked pages and audit them in a batch.
+2. The canvas audits the Desktop preview's route as soon as it opens, with a board for every viewport forming below the previews. **Re-run** in the **Responsive audit** panel audits it again; **Audit site** chooses linked pages and audits them in a batch.
 3. Inspect the findings, the profile snapshots below the previews and **Interaction checks**. **Show at &lt;width&gt;** resizes a live preview to the failing width and outlines the element.
 4. **Fix with agent** attaches a finding to chat; send it alone or with your own instruction. The agent edits the source and re-checks it with `responsive_audit`; each of its runs updates the panel.
 5. Verify: review the diff, choose **Re-run** and check **Resolved since last run** and that no new findings appeared. Run **Audit site** again when the fix touched layout shared by several pages.
