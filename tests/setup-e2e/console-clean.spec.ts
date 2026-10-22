@@ -11,9 +11,9 @@ import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-interface Message { source: string; type: string; text: string; location?: string; at?: number }
+interface Message { source: string; type: string; text: string; location?: string; page?: string; at?: number }
 
-interface Log { messages: Message[]; notices: Message[]; phases: Array<{ name: string; at: number }>; watched: Set<Page>; started: number }
+interface Log { messages: Message[]; notices: Message[]; phases: Array<{ name: string; at: number }>; watched: Set<Page>; started: number; shell?: string }
 
 function record(log: Log, list: Message[], entry: Message) { list.push({ ...entry, at: Date.now() - log.started }); }
 
@@ -22,6 +22,9 @@ const harness = /^(Debugger (listening|attached|ending) on |For help, see: https
 
 // Workspace notices also carry informational status (agent control, attached targets); only failure wording counts there.
 const failure = /disconnect|fail|error|not saved|unavailable|could not|blocked/i;
+
+// The hidden audit window loads the audited project itself; Electron's dev-binary check flags that page's own eval-friendly CSP (webpack/Next dev bundles).
+const projectCsp = /Electron Security Warning \(Insecure Content-Security-Policy\)/;
 
 const liveAuth = process.env.MAUXI_LIVE_AUTH;
 const model = liveAuth ? { provider: "openai-codex", id: "gpt-6-luna", name: "GPT-6 Luna" } : { provider: "console-local", id: "console", name: "Console local fake" };
@@ -37,14 +40,16 @@ type Shot = (page: Page, name: string) => Promise<void>;
 function watch(page: Page, log: Log) {
   if (log.watched.has(page)) return;
   log.watched.add(page);
+  log.shell ??= new URL(page.url()).origin;
   page.on("console", message => {
     const value = message.text();
+    const project = new URL(page.url()).origin !== log.shell;
 
     if (message.type() === "debug" && /^\[mauxi-(alert|notice)\] /.test(value)) {
       const kind = value.slice(7, value.indexOf("]"));
       record(log, kind === "alert" || failure.test(value) ? log.messages : log.notices, { source: "ui", type: kind, text: value.slice(value.indexOf("]") + 2), location: page.url() });
     }
-    else if (["warning", "error", "assert"].includes(message.type())) record(log, log.messages, { source: "renderer", type: message.type(), text: value, location: `${message.location().url}:${message.location().lineNumber}` });
+    else if (["warning", "error", "assert"].includes(message.type())) record(log, project && projectCsp.test(value) ? log.notices : log.messages, { source: "renderer", type: message.type(), text: value, location: `${message.location().url}:${message.location().lineNumber}`, page: page.url() });
   });
   page.on("pageerror", error => record(log, log.messages, { source: "renderer", type: "pageerror", text: error.stack ?? error.message }));
   // Aborted loads are deliberate teardown (closing detaches the previews); Chromium does not report them.
