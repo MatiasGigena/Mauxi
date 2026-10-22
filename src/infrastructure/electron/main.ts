@@ -14,7 +14,7 @@ import { THINKING_LEVELS } from "../../application/agent-contract";
 import { PiAgentHost } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
-import { assertBrowserRequest, type BrowserPort } from "../../application/browser-contract";
+import { assertBrowserRequest, type BrowserPort, type BrowserState } from "../../application/browser-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { ProjectPickerLocation } from "../project/project-picker-location";
@@ -614,6 +614,11 @@ function registerIpc(): void {
     assertTrustedSender(event);
 
     if (!Value.Check(BrowserOwnerInput, input)) throw new Error("Invalid handoff");
+
+    if (input.owner === "human" && (!mainWindow || manager.snapshot().active?.workspaceId !== input.workspaceId)) {
+      return { workspaceId: input.workspaceId, owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] } satisfies BrowserState;
+    }
+
     const browser = activeBrowser();
 
     if (input.workspaceId !== browser.workspaceId) throw new Error("Stale browser workspace");
