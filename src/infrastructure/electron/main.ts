@@ -607,7 +607,7 @@ function registerIpc(): void {
   ipcMain.handle("mauxi:browser-heartbeat", (event, workspaceId) => {
     assertTrustedSender(event);
 
-    if (!Value.Check(Type.String(), workspaceId) || workspaceId !== browserControl?.workspaceId) throw new Error("Stale browser workspace");
+    if (!Value.Check(Type.String(), workspaceId) || (browserControl && workspaceId !== browserControl.workspaceId)) throw new Error("Stale browser workspace");
     browserHeartbeat = Date.now();
   });
   ipcMain.handle("mauxi:browser-owner", async (event, input) => {
