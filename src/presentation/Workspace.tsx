@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -44,6 +44,7 @@ function releaseDraftCaptures(files: string[]): void {
 /** Horizontal space the audit panel covers on the right of the canvas. */
 const AUDIT_PANEL_SPACE = 400;
 
+const sameCamera = (a: Camera, b: Camera | null) => !!b && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
 const IgnoredIds = Type.Array(Type.String({ maxLength: 256 }), { maxItems: 500 });
 
@@ -130,6 +131,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
   const initialFit = useRef(!active?.canvas);
+  /** The camera the canvas opened with; the entry audit moves the camera only while the user has not. */
+  const entryCamera = useRef<Camera>(layout.camera);
+  /** The session whose entry audit was started or found unnecessary: it runs once per opened canvas. */
+  const entryAudit = useRef<string | null>(null);
   const [boardsPlaced, setBoardsPlaced] = useState(!!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
@@ -193,7 +198,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (initialFit.current) {
         initialFit.current = false;
-        setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
+        const camera = fitCamera(Object.values(layoutRef.current.boards), geometry.current, geometry.current.headerHeight);
+        entryCamera.current = camera;
+        setLayout((current) => ({ ...current, camera }));
         setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
         setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
@@ -684,26 +691,67 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
   /** Shows a report in the panel and fits the canvas to the live previews plus its snapshot row. */
-  function showReport(report: AuditReport) {
+  function showReport(report: AuditReport, fit = true) {
     setAudit(report);
     setSelectedFinding(null);
-    setLayout((current) => {
+
+    if (fit) setLayout((current) => {
       const live = PREVIEW_IDS.map((id) => current.boards[id]);
 
       return { ...unfocus(current), camera: fitCamera([...live, ...auditMatrix(report, null, live).boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) };
     });
   }
 
-  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). */
-  async function runAudit(target?: string) {
+  /** Opens the panel and fits the live previews and a placeholder for every audit profile, unless the user moved the camera since the canvas opened. */
+  function revealMatrix(): Camera | null {
+    const element = canvas.current;
+
+    if (!element || !sameCamera(layoutRef.current.camera, entryCamera.current)) return null;
+    const wide = matchMedia("(min-width: 1100px)").matches;
+    const live = PREVIEW_IDS.map((id) => unfocus(layoutRef.current).boards[id]);
+    const area = { width: Math.max(320, element.clientWidth - (wide ? AUDIT_PANEL_SPACE : 0)), height: element.clientHeight };
+    const camera = fitCamera([...live, ...auditMatrix(null, { snapshots: [], current: null }, live).boards], area, geometry.current.headerHeight, MIN_ZOOM);
+
+    if (wide) setPanelOpen(true);
+    setLayout((current) => ({ ...unfocus(current), camera }));
+
+    return camera;
+  }
+
+  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). The entry run fits the matrix and leaves a camera the user moved alone. */
+  async function runAudit(target?: string, entry = false) {
     if (!window.mauxi || auditRunning || hostAudit) return;
     const route = target ?? desktopRoute();
+    let revealed: Camera | null = null;
     setAuditRunning(true); setAuditError(""); setAuditProgress(null); setStreamed([]);
 
-    try { showReport(await window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture })); }
-    catch (error) { setAuditError(errorText(error)); }
-    finally { setAuditRunning(false); }
+    try {
+      const pending = window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture });
+
+      if (entry) revealed = revealMatrix();
+      const report = await pending;
+      showReport(report, !entry || sameCamera(layoutRef.current.camera, revealed));
+    } catch (error) {
+      setAuditError(errorText(error));
+
+      // A stopped or failed entry run takes its placeholders away: return to the live previews if the camera is still where the run put it.
+      if (revealed && sameCamera(layoutRef.current.camera, revealed)) setLayout((current) => fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight));
+    } finally { setAuditRunning(false); }
   }
+
+  // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
+  // While the agent holds the browser it waits, so a run the agent may start next is not refused as "already running".
+  useEffect(() => {
+    if (entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
+
+    if (audit || auditRunning || hostAudit || site.mode !== "off" || site.running || site.discovering) { entryAudit.current = session;
+
+    return; }
+
+    if (browser.locked) return;
+    entryAudit.current = session;
+    void runAudit(undefined, true);
+  });
 
   function startSite() {
     setAuditProgress(null); setAuditError("");
