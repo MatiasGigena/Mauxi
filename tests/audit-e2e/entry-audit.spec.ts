@@ -129,7 +129,7 @@ test("Re-run forms the matrix again, and Stop returns to the last report without
 
   await panel().getByRole("button", { name: "Re-run", exact: true }).click();
   await expect(page.locator('.snapshot-board[data-state="queued"]').first()).toBeVisible();
-  await panel().getByRole("button", { name: "Stop", exact: true }).click();
+  await panel().getByRole("button", { name: "Stop audit", exact: true }).click();
   await expect(panel().getByRole("alert")).toHaveText("Audit cancelled");
   await expect(page.locator(".snapshot-board[data-state]")).toHaveCount(0);
   const report = (await page.evaluate(() => window.lastAuditReport))!;

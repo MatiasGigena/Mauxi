@@ -129,7 +129,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
       <div className="audit-panel-actions">
         {!running && <button type="button" className="audit-site" onClick={onSite} aria-label="Audit site" title="Audit site: find the pages linked from this route and audit them in a batch"><Layers size={15} aria-hidden="true" /></button>}
         {running
-          ? <button type="button" className="audit-run" data-running="" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
+          ? <button type="button" className="audit-run" data-running="" aria-label="Stop audit" title="Stop audit" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
           : <button type="button" className="audit-run" onClick={onRun}>{report ? <RotateCcw size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}<span>{report ? "Re-run" : "Run audit"}</span></button>}
         <button type="button" className="audit-close" aria-label="Hide audit panel" title="Hide audit panel" onClick={onClose}><PanelRightClose size={16} aria-hidden="true" /></button>
       </div>

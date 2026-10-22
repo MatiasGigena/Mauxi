@@ -142,7 +142,7 @@ test("Stop ends a site audit and skips the remaining pages", async ({}, testInfo
   await page.evaluate(() => { window.lastSiteReport = null; });
   await panel().getByRole("button", { name: "Audit 3 pages", exact: true }).click();
   await expect(panel().getByRole("status")).toContainText("Page 1 of 3", { timeout: 30_000 });
-  await panel().getByRole("button", { name: "Stop", exact: true }).click();
+  await panel().getByRole("button", { name: "Stop audit", exact: true }).click();
   const site = await siteReport("cancelled");
 
   expect(site.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
