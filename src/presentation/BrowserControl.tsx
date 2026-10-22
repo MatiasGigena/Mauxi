@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { BrowserState } from "../application/browser-contract";
+import { errorText } from "./error-text";
 
 export function useBrowserControl(workspaceId?: string) {
   const [state, setState] = useState<BrowserState>();
@@ -17,7 +18,7 @@ export function useBrowserControl(workspaceId?: string) {
     if (!workspaceId || !window.mauxi) return;
     const api = window.mauxi;
     const off = api.onBrowserState(update);
-    void api.browserState().then(update).catch(e => setError(String(e)));
+    void api.browserState().then(update).catch(e => setError(errorText(e)));
     const heartbeat = setInterval(() => { void api.browserHeartbeat(workspaceId).catch(() => setError("Preview host disconnected")); }, 1000);
 
     return () => { off(); clearInterval(heartbeat); void api.browserOwner({ workspaceId, owner: "human" }).catch(() => undefined); };
@@ -30,7 +31,7 @@ export function useBrowserControl(workspaceId?: string) {
     if (next === "agent") flushSync(() => setPending(true));
 
     try { update(await window.mauxi.browserOwner({ workspaceId, owner: next })); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(errorText(e)); }
     finally { setPending(false); }
   };
 

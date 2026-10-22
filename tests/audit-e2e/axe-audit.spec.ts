@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import type { AuditFinding, AuditReport } from "../../src/application/audit-contract";
 
 const LAB = path.resolve("fixtures/vite/src/audit-axe/AxeLab.tsx");
@@ -24,7 +25,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
@@ -55,22 +56,22 @@ function only(report: AuditReport, testId: string): AuditFinding {
 
 test("runs axe-core at every width profile and reports layout-specific violations with their width ranges", async ({}, testInfo) => {
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
-  await panel.getByRole("button", { name: "Run audit", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 120_000 }).toBe(true);
+  // The canvas audited the page when it opened.
+  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 150_000 }).toBe(true);
   const report = await page.evaluate(() => window.lastAuditReport);
 
   if (!report) throw new Error("The audit report was not delivered.");
   await writeFile(testInfo.outputPath("axe-report.json"), JSON.stringify({ ...report, snapshots: report.snapshots.map(({ image, ...snapshot }) => ({ ...snapshot, imageBytes: image.length })) }, null, 2));
 
   expect(report.route).toBe("/audit-axe.html");
-  expect(report.axe).toMatchObject({ version: "4.13.0", profiles: ["phone-sm", "phone", "tablet", "laptop", "desktop"], note: null });
+  expect(report.axe).toMatchObject({ version: "4.13.0", profiles: ["phone-sm", "phone", "tablet", "tablet-landscape", "laptop", "desktop", "desktop-wide"], note: null });
   expect(report.durationMs).toBeLessThan(30_000);
 
   // Mobile-only problems: present at 320 and 390px, gone from the tablet layout up.
   const toggle = only(report, "mobile-menu-toggle");
   expect(toggle).toMatchObject({ kind: "axe", classification: "bug", severity: "serious", criterion: { id: "4.1.2" }, rule: { id: "button-name" }, ranges: [[320, 390]], profiles: ["phone-sm", "phone"], worst: { width: 320 } });
   expect(toggle.title).toContain("only at 320–390px");
-  expect(toggle.detail).toContain("not at Tablet (768px), Laptop (1280px), Desktop (1440px)");
+  expect(toggle.detail).toContain("not at Tablet (768px), Tablet landscape (1024px), Laptop (1280px), Desktop (1440px), Wide desktop (1920px)");
   expect(toggle.element?.source).toMatchObject({ file: "src/audit-axe/AxeLab.tsx", verified: true });
   expect(toggle.rule?.url).toMatch(/^https:\/\/dequeuniversity\.com\/rules\/axe\/4\.13\/button-name/);
   expect(toggle.markers.map((marker) => marker.profileId)).toEqual(["phone-sm", "phone"]);
@@ -82,13 +83,13 @@ test("runs axe-core at every width profile and reports layout-specific violation
   const offer = only(report, "mixed-contrast");
   expect(offer).toMatchObject({ kind: "axe", classification: "bug", rule: { id: "color-contrast" }, ranges: [[320, 390]], profiles: ["phone-sm", "phone"] });
   expect(offer.title).not.toContain("only at");
-  expect(offer.detail).toContain("Found at Small phone (320px), Phone (390px); inconclusive at Tablet (768px), Laptop (1280px), Desktop (1440px), where axe-core could not decide.");
+  expect(offer.detail).toContain("Found at Small phone (320px), Phone (390px); inconclusive at Tablet (768px), Tablet landscape (1024px), Laptop (1280px), Desktop (1440px), Wide desktop (1920px), where axe-core could not decide.");
   expect(offer.detail).not.toContain("not at");
 
-  // Wide-only and every-width problems.
-  expect(only(report, "social-link")).toMatchObject({ kind: "axe", classification: "bug", rule: { id: "link-name" }, ranges: [[1280, 1440]], profiles: ["laptop", "desktop"] });
+  // Wide-only and every-width problems: the tablet landscape profile finds the icon link from its 1024px breakpoint up.
+  expect(only(report, "social-link")).toMatchObject({ kind: "axe", classification: "bug", rule: { id: "link-name" }, ranges: [[1024, 1920]], profiles: ["tablet-landscape", "laptop", "desktop", "desktop-wide"] });
   const photo = only(report, "hero-photo");
-  expect(photo).toMatchObject({ kind: "axe", classification: "bug", criterion: { id: "1.1.1" }, rule: { id: "image-alt" }, ranges: [[320, 1440]] });
+  expect(photo).toMatchObject({ kind: "axe", classification: "bug", criterion: { id: "1.1.1" }, rule: { id: "image-alt" }, ranges: [[320, 1920]] });
   expect(photo.title).not.toContain("only at");
 
   // Inconclusive contrast on a gradient is left for a person to review.
@@ -202,7 +203,7 @@ test("keeps findings unverified when their rule falls past axe-core's result lim
     // Kept rules still report; the photo's phone widths are unknown, not passing.
     expect(only(capped, "mobile-menu-toggle").id).toBe(only(baseline, "mobile-menu-toggle").id);
     const photo = only(capped, "hero-photo");
-    expect(photo).toMatchObject({ id: only(baseline, "hero-photo").id, ranges: [[768, 1440]] });
+    expect(photo).toMatchObject({ id: only(baseline, "hero-photo").id, ranges: [[768, 1920]] });
     expect(photo.title).not.toContain("only at");
     expect(photo.detail).toContain("unknown at Small phone (320px), Phone (390px), where this rule fell past axe-core's result limit.");
     expect(photo.detail).not.toContain("not at");

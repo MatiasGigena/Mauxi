@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -14,12 +15,13 @@ import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
 import { ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
-import { AuditBoards, snapshotBoards } from "./AuditBoards";
+import { auditMatrix, AuditBoards, type FormingAudit } from "./AuditBoards";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
-import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport } from "../application/audit-contract";
+import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
 import { Check } from "typebox/schema";
 import logo from "./assets/logo-mauxi.png";
+import { errorText } from "./error-text";
 
 const URLS = { vite: "http://127.0.0.1:45173", next: "http://127.0.0.1:45000", "next-turbopack": "http://127.0.0.1:45001" } as const;
 
@@ -42,7 +44,7 @@ function releaseDraftCaptures(files: string[]): void {
 /** Horizontal space the audit panel covers on the right of the canvas. */
 const AUDIT_PANEL_SPACE = 400;
 
-function errorText(cause: unknown): string { return (cause instanceof Error ? cause.message : String(cause)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""); }
+const sameCamera = (a: Camera, b: Camera | null) => !!b && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
 const IgnoredIds = Type.Array(Type.String({ maxLength: 256 }), { maxItems: 500 });
 
@@ -73,6 +75,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return isFixture(value) ? value : "vite";
   });
 
+  /** Harnesses whose checks need a still canvas open it without the entry audit (?audit=manual); the app never sets it. */
+  const [manualAudit] = useState(() => new URLSearchParams(location.search).get("audit") === "manual");
+
   const [proofPath] = useState(() => {
     const value = new URLSearchParams(location.search).get("path");
 
@@ -82,6 +87,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  /** Profile snapshots of the single-route run in progress, as they stream in. */
+  const [streamed, setStreamed] = useState<AuditSnapshot[]>([]);
   /** A single-route run the host reports, including one the agent started. */
   const [hostAudit, setHostAudit] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -120,12 +127,17 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const hiddenPickerCaptures = useRef(new Map<string, number>());
   const pendingRevalidations = useRef(new Map<string, (status: "valid" | "stale") => void>());
   const [notice, setNotice] = useState("");
+  const [closing, setClosing] = useState(false);
   const [chatMinimizeRequest, setChatMinimizeRequest] = useState(0);
   const minimizeChat = useCallback(() => setChatMinimizeRequest(request => request + 1), []);
   const [dragging, setDragging] = useState(false);
   const frames = useRef<Record<PreviewId, HTMLIFrameElement | null>>({ desktop: null, mobile: null });
   const canvas = useRef<HTMLElement>(null);
   const initialFit = useRef(!active?.canvas);
+  /** The camera the canvas opened with; the entry audit moves the camera only while the user has not. */
+  const entryCamera = useRef<Camera>(layout.camera);
+  /** The session whose entry audit was started or found unnecessary: it runs once per opened canvas. */
+  const entryAudit = useRef<string | null>(null);
   const [boardsPlaced, setBoardsPlaced] = useState(!!active?.canvas);
   const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
@@ -189,7 +201,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (initialFit.current) {
         initialFit.current = false;
-        setLayout((current) => ({ ...current, camera: fitCamera(Object.values(current.boards), geometry.current, geometry.current.headerHeight) }));
+        const camera = fitCamera(Object.values(layoutRef.current.boards), geometry.current, geometry.current.headerHeight);
+        entryCamera.current = camera;
+        setLayout((current) => ({ ...current, camera }));
         setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
         setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
@@ -219,7 +233,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!active || !window.mauxi) return;
 
     try { await window.mauxi.saveCanvas({ workspaceId: active.workspaceId, canvas: state }); }
-    catch (error) { setNotice(`Layout not saved: ${String(error)}`); }
+    catch (error) { setNotice(`Layout not saved: ${errorText(error)}`); }
   }, [active?.workspaceId]);
 
   useEffect(() => {
@@ -249,7 +263,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         runtimeRef.current = { ...runtimeRef.current, [id]: { ...previous, generation: message.generation, ready: true, route: projectRoute(message.url, origin)! } };
         setRuntimes(runtimeRef.current);
 
-        if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(String(error)));
+        if (active && window.mauxi) void window.mauxi.bridgeReady({ workspaceId: active.workspaceId, previewId: id, generation: message.generation, url: message.url }).catch((error) => setNotice(errorText(error)));
 
         return;
       }
@@ -347,7 +361,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
               ? { ...item, capture: { ...item.capture, source: { ...item.capture.source, verification: "missing-or-ambiguous" as const } } }
               : item));
-            setNotice(`Source unavailable: ${String(error)}`);
+            setNotice(`Source unavailable: ${errorText(error)}`);
           });
         } else if (capture.source.verification === "unverified") {
           setSelections((items) => items.map((item) => item.capture.selectionId === capture.selectionId
@@ -538,7 +552,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         finish({ ...capture.screenshot, crop: { ...converted.preview, space: "preview-css-pixels" }, status: "captured", path: result.path, width: result.width, height: result.height, capturedAt: new Date().toISOString() });
       });
     } catch (error) {
-      finish({ ...capture.screenshot, status: "unavailable", reason: String(error) });
+      finish({ ...capture.screenshot, status: "unavailable", reason: errorText(error) });
     }
   }
 
@@ -631,7 +645,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       });
 
       setNotice(`Captured ${id} only · ${result.width}×${result.height} · ${result.path}`);
-    } catch (error) { setNotice(`Capture failed: ${String(error)}`); }
+    } catch (error) { setNotice(`Capture failed: ${errorText(error)}`); }
   }
 
   function grantBrowserControl() {
@@ -644,13 +658,22 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   useEffect(() => {
     if (!window.mauxi) return;
-    const offProgress = window.mauxi.onAuditProgress(setAuditProgress);
+
+    const offProgress = window.mauxi.onAuditProgress(({ snapshot, ...progress }) => {
+      setAuditProgress(progress);
+
+      if (progress.site) return;
+
+      if (progress.phase === "loading") setStreamed([]);
+
+      if (snapshot) setStreamed((items) => [...items.filter((item) => item.profileId !== snapshot.profileId), snapshot]);
+    });
 
     // Agent-started runs show progress and Stop like the user's own; a new run drops the last run's progress and error.
     const offState = window.mauxi.onAuditState((running) => {
       setHostAudit(running);
 
-      if (running) { setAuditProgress(null); setAuditError(""); setPanelOpen(true); }
+      if (running) { setAuditProgress(null); setStreamed([]); setAuditError(""); setPanelOpen(true); }
     });
 
     const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); reportArrived(report); });
@@ -663,28 +686,89 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (audit) setAttachedFindings((items) => items.filter((item) => audit.findings.some((finding) => finding.id === item.id)));
   }, [audit]);
 
-  const snapshots = useMemo(() => snapshotBoards(audit, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, layout.boards]);
+  // A single-route run (the user's or the agent's) forms the matrix on the canvas; a site batch reports in the panel only.
+  const forming = auditRunning || hostAudit;
+  const measuring = forming && auditProgress?.phase === "profiles" ? auditProgress.profile ?? null : null;
+  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, forming, streamed, measuring, layout.boards]);
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
-  /** Shows a report in the panel and fits the canvas to the live previews plus its snapshot row. */
-  function showReport(report: AuditReport) {
+  /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
+  function showReport(report: AuditReport, fit = true) {
     setAudit(report);
     setSelectedFinding(null);
-    const boards = snapshotBoards(report, PREVIEW_IDS.map((id) => layoutRef.current.boards[id]));
-    setLayout((current) => ({ ...unfocus(current), camera: fitCamera([...PREVIEW_IDS.map((id) => current.boards[id]), ...boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) }));
+
+    if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
 
-  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). */
-  async function runAudit(target?: string) {
+  /** Fits the live previews and the audit matrix in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean): Camera {
+    const live = PREVIEW_IDS.map((id) => state.boards[id]);
+    const boards = [...live, ...auditMatrix(report, forming, live).boards];
+    const element = canvas.current;
+
+    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    const rect = element.getBoundingClientRect();
+    const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
+    const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
+    const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
+    // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
+    const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
+    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+
+    return { ...camera, y: camera.y + top };
+  }
+
+  /** Opens the panel and fits the live previews and a placeholder for every audit profile, unless the user moved the camera since the canvas opened. */
+  function revealMatrix(): Camera | null {
+    const element = canvas.current;
+
+    if (!element || !sameCamera(layoutRef.current.camera, entryCamera.current)) return null;
+    const wide = matchMedia("(min-width: 1100px)").matches;
+    const camera = matrixCamera(unfocus(layoutRef.current), null, { snapshots: [], current: null }, wide);
+
+    if (wide) setPanelOpen(true);
+    setLayout((current) => ({ ...unfocus(current), camera }));
+
+    return camera;
+  }
+
+  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). The entry run fits the matrix and leaves a camera the user moved alone. */
+  async function runAudit(target?: string, entry = false) {
     if (!window.mauxi || auditRunning || hostAudit) return;
     const route = target ?? desktopRoute();
-    setAuditRunning(true); setAuditError(""); setAuditProgress(null);
+    let revealed: Camera | null = null;
+    setAuditRunning(true); setAuditError(""); setAuditProgress(null); setStreamed([]);
 
-    try { showReport(await window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture })); }
-    catch (error) { setAuditError(errorText(error)); }
-    finally { setAuditRunning(false); }
+    try {
+      const pending = window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture });
+
+      if (entry) revealed = revealMatrix();
+      const report = await pending;
+
+      // No report: the workspace closed under the run. That is not a failure, and its layout must not change (or be saved) any more.
+      if (report) showReport(report, !entry || sameCamera(layoutRef.current.camera, revealed));
+    } catch (error) {
+      setAuditError(errorText(error));
+
+      // A stopped or failed entry run takes its placeholders away: return to the live previews if the camera is still where the run put it.
+      if (revealed && sameCamera(layoutRef.current.camera, revealed)) setLayout((current) => fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight));
+    } finally { setAuditRunning(false); }
   }
+
+  // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
+  // While the agent holds the browser it waits: the agent is checking the previews and audits them itself when it needs to.
+  useEffect(() => {
+    if (manualAudit || entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
+
+    if (audit || auditRunning || hostAudit || site.mode !== "off" || site.running || site.discovering) { entryAudit.current = session;
+
+    return; }
+
+    if (browser.locked) return;
+    entryAudit.current = session;
+    void runAudit(undefined, true);
+  });
 
   function startSite() {
     setAuditProgress(null); setAuditError("");
@@ -768,11 +852,17 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <div className="canvas-surface">
     <CanvasBackground settled={boardsPlaced} />
     <header className="topbar">
-      {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => { await persist(layoutRef.current); await onClose(); }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      {active && onClose ? <RepositoryMenu root={active.appRoot} onClose={async () => {
+        await persist(layoutRef.current);
+        // Detach the previews first so stopping the dev server cannot fail their in-flight loads.
+        flushSync(() => setClosing(true));
+
+        try { await onClose(); } catch (error) { setClosing(false); throw error; }
+      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
       {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
         <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
       </button>}
-      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
@@ -785,7 +875,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      {audit && <AuditBoards boards={snapshots} report={audit} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />}
+      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -798,7 +888,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
             onMove={delta => setLayout(current => ({ ...current, boards: { ...current.boards, [id]: dragBoard(current.boards[id], delta, current.camera.zoom) } }))}
             onSelect={() => toggleSelection(id)} onFocus={() => focus(id)} onTools={() => { setTools(id); setActivePreview(id); }} />
           <div className="preview-surface" style={{ width: board.width * zoom, height: board.height * zoom }}>
-            <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />
+            {!closing && <iframe ref={(node) => { frames.current[id] = node; }} name={`mauxi-preview:${active?.workspaceId ?? "proof"}:${id}`} data-testid={`${id}-preview`} title={`${LABELS[id]} preview`} src={urls[id]} onLoad={() => connectFrame(id)} width={board.width} height={board.height} style={{ transform: `scale(${zoom})` }} tabIndex={shielded || browser.locked ? -1 : 0} inert={shielded || browser.locked} sandbox="allow-scripts allow-forms allow-same-origin allow-modals" />}
             {browser.locked && <div className="input-shield browser-shield" data-browser-shield="true" aria-label="Agent has preview control" />}
             {!browser.locked && shielded && <button type="button" className="input-shield preview-activate" aria-label={`Interact with ${LABELS[id]} preview`} title="Click to interact · scroll to pan · pinch to zoom" tabIndex={navigationHeld || dragging || navigation.wheeling ? -1 : 0}
               onPointerDown={(event) => startDrag(null, event)}

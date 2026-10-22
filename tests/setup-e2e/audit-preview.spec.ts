@@ -8,6 +8,8 @@ import { Value } from "typebox/value";
 
 const ListeningAddress = Type.Object({ port: Type.Number() });
 
+declare global { interface Window { auditRuns?: number } }
+
 const report: AuditReport = {
   url: "http://127.0.0.1:5173/expected", route: "/expected", startedAt: "2026-10-19T00:00:00.000Z", durationMs: 1,
   widthsScanned: 1, profiles: [], snapshots: [], scrollers: [], resolved: [],
@@ -59,13 +61,17 @@ for (const scenario of [
         window.mauxi!.confirmProject = async request => ({ ...await confirm(request), origin });
         window.mauxi!.bridgeReady = async () => {};
 
-        window.mauxi!.auditRun = async () => report;
+        window.auditRuns = 0;
+
+        window.mauxi!.auditRun = async () => { window.auditRuns!++;
+
+        return report; };
       }, { report: { ...report, route: scenario.route, url: origin + scenario.route }, origin });
       await page.getByRole("button", { name: "Confirm & start", exact: true }).click();
       await expect(page.locator(".bridge-ready")).toHaveCount(2);
-      await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
-      await page.getByRole("button", { name: "Run audit", exact: true }).click();
-      await page.getByRole("button", { name: /Small target/ }).first().click();
+      // The canvas audits the page by itself when it opens, once.
+      await page.getByRole("complementary", { name: "Responsive audit" }).getByRole("button", { name: /Small target/ }).first().click();
+      expect(await page.evaluate(() => window.auditRuns)).toBe(1);
       await page.getByRole("button", { name: "Show at 320px", exact: true }).click();
       const mobile = page.frameLocator('[data-testid="mobile-preview"]');
       await expect.poll(() => mobile.locator("body").evaluate(() => location.pathname)).toBe(scenario.path);

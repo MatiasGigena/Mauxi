@@ -13,7 +13,7 @@ test.beforeAll(async ({}, testInfo) => {
   await mkdir(evidenceDirectory, { recursive: true });
   application = await electron.launch({
     args: [path.resolve("dist-electron/main.js")],
-    env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_EVIDENCE_DIR: evidenceDirectory },
+    env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173/?audit=manual", MAUXI_EVIDENCE_DIR: evidenceDirectory },
   });
   page = await application.firstWindow();
   await page.waitForLoadState("domcontentloaded");

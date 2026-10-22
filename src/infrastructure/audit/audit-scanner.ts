@@ -56,6 +56,9 @@ function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
 }
 
+/** The run ended because its workspace or its hidden window closed; callers treat it as a normal outcome, not a failure. */
+export class AuditClosed extends Error { name = "AbortError"; }
+
 /** snapshotScale below 1 captures snapshots at reduced resolution (site audits), keeping CSS-pixel geometry. */
 export interface AuditScanRequest { url: string; route: string; origin: string; previous: AuditReport | null; snapshotScale?: number }
 
@@ -70,7 +73,7 @@ export class AuditScanner {
 
   get running(): boolean { return !!this.controller; }
 
-  cancel(reason = "Audit cancelled"): void { this.controller?.abort(new Error(reason)); }
+  cancel(reason = new Error("Audit cancelled")): void { this.controller?.abort(reason); }
 
   /** The caller's signal cancels only this run; cancel() stops whichever run holds the lock. */
   run(request: AuditScanRequest, caller?: AbortSignal): Promise<AuditReport> {
@@ -105,7 +108,16 @@ export class AuditScanner {
         webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
       });
 
-      return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]);
+      // CDP screenshots read the compositor directly; nothing listens for paint frames, and capturing them at 60 fps while the
+      // sweep resizes the page made the GPU process log "ProduceSkia ... non-existent mailbox" errors.
+      window.webContents.stopPainting();
+      // Quitting the app closes every window: a run losing its window that way ends as closed, not with the debugger's "target closed".
+      const closed = () => { if (this.controller === controller) controller.abort(new AuditClosed("The audit window closed.")); };
+
+      window.once("close", closed); window.webContents.debugger.once("detach", closed);
+
+      try { return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]); }
+      catch (error) { throw controller.signal.aborted ? controller.signal.reason : error; }
     } finally {
       clearTimeout(timer); caller?.removeEventListener("abort", stop);
 
@@ -175,12 +187,8 @@ export class AuditScanner {
     const interactionProfiles = INTERACTION_PROFILE_IDS.flatMap((id) => AUDIT_PROFILES.filter((profile) => profile.id === id));
     const total = sweep.length + AUDIT_PROFILES.length + interactionProfiles.length;
 
-    const progress = (phase: AuditProgress["phase"], done: number, width?: number) => {
-      const update: AuditProgress = { phase, done, total };
-
-      if (width) update.width = width;
-
-      if (!signal.aborted) this.options.onProgress(update);
+    const progress = (phase: AuditProgress["phase"], done: number, detail: Pick<AuditProgress, "width" | "profile" | "snapshot"> = {}) => {
+      if (!signal.aborted) this.options.onProgress({ phase, done, total, ...detail });
     };
 
     progress("loading", 0);
@@ -245,7 +253,7 @@ export class AuditScanner {
     let done = 0;
 
     for (const width of sweep) {
-      progress("sweep", done, width);
+      progress("sweep", done, { width });
       await resize(width, SWEEP_HEIGHT, 60);
       samples.push({ width, height: SWEEP_HEIGHT, profile: null, measurement: await measure(false) });
       done++;
@@ -254,12 +262,11 @@ export class AuditScanner {
     const snapshots: AuditSnapshot[] = [];
 
     for (const profile of AUDIT_PROFILES) {
-      progress("profiles", done, profile.width);
+      progress("profiles", done, { width: profile.width, profile: profile.id });
 
       if (profile.textSpacing) await evaluate(`(() => { const style = document.createElement("style"); style.dataset.mauxiOverlay = "true"; style.id = "mauxi-audit-spacing"; style.textContent = ${JSON.stringify(SPACING_STYLE)}; document.head.append(style); })()`);
       await resize(profile.width, profile.height, 250);
-      // axe runs once per distinct layout: text-spacing overrides and the short 400% zoom viewport repeat a measured width.
-      const axeRun = profile.textSpacing || profile.viewportOnly ? null : await runAxeHere(profile.label);
+      const axeRun = profile.axe ? await runAxeHere(profile.label) : null;
       const targets = [...new Set(axeRun?.results.flatMap((result) => result.nodes.flatMap((node) => node.target.includes(" >>> ") ? [] : [node.target])) ?? [])].slice(0, 200);
       const measurement = await measure(true, axeRun ? targets : undefined);
       const sample: AuditSample = { width: profile.width, height: profile.height, profile, measurement };
@@ -272,15 +279,14 @@ export class AuditScanner {
       }
 
       samples.push(sample);
+      // Every profile becomes a canvas board. The short zoom viewports show only what fits on screen.
+      const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
+      const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: request.snapshotScale ?? 1 } });
+      const snapshot: AuditSnapshot = { profileId: profile.id, label: profile.label, width: profile.width, height: profile.height, imageHeight, image: `data:image/jpeg;base64,${shot.data}` };
 
-      if (profile.snapshot) {
-        const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
-        const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: request.snapshotScale ?? 1 } });
-        const snapshot: AuditSnapshot = { profileId: profile.id, label: profile.label, width: profile.width, height: profile.height, imageHeight, image: `data:image/jpeg;base64,${shot.data}` };
-
-        if (profile.note) snapshot.note = profile.note;
-        snapshots.push(snapshot);
-      }
+      if (profile.note) snapshot.note = profile.note;
+      snapshots.push(snapshot);
+      progress("profiles", done, { width: profile.width, profile: profile.id, snapshot });
 
       if (profile.textSpacing) await evaluate(`document.getElementById("mauxi-audit-spacing")?.remove()`);
       done++;
@@ -314,7 +320,7 @@ export class AuditScanner {
       resize: (width, height) => resize(width, height, 250),
       capture: async () => `data:image/jpeg;base64,${(await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72 })).data}`,
       blockedNavigations: () => interaction.blocked,
-    }, interactionProfiles, signal, (profile) => { progress("interactions", done, profile.width); done++; }).finally(() => { interaction.active = false; });
+    }, interactionProfiles, signal, (profile) => { progress("interactions", done, { width: profile.width, profile: profile.id }); done++; }).finally(() => { interaction.active = false; });
 
     if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
     progress("done", total);

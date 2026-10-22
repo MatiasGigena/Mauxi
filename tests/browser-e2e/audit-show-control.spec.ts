@@ -9,9 +9,8 @@ test("Show at is refused while the agent holds browser control, even on the audi
   const { page, close } = await launch(state, () => text("No browser actions needed."), {}, "/audit-lab.html");
 
   try {
-    await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+    // The workspace audited the lab when it opened.
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
-    await panel.getByRole("button", { name: "Run audit", exact: true }).click();
     const card = panel.locator('.finding-card:has-text("Horizontal scroll at 320–")').first();
     await expect(card).toBeVisible({ timeout: 90_000 });
     const title = await card.locator(".finding-heading strong").innerText();

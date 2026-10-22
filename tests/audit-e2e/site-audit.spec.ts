@@ -1,9 +1,10 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import type { AuditSiteReport } from "../../src/application/audit-contract";
+import { AUDIT_PROFILES, type AuditSiteReport } from "../../src/application/audit-contract";
 
 declare global { interface Window { lastSiteReport?: AuditSiteReport | null } }
 
@@ -23,7 +24,7 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditSite((report) => { window.lastSiteReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
@@ -102,7 +103,7 @@ test("discovers linked pages, skips unsafe links, audits them in a batch and ope
   await expect(card).toHaveCount(1);
   await card.locator(".finding-summary").click();
   await expect(card.locator(".finding-element code")).toHaveText('[data-testid="blog-banner"]');
-  await expect(page.locator(".snapshot-board")).toHaveCount(7);
+  await expect(page.locator(".snapshot-board")).toHaveCount(AUDIT_PROFILES.length);
   await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"] .finding-marker')).toHaveCount(1);
   // Batch snapshots are kept at half resolution to bound memory.
   await expect.poll(() => page.locator('.snapshot-board[data-profile-id="phone-sm"] img').evaluate((image) => image instanceof HTMLImageElement ? image.naturalWidth : 0)).toBe(160);
@@ -141,7 +142,7 @@ test("Stop ends a site audit and skips the remaining pages", async ({}, testInfo
   await page.evaluate(() => { window.lastSiteReport = null; });
   await panel().getByRole("button", { name: "Audit 3 pages", exact: true }).click();
   await expect(panel().getByRole("status")).toContainText("Page 1 of 3", { timeout: 30_000 });
-  await panel().getByRole("button", { name: "Stop", exact: true }).click();
+  await panel().getByRole("button", { name: "Stop audit", exact: true }).click();
   const site = await siteReport("cancelled");
 
   expect(site.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
@@ -159,14 +160,14 @@ test("cancels redirects and page navigations to excluded routes before they are 
   const before = await signOuts();
 
   // The account link redirects to an allowed page and then to /api/logout; the members page script also navigates there.
-  const discovery = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }), MEMBERS);
+  const discovery = (await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }), MEMBERS))!;
   expect(discovery.routes.map((item) => item.route)).toEqual([MEMBERS, BLOG, LAB, ABOUT]);
   expect(discovery.excluded).toContainEqual({ route: ACCOUNT, reason: `Redirects to an excluded route (${EXCLUDED})` });
 
   const start = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }).then(() => "resolved", (error: Error) => error.message), ACCOUNT);
   expect(start).toContain("The start page redirects outside the allowed routes.");
 
-  const site = await page.evaluate((routes) => window.mauxi!.auditSite({ fixture: "vite", routes }), [ACCOUNT]);
+  const site = (await page.evaluate((routes) => window.mauxi!.auditSite({ fixture: "vite", routes }), [ACCOUNT]))!;
   expect(site.pages.map((item) => [item.route, item.status])).toEqual([[ACCOUNT, "failed"]]);
   expect(site.pages[0].error).toContain(`The page redirects to an excluded route (${EXCLUDED}).`);
 

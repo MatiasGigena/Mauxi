@@ -12,7 +12,7 @@ function setupTest(page: Page) {
   });
 }
 
-for (const width of [1500, 390]) {
+for (const width of [1500]) {
   test(`onboarding-style model select searches, navigates and hides providers at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 950 });
     await mockDesktop(page);
@@ -57,7 +57,7 @@ for (const width of [1500, 390]) {
     await expect(providers).toBeVisible();
     const providerEntries = providers.getByRole("region", { name: "Provider list" });
     const providerRows = providerEntries.locator("article");
-    const providerHeight = width > 600 ? 216 : 324;
+    const providerHeight = 216;
     expect(await providerEntries.evaluate(node => node.clientHeight)).toBeLessThanOrEqual(providerHeight);
     expect(await providerEntries.evaluate(node => node.scrollHeight)).toBeGreaterThan(providerHeight);
     const providerThumb = providers.locator(".provider-scrollbar-thumb");

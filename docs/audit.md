@@ -4,9 +4,11 @@ Mauxi measures how a page of your local project behaves across a matrix of viewp
 
 ## Run an audit
 
-Open **Responsive audit** at the top right and choose **Run audit**. Mauxi audits the route currently open in the Desktop preview. It loads that route in a hidden offscreen window that shares the workspace's browser session (so cookies and local storage match your previews) and never resizes or reloads the visible previews.
+The canvas audits its page by itself: as soon as the Desktop preview is ready after you open a workspace, Mauxi audits the route open there, opens the panel and shows a board for every profile below the live previews (see [The audit matrix on the canvas](#the-audit-matrix-on-the-canvas)). **Re-run** in the **Responsive audit** panel audits the Desktop preview's current route again. Mauxi loads that route in a hidden offscreen window that shares the workspace's browser session (so cookies and local storage match your previews) and never resizes or reloads the visible previews.
 
-The scan takes about ten to fifteen seconds:
+The entry audit runs once per opened canvas. It does not start when another audit (one the agent started, a site audit or its discovery) already covers the opening, it waits while the agent holds browser control, and it is skipped when the workspace failed to start. **Stop** cancels it like any other run, and closing the project cancels it; it is not started again until the workspace is opened again.
+
+The scan takes about fifteen to twenty seconds:
 
 1. **Width sweep:** every 16 CSS px from 320 to 1440, plus 1600 and 1920, at 900 px tall. The sweep finds problems that only appear between breakpoints.
 2. **Profiles**, measured with every check and captured as snapshots:
@@ -14,12 +16,22 @@ The scan takes about ten to fifteen seconds:
 | Profile | Viewport | Why |
 | --- | --- | --- |
 | Small phone | 320 × 568 | WCAG 1.4.10 reflow width |
+| Android | 360 × 800 | Most common Android phone width |
 | Phone | 390 × 844 | Common phone |
+| Large phone | 430 × 932 | Large phones |
 | Tablet | 768 × 1024 | Common breakpoint |
+| Phone landscape | 844 × 390 | A phone turned sideways: short viewport for WCAG 1.3.4 orientation and fixed bars |
+| Tablet landscape | 1024 × 768 | Common `lg` breakpoint |
 | Laptop | 1280 × 800 | Common breakpoint |
+| HD laptop | 1366 × 768 | Most common laptop screen, short viewport |
 | Desktop | 1440 × 900 | Wide layout |
+| Wide desktop | 1920 × 1080 | Full HD desktop |
+| 200% zoom | 640 × 512 | A 1280 × 1024 screen at 200% zoom |
 | 400% zoom | 320 × 256 | A 1280 × 1024 screen at 400% zoom |
-| Text spacing | 320 × 568 and 1280 × 800 | WCAG 1.4.12 overrides: line-height 1.5, letter-spacing 0.12em, word-spacing 0.16em, paragraph spacing 2em |
+| Text spacing | 320 × 568 | WCAG 1.4.12 overrides: line-height 1.5, letter-spacing 0.12em, word-spacing 0.16em, paragraph spacing 2em |
+| Text spacing (wide) | 1280 × 800 | The same overrides on the laptop layout |
+
+Every profile is captured as a board on the canvas. The 200% and 400% zoom boards show only the viewport, what fits on that screen; the others show the full page up to 2,400 px tall.
 
 3. **Interaction pass** at 400% zoom and Small phone: a Tab-only keyboard focus walk, closed menus and disclosures opened one at a time, and tooltips hovered (see [Interaction pass](#interaction-pass)). It adds about two to four seconds.
 
@@ -27,7 +39,7 @@ Animations and transitions are paused and `prefers-reduced-motion: reduce` is em
 
 ## Audit several pages
 
-Choose **Audit site** (the stacked-layers button beside **Run audit**) to audit more than the current route. Mauxi first finds the project's pages, then shows them as a checklist before anything is measured:
+Choose **Audit site** (the stacked-layers button beside **Re-run**) to audit more than the current route. Mauxi first finds the project's pages, then shows them as a checklist before anything is measured:
 
 1. **Discovery** loads the Desktop preview's route in the same hidden window and reads every `a[href]` and `area[href]`. It then opens each page it found (one level deeper) and reads their links too. At most 12 pages are listed, in the order they were found, with the starting route first.
 2. **Choose pages.** Every listed page is checked. Uncheck pages, or type a route and choose **Add**. Hand-added routes go through the same policy as discovered ones. **Skipped links** lists same-origin links that were left out and why.
@@ -58,7 +70,7 @@ Discovery only follows links a visitor could open with a plain GET, and only on 
 
 - **A page fails** (load error, time limit, navigation outside the origin): that row is marked failed with the error and the batch continues with the next page.
 - **Stop or closing the workspace** aborts the current page and marks the remaining pages skipped. Pages already measured keep their results.
-- **Overlapping runs:** only one audit, discovery or batch runs at a time; starting another is refused until it finishes or is stopped.
+- **Overlapping runs:** only one audit, discovery or batch runs at a time; starting another is refused until it finishes or is stopped. The agent's `responsive_audit` instead waits for a single-route run in progress (for example the entry audit) to finish, then runs.
 - **Memory:** only page summaries are sent to the panel while the batch runs. Full reports stay in the main process, at most 16 (the oldest are dropped), and batch snapshots are captured at half resolution, so a 12-page batch keeps roughly a quarter of the image data of 12 single runs. A page's report is loaded into the panel only when you open it. If it was dropped, run that page again.
 - **Stale results:** the summary belongs to the workspace and is cleared when the workspace closes. Re-running one page updates its row.
 
@@ -77,7 +89,7 @@ Discovery only follows links a visitor could open with a plain GET, and only on 
 | Fixed bars cover the screen | 2.4.11 Focus Not Obscured (Minimum) | Fixed or sticky bars anchored to the top and bottom cover more than 40% of a profile's viewport, typically at 400% zoom. Measured at the top of the page; the keyboard focus walk below measures what focus actually hits. |
 | Pinch-zoom disabled | 1.4.4 Resize Text | The viewport meta tag sets `user-scalable=no` or `maximum-scale` below 2. |
 | Missing viewport meta | — | No `width=device-width`, so phones lay the page out at about 980 px. |
-| General accessibility rules | From axe-core tags (for example 1.4.3, 1.1.1, 4.1.2) | axe-core at the phone, tablet, laptop and desktop profiles. See [General accessibility checks](#general-accessibility-checks-axe-core). |
+| General accessibility rules | From axe-core tags (for example 1.4.3, 1.1.1, 4.1.2) | axe-core at the phone, tablet, laptop and desktop breakpoints. See [General accessibility checks](#general-accessibility-checks-axe-core). |
 
 ### Intentional scrollers versus bugs
 
@@ -128,12 +140,12 @@ Snapshots of the moment are added as extra boards (for example **Focus · 400% z
 
 ## General accessibility checks (axe-core)
 
-At the Small phone, Phone, Tablet, Laptop and Desktop profiles, Mauxi also runs [axe-core](https://github.com/dequelabs/axe-core) 4.13 on the same loaded page, before the interaction pass, so focus, opened menus or hover never affect its results. Running the same rules in every layout finds problems that exist in one layout only: an icon-only menu toggle without a name that is shown only below 600 px, text whose color drops below 4.5:1 in a mobile media query, or an icon link that only appears on desktop.
+At the Small phone, Phone, Tablet, Tablet landscape, Laptop, Desktop and Wide desktop profiles (one per breakpoint layout; the in-between phone and laptop sizes, the landscape phone and the zoom and spacing profiles repeat a layout axe already checked), Mauxi also runs [axe-core](https://github.com/dequelabs/axe-core) 4.13 on the same loaded page, before the interaction pass, so focus, opened menus or hover never affect its results. Running the same rules in every layout finds problems that exist in one layout only: an icon-only menu toggle without a name that is shown only below 600 px, text whose color drops below 4.5:1 in a mobile media query, or an icon link that only appears on desktop.
 
 - **Rules:** color contrast and links distinguished only by color; text alternatives (`img`, image inputs, `role="img"`, `svg`, `area`, `object`); names of buttons, links, `summary`, frames and ARIA widgets; form labels; ARIA attribute, role and parent/child validity, `aria-hidden` containers with focusable content, nested interactive controls; lists; page title and language; landmarks (`region`, one `main`, unique landmarks); inline text-spacing styles. The full list is `AXE_RULES` in `src/application/audit-axe.ts`.
 - **Not repeated:** axe's `meta-viewport`, `meta-viewport-large`, `target-size` and `scrollable-region-focusable` rules are skipped, because Mauxi measures pinch-zoom, target size and scroller keyboard access itself across the width sweep.
 - **Classification:** a violation of a rule tagged with a WCAG success criterion is a **Bug** with that criterion (`wcag143` → 1.4.3). Best-practice rules (landmarks), experimental rules and results axe could not decide (for example text on a gradient or a background image) are **Needs review**. Severity follows axe's impact: critical and serious are serious.
-- **Width ranges:** results are grouped per rule and element across the profiles. A finding measured at 320 and 390 px but not at 768 px reads "(only at 320–390px)" and lists the profiles where it passes. A profile where axe could not decide for that element (for example the same text on a gradient in the wide layout) is listed as inconclusive, never as passing. The ranges are bounded by the profile widths (320, 390, 768, 1280, 1440); the exact breakpoint between two profiles is not swept.
+- **Width ranges:** results are grouped per rule and element across the profiles. A finding measured at 320 and 390 px but not at 768 px reads "(only at 320–390px)" and lists the profiles where it passes. A profile where axe could not decide for that element (for example the same text on a gradient in the wide layout) is listed as inconclusive, never as passing. The ranges are bounded by the profile widths (320, 390, 768, 1024, 1280, 1440, 1920); the exact breakpoint between two profiles is not swept.
 - **Elements and sources:** axe's selectors are resolved in the page and described like every other finding (selector, `data-testid`, React source hint, host verification), so snapshot markers, **Show at &lt;width&gt;** and **Fix with agent** work the same way. Cards show the rule id (for example `axe · button-name`). At most 8 elements per rule and profile are listed; the finding says how many more failed.
 - **Dropped inconclusive results:** contrast results that axe cannot decide because a fixed bar overlaps the text at the measured scroll position (Mauxi reports such bars as 2.4.11), because the element is offscreen, because the content is a single glyph or icon, or because the text has the same color as its background are not reported. They are not passing either: a previous finding of that rule, at a profile where some of its results were dropped, stays **Not re-checked this run** instead of resolved.
 - **Isolation:** axe-core runs in an isolated JavaScript world created over the DevTools protocol. Page scripts cannot override it, it defines no globals in the page, and a page that already ships axe-core is unaffected. Its results are validated and size-bounded before they reach the report.
@@ -147,9 +159,15 @@ axe-core is © Deque Systems, Inc. and licensed under the [Mozilla Public Licens
 The panel shows a 320–1920 px ruler of the widths where bugs were measured, counts per classification, and the findings. Each finding has its own ruler, the WCAG criterion, the element selector, the source location, what was measured and a fix direction.
 
 - Source locations marked with a check are **host-verified**: the element has a unique literal `data-testid` found in one project file. Otherwise the file and component name are an unverified hint from the React development build.
-- Snapshots of every profile appear below the live previews with numbered markers. Click a marker to select its finding.
+- Every profile has a board below the live previews with numbered markers (see below). Click a marker to select its finding.
 - **Show at &lt;width&gt;** resizes the closest live preview (Mobile at 1024 px or less, Desktop otherwise) to the worst width and outlines the element in the live page for eight seconds. It is refused while the agent holds browser control.
 - **Re-run** compares with the previous report for the same route and lists what was **Resolved since last run**.
+
+## The audit matrix on the canvas
+
+While a single-route audit runs (the entry audit, **Re-run**, or the agent's `responsive_audit`), the canvas shows one board per profile below the live previews, in profile order, wrapped into the rows that let the camera show the previews and every board largest. Each board starts **Queued**, shows **Measuring** with a scan line while its profile is measured, and shows what fits above the fold as soon as its snapshot is captured, before the report arrives. A heading above the boards shows what the audit is doing, how many viewports are captured and the overall progress. When the report arrives the boards show full pages with their markers and the heading summarises the route, viewports, widths scanned and bugs; interaction boards that mark a finding are added after the profiles.
+
+The entry audit fits the camera to the previews and every placeholder as it starts, and to the finished matrix when it ends, both in the part of the canvas left free by the top bar, the chat and the panel. It only moves the camera while you have not: once you pan or zoom, it leaves the camera alone. A stopped or failed entry audit removes its placeholders and returns to the live previews. Long pages need less than 10% zoom to fit, so this overview may go down to 5%, below the 10% you can zoom out to yourself; from there, zooming never pushes the camera further out. Board headers keep their size at every zoom, and rows stack them so a header never covers the row above.
 
 ## Fix with the agent
 

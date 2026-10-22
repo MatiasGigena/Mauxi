@@ -6,8 +6,7 @@ import type { AuditFindingContext } from "../application/audit-contract";
 import { SelectionComposer } from "./SelectionComposer";
 import { ChatExchange, exchangeContainsError, latestExchange, type AcceptedPrompt } from "./ChatExchange";
 import { ComposerAction } from "./ComposerAction";
-
-function errorMessage(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }
+import { errorText } from "./error-text";
 
 const EMPTY_AGENT: AgentSnapshot = {
   ready: false, workspaceId: "", providers: [], models: [], messages: [],
@@ -68,7 +67,7 @@ function AgentPromptDialog({ workspaceId, dialog, onClose, inline = false, activ
       if (blocking && window.mauxi) await window.mauxi.agentDialogResponse({ workspaceId, dialogId: dialog.id, value: cancelled ? undefined : responseValue, cancelled });
       setValue("");
       onClose();
-    } catch (reason) { setError(errorMessage(reason)); }
+    } catch (reason) { setError(errorText(reason)); }
     finally { answering.current = false; setPending(false); }
   }
 
@@ -397,7 +396,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
       if (event.type === "dialog-dismissed") setDialog((current) => current?.id === event.id ? null : current);
     });
 
-    void window.mauxi.agentBootstrap().then((snapshot) => { if (live) setAgent(snapshot); }).catch((error) => { if (live) setSendError(errorMessage(error)); });
+    void window.mauxi.agentBootstrap().then((snapshot) => { if (live) setAgent(snapshot); }).catch((error) => { if (live) setSendError(errorText(error)); });
 
     return () => { live = false; off(); };
   }, [workspaceId]);
@@ -406,7 +405,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
     const active = document.activeElement;
     runFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
     setBusy(true); setSendError("");
-    void action().catch((error) => setSendError(errorMessage(error))).finally(() => setBusy(false));
+    void action().catch((error) => setSendError(errorText(error))).finally(() => setBusy(false));
   }
 
   function login(action: () => Promise<void>, trigger: HTMLElement) {
@@ -450,7 +449,7 @@ export function ChatDock({ workspaceId, browserControl, minimizeRequest = 0, sel
       setDraft((current) => current === submittedDraft ? "" : current);
       onSelectionsSent(attached.map((item) => item.capture.selectionId));
       onFindingsSent?.(attachedFindings.map((finding) => finding.id));
-    } catch (error) { setSendError(errorMessage(error)); }
+    } catch (error) { setSendError(errorText(error)); }
     finally { setSendingDraft(null); setBusy(false); }
   }
 

@@ -3,11 +3,10 @@ import { ArrowLeft, ChevronRight, LoaderCircle, Play, Plus } from "lucide-react"
 import { formatRanges, type AuditReport, type AuditScope, type AuditSitePage, type AuditSiteReport, type RouteDiscovery } from "../application/audit-contract";
 import { linkVerdict, mergeRanges, SITE_ROUTE_LIMIT } from "../application/audit-site";
 import { WidthRuler } from "./AuditPanel";
+import { errorText } from "./error-text";
 
 /** off: the single-route panel; setup: choosing pages; summary: all pages; page: one page of the site audit. */
 export type SiteMode = "off" | "setup" | "summary" | "page";
-
-const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
 
 /** Site audit state: discovery, the batch summary pushed by the host, and which page's report the panel shows. */
 export function useSiteAudit(scope: AuditScope, events: { onOpen: (report: AuditReport) => void; onActivity: () => void }) {

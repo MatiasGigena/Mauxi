@@ -11,16 +11,16 @@ import { fileURLToPath } from "node:url";
 import { WorkspaceManager } from "../../application/workspace-manager";
 import { isCanvasState } from "../../application/canvas-state";
 import { THINKING_LEVELS } from "../../application/agent-contract";
-import { PiAgentHost } from "../agent/pi-agent-host";
+import { PiAgentHost, ProviderSetupCancelled } from "../agent/pi-agent-host";
 import { BrowserControl } from "../../application/browser-control";
 import { ElectronVisibleBrowser } from "./visible-browser";
-import { assertBrowserRequest, type BrowserPort } from "../../application/browser-contract";
+import { assertBrowserRequest, type BrowserPort, type BrowserState } from "../../application/browser-contract";
 import { JournalStore } from "../instrumentation/journal";
 import { WorkspaceStore } from "../project/workspace-store";
 import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 import { inspectDomSource } from "../project/dom-source";
-import { AuditScanner } from "../audit/audit-scanner";
+import { AuditClosed, AuditScanner } from "../audit/audit-scanner";
 import { FindingContextListSchema, type AuditReport, type AuditScope, type AuditSiteReport, type AuditSiteStep } from "../../application/audit-contract";
 import { linkVerdict, SITE_ROUTE_LIMIT, sitePage } from "../../application/audit-site";
 import { isAxeHelpUrl } from "../../application/audit-axe";
@@ -166,7 +166,12 @@ let siteStep: AuditSiteStep | null = null;
 /** Bumped when a workspace closes: a run still finishing for the old workspace must not store or publish anything. */
 let auditEpoch = 0;
 
-function assertAuditEpoch(epoch: number): void { if (epoch !== auditEpoch) throw new Error("Workspace closed"); }
+function assertAuditEpoch(epoch: number): void { if (epoch !== auditEpoch) throw new AuditClosed("Workspace closed"); }
+
+/** A run that ended because its workspace or window closed resolves empty for the panel: closing is a normal outcome, not a failure. */
+async function unlessClosed<T>(run: () => Promise<T>): Promise<T | null> {
+  try { return await run(); } catch (error) { if (error instanceof AuditClosed) return null; throw error; }
+}
 
 const auditScanner = new AuditScanner({
   session: () => {
@@ -312,12 +317,22 @@ function auditBase(scope: AuditScope): AuditBase {
   return { workspaceId: `proof:${scope.fixture}`, origin: PROOF_ORIGINS[scope.fixture], root: path.resolve(process.cwd(), "fixtures", PROOF_ROOTS[scope.fixture]) };
 }
 
-function cancelAudits(reason?: string): void {
+/** The canvas audits its page when it opens: an agent's audit waits for a single-route run in progress instead of being refused. */
+async function afterRunningAudit(signal?: AbortSignal): Promise<void> {
+  const deadline = Date.now() + 180_000;
+
+  while (auditScanner.running && !siteRun && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    signal?.throwIfAborted();
+  }
+}
+
+function cancelAudits(reason?: Error): void {
   if (siteRun) siteRun.cancelled = true;
   auditScanner.cancel(reason);
 }
 
-function resetAudits(): void { auditEpoch++; cancelAudits("Workspace closed"); auditReports.clear(); siteReports.clear(); auditTarget = null; }
+function resetAudits(): void { auditEpoch++; cancelAudits(new AuditClosed("Workspace closed")); auditReports.clear(); siteReports.clear(); auditTarget = null; }
 
 function cleanupCaptureCache(): void {
   try { captures.cleanup(); }
@@ -443,6 +458,7 @@ async function activeAgent(): Promise<PiAgentHost> {
         const route = requested ?? (auditTarget?.workspaceId === active.workspaceId ? auditTarget.route : "/");
         // The audit window shares the workspace session: unlike the user, the agent gets the batch policy for its one route too.
         siteRoutes([route], current.origin);
+        await afterRunningAudit(signal);
 
         return runAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot, route }, false, signal);
       },
@@ -451,6 +467,7 @@ async function activeAgent(): Promise<PiAgentHost> {
         const current = manager.snapshot().active;
 
         if (!current || current.workspaceId !== active.workspaceId) throw new Error("Stale agent workspace");
+        await afterRunningAudit(signal);
 
         return runSiteAudit({ workspaceId: active.workspaceId, origin: current.origin, root: current.appRoot }, routes, signal);
       },
@@ -607,13 +624,18 @@ function registerIpc(): void {
   ipcMain.handle("mauxi:browser-heartbeat", (event, workspaceId) => {
     assertTrustedSender(event);
 
-    if (!Value.Check(Type.String(), workspaceId) || workspaceId !== browserControl?.workspaceId) throw new Error("Stale browser workspace");
+    if (!Value.Check(Type.String(), workspaceId) || (browserControl && workspaceId !== browserControl.workspaceId)) throw new Error("Stale browser workspace");
     browserHeartbeat = Date.now();
   });
   ipcMain.handle("mauxi:browser-owner", async (event, input) => {
     assertTrustedSender(event);
 
     if (!Value.Check(BrowserOwnerInput, input)) throw new Error("Invalid handoff");
+
+    if (input.owner === "human" && (!mainWindow || manager.snapshot().active?.workspaceId !== input.workspaceId)) {
+      return { workspaceId: input.workspaceId, owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] } satisfies BrowserState;
+    }
+
     const browser = activeBrowser();
 
     if (input.workspaceId !== browser.workspaceId) throw new Error("Stale browser workspace");
@@ -736,7 +758,7 @@ function registerIpc(): void {
 
     if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid audit request");
 
-    return runAudit({ ...auditBase(input), route: input.route });
+    return unlessClosed(() => runAudit({ ...auditBase(input), route: input.route }));
   });
 
   ipcMain.handle("mauxi:audit-discover", async (event, input) => {
@@ -747,7 +769,7 @@ function registerIpc(): void {
 
     if (siteRun) throw new Error("An audit is already running.");
 
-    return auditScanner.discover({ url: new URL(input.route, base.origin).href, route: input.route, origin: base.origin, depth: 2 });
+    return unlessClosed(() => auditScanner.discover({ url: new URL(input.route, base.origin).href, route: input.route, origin: base.origin, depth: 2 }));
   });
 
   ipcMain.handle("mauxi:audit-site", async (event, input) => {
@@ -755,7 +777,7 @@ function registerIpc(): void {
 
     if (!Value.Check(AuditSiteInput, input)) throw new Error("Invalid site audit request");
 
-    return runSiteAudit(auditBase(input), input.routes);
+    return unlessClosed(() => runSiteAudit(auditBase(input), input.routes));
   });
 
   ipcMain.handle("mauxi:audit-open", (event, input) => {
@@ -782,7 +804,9 @@ function registerIpc(): void {
     assertTrustedSender(event);
 
     if (!Value.Check(AgentLoginInput, input)) throw new Error("Invalid provider setup request");
-    await (await activeAgent()).login(input);
+
+    try { await (await activeAgent()).login(input); }
+    catch (error) { if (!(error instanceof ProviderSetupCancelled)) throw error; }
   });
 
   ipcMain.handle("mauxi:agent-logout", async (event, input) => {

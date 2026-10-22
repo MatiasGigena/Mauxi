@@ -98,7 +98,10 @@ function projectStartPath(manifest: Static<typeof ManifestObject>): string {
 }
 
 function parseManifest(source: string, filePath: string): PackageManifest {
-  const value: unknown = JSON.parse(source);
+  let value: unknown;
+
+  try { value = JSON.parse(source); }
+  catch (error) { throw new Error(`${filePath} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`); }
 
   if (!isManifestObject(value)) throw new Error(`Invalid package.json: ${filePath}`);
   let startPath = "/";

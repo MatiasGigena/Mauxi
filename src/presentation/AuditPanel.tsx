@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
-import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
+import { AUDIT_PROFILES, formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
 import { mergeRanges } from "../application/audit-site";
 
 const MIN_WIDTH = 320;
@@ -16,6 +16,29 @@ const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> 
 const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access", "axe-core: contrast, names, labels, ARIA"];
 
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
+
+/** What a run is doing, for the panel and the canvas matrix title. */
+export function progressText(progress: AuditProgress | null): string {
+  const profile = progress?.profile && AUDIT_PROFILES.find((item) => item.id === progress.profile);
+
+  if (!progress || progress.phase === "loading") return "Loading the page…";
+
+  if (progress.phase === "sweep") return `Sweeping widths · ${progress.width}px`;
+
+  if (progress.phase === "profiles") return profile ? `Checking ${profile.label} · ${profile.width} × ${profile.height}` : `Checking profiles · ${progress.width}px`;
+
+  if (progress.phase === "interactions") return `Checking keyboard focus and menus · ${progress.width}px`;
+
+  return "Building report…";
+}
+
+/** Whole-run completion, across the pages of a site audit. */
+export function progressPercent(progress: AuditProgress | null): number {
+  const site = progress?.site;
+  const fraction = progress ? progress.done / Math.max(1, progress.total) : 0;
+
+  return Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
+}
 
 const position = (width: number) => `${((Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)) - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`;
 
@@ -92,8 +115,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
   const hidden = report?.findings.filter((finding) => ignored.has(finding.id)) ?? [];
   const failing = mergeRanges(visible.filter((finding) => finding.classification === "bug").flatMap((finding) => finding.ranges));
   const site = progress?.site;
-  const fraction = progress ? progress.done / Math.max(1, progress.total) : 0;
-  const percent = Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
+  const percent = progressPercent(progress);
 
   const card = (finding: AuditFinding) => <FindingCard key={finding.id} finding={finding} index={report!.findings.indexOf(finding) + 1} selected={selected === finding.id} attached={attached.has(finding.id)} ignored={ignored.has(finding.id)}
     onSelect={() => onSelect(finding)} onShow={() => onShow(finding)} onFix={() => onFix(finding)} onIgnore={() => onIgnore(finding)} />;
@@ -107,7 +129,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
       <div className="audit-panel-actions">
         {!running && <button type="button" className="audit-site" onClick={onSite} aria-label="Audit site" title="Audit site: find the pages linked from this route and audit them in a batch"><Layers size={15} aria-hidden="true" /></button>}
         {running
-          ? <button type="button" className="audit-run" data-running="" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
+          ? <button type="button" className="audit-run" data-running="" aria-label="Stop audit" title="Stop audit" onClick={onCancel}><Square size={13} aria-hidden="true" /><span>Stop</span></button>
           : <button type="button" className="audit-run" onClick={onRun}>{report ? <RotateCcw size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}<span>{report ? "Re-run" : "Run audit"}</span></button>}
         <button type="button" className="audit-close" aria-label="Hide audit panel" title="Hide audit panel" onClick={onClose}><PanelRightClose size={16} aria-hidden="true" /></button>
       </div>
@@ -115,7 +137,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
 
     {running && (progress || !siteView) && <div className="audit-progress" role="status" aria-live="polite">
       <div className="audit-progress-label"><LoaderCircle size={14} className="spin" aria-hidden="true" />
-        <span>{site && `Page ${site.index + 1} of ${site.total} · `}{progress?.phase === "loading" || !progress ? "Loading the page…" : progress.phase === "sweep" ? `Sweeping widths · ${progress.width}px` : progress.phase === "profiles" ? `Checking profiles · ${progress.width}px` : progress.phase === "interactions" ? `Checking keyboard focus and menus · ${progress.width}px` : "Building report…"}</span>
+        <span>{site && `Page ${site.index + 1} of ${site.total} · `}{progressText(progress)}</span>
         <span className="audit-progress-count">{percent}%</span>
       </div>
       <div className="audit-progress-bar"><span style={{ width: `${percent}%` }} /></div>
@@ -129,7 +151,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     {report && pageBar}
 
     {!report && !running && !siteView && <div className="audit-empty">
-      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
+      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks {AUDIT_PROFILES.length} profiles from a 320px phone to a 1920px desktop, in portrait and landscape, at 200% and 400% zoom and with increased text spacing, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
       <ul aria-label="Checks">{CHECKS.map((check) => <li key={check}>{check}</li>)}</ul>
       <p className="audit-empty-site"><Layers size={13} aria-hidden="true" />Use <strong>Audit site</strong> to find the pages linked from here and audit them together.</p>
     </div>}

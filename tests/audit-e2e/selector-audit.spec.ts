@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import type { AuditReport } from "../../src/application/audit-contract";
 
 declare global { interface Window { lastAuditReport?: AuditReport | null; mauxiKept?: boolean } }
@@ -13,15 +14,15 @@ test.beforeAll(async ({}, testInfo) => {
   page = await application.firstWindow();
   await expect(page.locator(".bridge-ready")).toHaveCount(2, { timeout: 30_000 });
   await page.evaluate(() => { window.mauxi!.onAuditReport((report) => { window.lastAuditReport = report; }); });
-  await page.getByRole("button", { name: "Responsive audit", exact: true }).click();
+  await entryAuditSettled(page);
 });
 
 test.afterAll(async () => { await application?.close(); });
 
 test("a finding on the second of identical sibling cards resolves to and highlights that card", async ({}, testInfo) => {
   const panel = page.getByRole("complementary", { name: "Responsive audit" });
-  await panel.getByRole("button", { name: "Run audit", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 120_000 }).toBe(true);
+  // The canvas audited the page when it opened.
+  await expect.poll(() => page.evaluate(() => !!window.lastAuditReport), { timeout: 150_000 }).toBe(true);
   const report = (await page.evaluate(() => window.lastAuditReport))!;
   const findings = report.findings.filter((finding) => finding.kind === "page-overflow");
   expect(findings).toHaveLength(1);

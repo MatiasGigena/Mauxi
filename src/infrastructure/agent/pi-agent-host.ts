@@ -72,14 +72,15 @@ type AgentMessage = AgentSession["messages"][number];
 
 const RUN_TURN_LIMIT = 40;
 const RUN_DEADLINE_MS = 300_000;
+const COMMAND_DENIED = "Command denied by the user. It was not executed.";
 const STREAM_IDLE_MS = 90_000;
 
-/** Schema rejections happen before a tool executes, so nothing ran and the model can simply retry. */
+/** Schema rejections and denied commands end before a tool executes, so nothing ran and the model can simply continue. */
 function rejectedBeforeExecution(event: Extract<AgentSessionEvent, { type: "tool_execution_end" }>): boolean {
   const first = event.result?.content?.[0];
   const text = first?.type === "text" ? first.text : "";
 
-  return text.startsWith(`Validation failed for tool "${event.toolName}"`) || text === `Tool ${event.toolName} not found`;
+  return text.startsWith(`Validation failed for tool "${event.toolName}"`) || text === `Tool ${event.toolName} not found` || text === COMMAND_DENIED;
 }
 
 type AgentDialogInput = AgentDialog extends infer Dialog ? Dialog extends AgentDialog ? Omit<Dialog, "id"> : never : never;
@@ -221,6 +222,9 @@ export async function executeCommand(executable: string, args: string[], directo
     if (signal?.aborted) onAbort();
   });
 }
+
+/** The person cancelled provider setup; callers treat it as a normal outcome, not a failure. */
+export class ProviderSetupCancelled extends Error { name = "AbortError"; }
 
 export class PiAgentHost {
   private runtime?: AgentSessionRuntime;
@@ -513,7 +517,7 @@ export class PiAgentHost {
 
     const responsiveAudit = defineTool({
       name: "responsive_audit", label: "Run responsive audit",
-      description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across 320-1920px, 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px, plus axe-core rules (contrast, names, labels, ARIA, landmarks) at the phone, tablet, laptop and desktop profiles. Returns findings with width ranges, which earlier findings are resolved, and which could not be re-checked (unverified: do not claim them fixed). It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused, for one route or a batch. At most four audits (a batch counts as one) per request.`,
+      description: `Re-run Mauxi's deterministic responsive accessibility audit for a project route (default: the route last audited) across a 320-1920px width sweep and device profiles from a 320px phone to a 1920px desktop (portrait and landscape), 200% and 400% zoom and text-spacing profiles, plus a Tab-only keyboard focus walk, closed menus/disclosures opened and tooltips hovered at 320px, plus axe-core rules (contrast, names, labels, ARIA, landmarks) at the phone, tablet, laptop and desktop breakpoints. Returns findings with width ranges, which earlier findings are resolved, and which could not be re-checked (unverified: do not claim them fixed). It loads the page in a hidden window and never touches the visible previews. Pass routes (up to ${SITE_ROUTE_LIMIT}) instead of route to audit several pages in one batch: it returns per-page counts and bug widths only, so audit one route for its findings. Auth, API, action and callback routes are refused, for one route or a batch. At most four audits (a batch counts as one) per request.`,
       parameters: Type.Object({ route: Type.Optional(Type.String({ maxLength: 2_048, pattern: "^/" })), routes: Type.Optional(Type.Array(Type.String({ maxLength: 2_048, pattern: "^/" }), { minItems: 1, maxItems: SITE_ROUTE_LIMIT })) }),
       execute: async (_id, input, signal) => {
         signal?.throwIfAborted();
@@ -650,7 +654,7 @@ export class PiAgentHost {
   }
 
   private async resolveCommandDirectory(input: string): Promise<string> {
-    if (!input || input.includes("\0") || path.isAbsolute(input)) throw new Error("Command cwd must be a relative project directory.");
+    if (!input || input.includes("\0")) throw new Error("Command cwd must be a project directory.");
     const root = await realpath(this.cwd);
     const candidate = await realpath(path.resolve(root, input));
     const relative = path.relative(root, candidate);
@@ -724,9 +728,9 @@ export class PiAgentHost {
 
     try {
       response = await this.requestDialog({ kind: "approval", title: install ? "Approve dependency operation" : "Approve command", message: operation.purpose, operation: exact, cwd: operation.cwd, warnings }, AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])]));
-    } catch { throw new Error("Command denied, timed out, or lost its approval UI. It was not executed."); }
+    } catch (error) { throw new Error(error instanceof Error && error.message === "User cancelled" ? COMMAND_DENIED : "Command approval timed out or lost its approval UI. It was not executed."); }
 
-    if (response !== "approve") throw new Error("Command denied. It was not executed.");
+    if (response !== "approve") throw new Error(COMMAND_DENIED);
   }
 
   private async bindSession(session: AgentSession): Promise<void> {
@@ -844,7 +848,7 @@ export class PiAgentHost {
       }
 
       case "tool_execution_end": {
-        // Arguments the model malformed never reached a non-browser tool: let the model correct them
+        // Malformed arguments and commands the person denied never ran: let the model continue
         // without failing the run or revoking preview control. Browser actions stay fail-closed.
         const harmless = event.isError && !event.toolName.startsWith("browser_") && rejectedBeforeExecution(event);
 
@@ -944,7 +948,7 @@ export class PiAgentHost {
       return [{
         id: `${session.sessionId}:${message === streaming ? "streaming" : index}`,
         role: message.role,
-        text: visibleText || errorMessage || (message === streaming ? "" : "No response text"),
+        text: visibleText || (stopReason === "aborted" ? "Stopped before a response." : errorMessage) || (message === streaming ? "" : "No response text"),
         pending: message === streaming,
         error: stopReason === "error",
       }, ...(noticeView ? [noticeView] : [])];
@@ -1124,10 +1128,11 @@ export class PiAgentHost {
           : /token exchange failed \((\d{3})\)/i.test(reason) ? `The provider rejected sign-in (HTTP ${reason.match(/token exchange failed \((\d{3})\)/i)![1]}). Start a new login attempt.`
             : "Provider setup failed. Start a new login attempt and try again.";
 
-      const failure: NonNullable<AgentSnapshot["error"]> = { kind: "auth", message: cancelled ? "Provider setup cancelled." : message };
-      this.lastError = failure;
-      this.status = failure.message;
-      throw new Error(this.status);
+      if (cancelled) { this.status = "Provider setup cancelled."; throw new ProviderSetupCancelled(this.status); }
+
+      this.lastError = { kind: "auth", message };
+      this.status = message;
+      throw new Error(message);
     } finally {
       controller.abort();
       this.pendingDialogs.delete(noticeId);

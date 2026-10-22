@@ -4,7 +4,12 @@ import type { PreviewId } from "./preview-contract";
 
 export const PREVIEW_IDS = ["desktop", "mobile"] as const;
 export const LABELS = { desktop: "Desktop", mobile: "Mobile" };
+
+/** The furthest the user zooms out; the audit matrix overview may fit further, down to OVERVIEW_MIN_ZOOM. */
 export const MIN_ZOOM = 0.1;
+
+/** Full-page boards of long pages need less than 10% to fit with the live previews. */
+export const OVERVIEW_MIN_ZOOM = 0.05;
 
 /** Automatic fits stop here; only the audit matrix overview fits below it. */
 export const FIT_MIN_ZOOM = 0.25;
@@ -15,7 +20,8 @@ export interface Point { x: number; y: number }
 
 export interface Camera extends Point { zoom: number }
 
-export interface Artboard extends Point { width: number; height: number }
+/** stack: header bands stacked above the board in screen space (they do not scale with the camera), for boards in rows below others. */
+export interface Artboard extends Point { width: number; height: number; stack?: number }
 
 export interface CanvasState {
   version: 1;
@@ -32,10 +38,14 @@ export function defaultCanvas(): CanvasState {
   };
 }
 
-export const clampZoom = (zoom: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+/** floor: the lowest zoom allowed, lower than MIN_ZOOM only to keep an overview the camera already shows. */
+export const clampZoom = (zoom: number, floor = MIN_ZOOM) => Math.max(floor, Math.min(MAX_ZOOM, zoom));
+
+/** Below MIN_ZOOM (an audit overview), zooming never pushes the camera further out than it already is. */
+export const zoomFloor = (camera: Camera) => Math.max(OVERVIEW_MIN_ZOOM, Math.min(MIN_ZOOM, camera.zoom));
 
 export function zoomAt(camera: Camera, zoom: number, anchor: Point): Camera {
-  const next = clampZoom(zoom);
+  const next = clampZoom(zoom, zoomFloor(camera));
 
   return { x: anchor.x - (anchor.x - camera.x) * next / camera.zoom, y: anchor.y - (anchor.y - camera.y) * next / camera.zoom, zoom: next };
 }
@@ -50,7 +60,7 @@ export function fitCamera(boards: Artboard[], area: { width: number; height: num
 
   const size = (zoom: number) => ({
     width: Math.max(...boards.map((b) => (b.x - left + b.width) * zoom)),
-    height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight)),
+    height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight * (1 + (b.stack ?? 0)))),
   });
 
   let low = minZoom; let high = MAX_ZOOM;
@@ -85,7 +95,7 @@ const numberIn = (minimum: number, maximum: number) => Type.Number({ minimum, ma
 
 const pointFields = { x: numberIn(-1e6, 1e6), y: numberIn(-1e6, 1e6) };
 
-const cameraSchema = Type.Object({ ...pointFields, zoom: numberIn(MIN_ZOOM, MAX_ZOOM) });
+const cameraSchema = Type.Object({ ...pointFields, zoom: numberIn(OVERVIEW_MIN_ZOOM, MAX_ZOOM) });
 
 const artboardSchema = Type.Object({ ...pointFields, width: Type.Integer({ minimum: 240, maximum: 3840 }), height: Type.Integer({ minimum: 240, maximum: 2160 }) });
 

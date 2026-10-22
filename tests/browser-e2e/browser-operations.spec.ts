@@ -1,4 +1,5 @@
 import { browserIdentities, closeProject, runBrowser } from "../helpers/workspace-controls";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +9,7 @@ import type { BrowserRequest } from "../../src/application/browser-contract";
 for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scroll/logs, exact navigation and disconnect`, async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-operations-"));
   const config = path.resolve("fixtures/vite/vite.config.ts"), before = await readFile(config, "utf8");
-  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: fixture === "next" ? "" : "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
+  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: fixture === "next" ? "" : "http://127.0.0.1:44173/?audit=manual", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
   let stderr = ""; app.process().stderr?.on("data", data => { stderr += String(data); });
 
   try {
@@ -21,6 +22,9 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       await writeFile(testInfo.outputPath(`${fixture}-startup-debug.json`), JSON.stringify({ shell: await page.evaluate(() => ({ text: document.body.innerText, origin: location.origin })), frames: await Promise.all(page.frames().map(f => f.evaluate(() => ({ url: location.href, origin: location.origin, ready: document.readyState, name: window.name })).catch(() => null))), bootstrap: await page.evaluate(() => window.mauxi!.getBootstrap()), stderr }, null, 2));
       throw error;
     });
+
+    // The packaged renderer cannot opt out of the entry audit; its hidden audit window is gone once that run has finished.
+    if (fixture === "next") await entryAuditSettled(page);
     const frame = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
     await frame.evaluate(() => {
       const lab = document.createElement("section"); lab.id = "verification-lab";

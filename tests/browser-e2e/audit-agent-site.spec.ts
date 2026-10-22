@@ -61,7 +61,7 @@ test("the agent cannot audit an excluded route, even when the user audited it la
     const before = await signOuts();
 
     // The user may audit an excluded route from the panel; it becomes the default route of the agent's next audit.
-    const login = await page.evaluate(workspaceId => window.mauxi!.auditRun({ workspaceId, route: "/login" }), active.workspaceId);
+    const login = (await page.evaluate(workspaceId => window.mauxi!.auditRun({ workspaceId, route: "/login" }), active.workspaceId))!;
     expect(login.route).toBe("/login");
 
     await page.getByLabel("Message", { exact: true }).fill("Re-run the audit, then audit the sign-out endpoint");
@@ -102,7 +102,7 @@ test("stopping the agent mid-batch cancels its site audit and frees the audit fo
     await expect.poll(async () => (await page.evaluate(() => window.mauxi!.agentBootstrap())).runState, { timeout: 30_000 }).toBe("idle");
 
     // The audit lock is free at once: the user's own audit runs right after, and no batch page completes late.
-    const user = await page.evaluate(workspaceId => window.mauxi!.auditRun({ workspaceId, route: "/audit-cards.html" }), active.workspaceId);
+    const user = (await page.evaluate(workspaceId => window.mauxi!.auditRun({ workspaceId, route: "/audit-cards.html" }), active.workspaceId))!;
     expect(user.route).toBe("/audit-cards.html");
     expect((await page.evaluate(() => window.lastSiteReport))!.pages.map((item) => item.status)).toEqual(["skipped", "skipped", "skipped"]);
     await page.screenshot({ path: testInfo.outputPath("agent-site-stopped.png") });
@@ -122,8 +122,10 @@ test("the panel shows the agent's own audit running, and its Stop cancels it", a
 
   try {
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
-    const stop = panel.getByRole("button", { name: "Stop", exact: true });
+    const stop = panel.getByRole("button", { name: "Stop audit", exact: true });
     const rerun = panel.getByRole("button", { name: "Re-run", exact: true });
+    // The workspace's entry audit opened the panel; hidden, it comes back with the agent's run.
+    await panel.getByRole("button", { name: "Hide audit panel", exact: true }).click();
     await expect(panel).toHaveCount(0);
     await page.getByLabel("Message", { exact: true }).fill("Audit the cards page, then re-run it");
     await page.getByRole("button", { name: "Send", exact: true }).click();

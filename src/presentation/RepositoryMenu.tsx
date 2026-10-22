@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut } from "lucide-react";
 import logo from "./assets/logo-mauxi.png";
+import { errorText } from "./error-text";
 
 export function RepositoryMenu({ root, onClose }: { root: string; onClose: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -24,7 +25,7 @@ export function RepositoryMenu({ root, onClose }: { root: string; onClose: () =>
     setPending(true); setError("");
 
     try { await onClose(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    catch (reason) { setError(errorText(reason)); }
     finally { setPending(false); }
   }
 
