@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -15,7 +15,7 @@ import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
 import { ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
-import { auditMatrix, AuditBoards } from "./AuditBoards";
+import { auditMatrix, AuditBoards, type FormingAudit } from "./AuditBoards";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
@@ -690,16 +690,30 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
-  /** Shows a report in the panel and fits the canvas to the live previews plus its snapshot row. */
+  /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
   function showReport(report: AuditReport, fit = true) {
     setAudit(report);
     setSelectedFinding(null);
 
-    if (fit) setLayout((current) => {
-      const live = PREVIEW_IDS.map((id) => current.boards[id]);
+    if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
+  }
 
-      return { ...unfocus(current), camera: fitCamera([...live, ...auditMatrix(report, null, live).boards], geometry.current, geometry.current.headerHeight, MIN_ZOOM) };
-    });
+  /** Fits the live previews and the audit matrix in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean): Camera {
+    const live = PREVIEW_IDS.map((id) => state.boards[id]);
+    const boards = [...live, ...auditMatrix(report, forming, live).boards];
+    const element = canvas.current;
+
+    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    const rect = element.getBoundingClientRect();
+    const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
+    const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
+    const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
+    // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
+    const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
+    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+
+    return { ...camera, y: camera.y + top };
   }
 
   /** Opens the panel and fits the live previews and a placeholder for every audit profile, unless the user moved the camera since the canvas opened. */
@@ -708,9 +722,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     if (!element || !sameCamera(layoutRef.current.camera, entryCamera.current)) return null;
     const wide = matchMedia("(min-width: 1100px)").matches;
-    const live = PREVIEW_IDS.map((id) => unfocus(layoutRef.current).boards[id]);
-    const area = { width: Math.max(320, element.clientWidth - (wide ? AUDIT_PANEL_SPACE : 0)), height: element.clientHeight };
-    const camera = fitCamera([...live, ...auditMatrix(null, { snapshots: [], current: null }, live).boards], area, geometry.current.headerHeight, MIN_ZOOM);
+    const camera = matrixCamera(unfocus(layoutRef.current), null, { snapshots: [], current: null }, wide);
 
     if (wide) setPanelOpen(true);
     setLayout((current) => ({ ...unfocus(current), camera }));
@@ -845,7 +857,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
         <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
       </button>}
-      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={MIN_ZOOM} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
