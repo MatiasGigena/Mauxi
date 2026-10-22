@@ -1,4 +1,5 @@
 import { browserIdentities, closeProject, runBrowser } from "../helpers/workspace-controls";
+import { entryAuditSettled } from "../helpers/entry-audit";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -21,6 +22,9 @@ for (const fixture of ["vite", "next"]) test(`${fixture}: visible hover/type/scr
       await writeFile(testInfo.outputPath(`${fixture}-startup-debug.json`), JSON.stringify({ shell: await page.evaluate(() => ({ text: document.body.innerText, origin: location.origin })), frames: await Promise.all(page.frames().map(f => f.evaluate(() => ({ url: location.href, origin: location.origin, ready: document.readyState, name: window.name })).catch(() => null))), bootstrap: await page.evaluate(() => window.mauxi!.getBootstrap()), stderr }, null, 2));
       throw error;
     });
+
+    // The packaged renderer cannot opt out of the entry audit; its hidden audit window is gone once that run has finished.
+    if (fixture === "next") await entryAuditSettled(page);
     const frame = page.frames().find(f => f.url().includes("mauxiPreview=desktop"))!;
     await frame.evaluate(() => {
       const lab = document.createElement("section"); lab.id = "verification-lab";
