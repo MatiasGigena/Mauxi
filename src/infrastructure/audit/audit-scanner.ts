@@ -56,6 +56,9 @@ function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === new URL(origin).origin; } catch { return false; }
 }
 
+/** The run ended because its workspace or its hidden window closed; callers treat it as a normal outcome, not a failure. */
+export class AuditClosed extends Error { name = "AbortError"; }
+
 /** snapshotScale below 1 captures snapshots at reduced resolution (site audits), keeping CSS-pixel geometry. */
 export interface AuditScanRequest { url: string; route: string; origin: string; previous: AuditReport | null; snapshotScale?: number }
 
@@ -70,7 +73,7 @@ export class AuditScanner {
 
   get running(): boolean { return !!this.controller; }
 
-  cancel(reason = "Audit cancelled"): void { this.controller?.abort(new Error(reason)); }
+  cancel(reason = new Error("Audit cancelled")): void { this.controller?.abort(reason); }
 
   /** The caller's signal cancels only this run; cancel() stops whichever run holds the lock. */
   run(request: AuditScanRequest, caller?: AbortSignal): Promise<AuditReport> {
@@ -105,7 +108,13 @@ export class AuditScanner {
         webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
       });
 
-      return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]);
+      // Quitting the app closes every window: a run losing its window that way ends as closed, not with the debugger's "target closed".
+      const closed = () => { if (this.controller === controller) controller.abort(new AuditClosed("The audit window closed.")); };
+
+      window.once("close", closed); window.webContents.debugger.once("detach", closed);
+
+      try { return await Promise.race([work(window, controller.signal, confine(window, request.origin, request.url)), aborted]); }
+      catch (error) { throw controller.signal.aborted ? controller.signal.reason : error; }
     } finally {
       clearTimeout(timer); caller?.removeEventListener("abort", stop);
 

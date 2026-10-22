@@ -160,14 +160,14 @@ test("cancels redirects and page navigations to excluded routes before they are 
   const before = await signOuts();
 
   // The account link redirects to an allowed page and then to /api/logout; the members page script also navigates there.
-  const discovery = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }), MEMBERS);
+  const discovery = (await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }), MEMBERS))!;
   expect(discovery.routes.map((item) => item.route)).toEqual([MEMBERS, BLOG, LAB, ABOUT]);
   expect(discovery.excluded).toContainEqual({ route: ACCOUNT, reason: `Redirects to an excluded route (${EXCLUDED})` });
 
   const start = await page.evaluate((route) => window.mauxi!.auditDiscover({ fixture: "vite", route }).then(() => "resolved", (error: Error) => error.message), ACCOUNT);
   expect(start).toContain("The start page redirects outside the allowed routes.");
 
-  const site = await page.evaluate((routes) => window.mauxi!.auditSite({ fixture: "vite", routes }), [ACCOUNT]);
+  const site = (await page.evaluate((routes) => window.mauxi!.auditSite({ fixture: "vite", routes }), [ACCOUNT]))!;
   expect(site.pages.map((item) => [item.route, item.status])).toEqual([[ACCOUNT, "failed"]]);
   expect(site.pages[0].error).toContain(`The page redirects to an excluded route (${EXCLUDED}).`);
 

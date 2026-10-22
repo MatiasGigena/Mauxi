@@ -34,10 +34,10 @@ contextBridge.exposeInMainWorld("mauxi", {
   capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }) {
     return ipcRenderer.invoke("mauxi:capture-preview", input);
   },
-  auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport> { return ipcRenderer.invoke("mauxi:audit-run", input); },
+  auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport | null> { return ipcRenderer.invoke("mauxi:audit-run", input); },
   auditCancel(): Promise<void> { return ipcRenderer.invoke("mauxi:audit-cancel"); },
-  auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery> { return ipcRenderer.invoke("mauxi:audit-discover", input); },
-  auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport> { return ipcRenderer.invoke("mauxi:audit-site", input); },
+  auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery | null> { return ipcRenderer.invoke("mauxi:audit-discover", input); },
+  auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport | null> { return ipcRenderer.invoke("mauxi:audit-site", input); },
   auditOpen(input: AuditScope & { route: string }): Promise<AuditReport | null> { return ipcRenderer.invoke("mauxi:audit-open", input); },
   onAuditSite(callback: (report: AuditSiteReport) => void) {
     const listener = (_event: Electron.IpcRendererEvent, value: AuditSiteReport) => callback(value);

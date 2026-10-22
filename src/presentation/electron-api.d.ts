@@ -37,10 +37,10 @@ declare global {
       resolveSource(input: { workspaceId: string; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       resolveFixtureSource(input: { fixture: "vite" | "next"; hint: string; lineNumber?: number | null; columnNumber?: number | null; locator?: { tag: string; testIds: string[] } }): Promise<{ filePath: string; fileFingerprint: string; lineNumber?: number; columnNumber?: number; method?: "react-grab" | "jsx-attribute" } | null>;
       capturePreview(input: { workspaceId?: string; previewId: string; selectionId?: string; x: number; y: number; width: number; height: number }): Promise<{ path: string; width: number; height: number }>;
-      auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport>;
+      auditRun(input: AuditRunRequest & { fixture?: "vite" | "next" | "next-turbopack" }): Promise<AuditReport | null>;
       auditCancel(): Promise<void>;
-      auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery>;
-      auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport>;
+      auditDiscover(input: AuditScope & { route: string }): Promise<RouteDiscovery | null>;
+      auditSite(input: AuditScope & { routes: string[] }): Promise<AuditSiteReport | null>;
       auditOpen(input: AuditScope & { route: string }): Promise<AuditReport | null>;
       onAuditSite(callback: (report: AuditSiteReport) => void): () => void;
       onAuditProgress(callback: (progress: AuditProgress) => void): () => void;

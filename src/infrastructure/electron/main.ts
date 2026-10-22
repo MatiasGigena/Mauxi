@@ -20,7 +20,7 @@ import { WorkspaceStore } from "../project/workspace-store";
 import { ProjectPickerLocation } from "../project/project-picker-location";
 import { resolveWorkspaceSource } from "../project/source-resolver";
 import { inspectDomSource } from "../project/dom-source";
-import { AuditScanner } from "../audit/audit-scanner";
+import { AuditClosed, AuditScanner } from "../audit/audit-scanner";
 import { FindingContextListSchema, type AuditReport, type AuditScope, type AuditSiteReport, type AuditSiteStep } from "../../application/audit-contract";
 import { linkVerdict, SITE_ROUTE_LIMIT, sitePage } from "../../application/audit-site";
 import { isAxeHelpUrl } from "../../application/audit-axe";
@@ -166,7 +166,12 @@ let siteStep: AuditSiteStep | null = null;
 /** Bumped when a workspace closes: a run still finishing for the old workspace must not store or publish anything. */
 let auditEpoch = 0;
 
-function assertAuditEpoch(epoch: number): void { if (epoch !== auditEpoch) throw new Error("Workspace closed"); }
+function assertAuditEpoch(epoch: number): void { if (epoch !== auditEpoch) throw new AuditClosed("Workspace closed"); }
+
+/** A run that ended because its workspace or window closed resolves empty for the panel: closing is a normal outcome, not a failure. */
+async function unlessClosed<T>(run: () => Promise<T>): Promise<T | null> {
+  try { return await run(); } catch (error) { if (error instanceof AuditClosed) return null; throw error; }
+}
 
 const auditScanner = new AuditScanner({
   session: () => {
@@ -322,12 +327,12 @@ async function afterRunningAudit(signal?: AbortSignal): Promise<void> {
   }
 }
 
-function cancelAudits(reason?: string): void {
+function cancelAudits(reason?: Error): void {
   if (siteRun) siteRun.cancelled = true;
   auditScanner.cancel(reason);
 }
 
-function resetAudits(): void { auditEpoch++; cancelAudits("Workspace closed"); auditReports.clear(); siteReports.clear(); auditTarget = null; }
+function resetAudits(): void { auditEpoch++; cancelAudits(new AuditClosed("Workspace closed")); auditReports.clear(); siteReports.clear(); auditTarget = null; }
 
 function cleanupCaptureCache(): void {
   try { captures.cleanup(); }
@@ -753,7 +758,7 @@ function registerIpc(): void {
 
     if (!Value.Check(AuditRunInput, input) || !input.route.startsWith("/")) throw new Error("Invalid audit request");
 
-    return runAudit({ ...auditBase(input), route: input.route });
+    return unlessClosed(() => runAudit({ ...auditBase(input), route: input.route }));
   });
 
   ipcMain.handle("mauxi:audit-discover", async (event, input) => {
@@ -764,7 +769,7 @@ function registerIpc(): void {
 
     if (siteRun) throw new Error("An audit is already running.");
 
-    return auditScanner.discover({ url: new URL(input.route, base.origin).href, route: input.route, origin: base.origin, depth: 2 });
+    return unlessClosed(() => auditScanner.discover({ url: new URL(input.route, base.origin).href, route: input.route, origin: base.origin, depth: 2 }));
   });
 
   ipcMain.handle("mauxi:audit-site", async (event, input) => {
@@ -772,7 +777,7 @@ function registerIpc(): void {
 
     if (!Value.Check(AuditSiteInput, input)) throw new Error("Invalid site audit request");
 
-    return runSiteAudit(auditBase(input), input.routes);
+    return unlessClosed(() => runSiteAudit(auditBase(input), input.routes));
   });
 
   ipcMain.handle("mauxi:audit-open", (event, input) => {
