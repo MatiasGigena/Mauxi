@@ -135,13 +135,18 @@ async function onboard(app: ElectronApplication, shot: Shot) {
   return workspace;
 }
 
+/** Closing opens the welcome window. The hidden audit window is a window too, so the next one is the window offering Open Project. */
 async function leave(app: ElectronApplication, page: Page) {
-  const welcome = app.waitForEvent("window", { timeout: 120_000 });
+  let next: Page | undefined;
   await closeProject(page);
-  const next = await welcome;
-  await expect(next.getByRole("button", { name: "Open Project", exact: true })).toBeVisible({ timeout: 120_000 });
 
-  return next;
+  await expect.poll(async () => {
+    for (const window of app.windows()) if (window !== page && await window.getByRole("button", { name: "Open Project", exact: true }).isVisible().catch(() => false)) next = window;
+
+    return !!next;
+  }, { timeout: 120_000 }).toBe(true);
+
+  return next!;
 }
 
 /** Runs a full Electron session, collecting renderer console, page errors, failed loads, alerts and main-process stderr. */
