@@ -108,6 +108,9 @@ export class AuditScanner {
         webPreferences: { offscreen: true, session: this.options.session(), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true, backgroundThrottling: false },
       });
 
+      // CDP screenshots read the compositor directly; nothing listens for paint frames, and capturing them at 60 fps while the
+      // sweep resizes the page made the GPU process log "ProduceSkia ... non-existent mailbox" errors.
+      window.webContents.stopPainting();
       // Quitting the app closes every window: a run losing its window that way ends as closed, not with the debugger's "target closed".
       const closed = () => { if (this.controller === controller) controller.abort(new AuditClosed("The audit window closed.")); };
 
