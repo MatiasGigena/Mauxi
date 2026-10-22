@@ -746,13 +746,14 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       if (entry) revealed = revealMatrix();
       const report = await pending;
 
-      // No report: the workspace closed under the run, which is not a failure to show.
-      if (report) return showReport(report, !entry || sameCamera(layoutRef.current.camera, revealed));
-    } catch (error) { setAuditError(errorText(error)); }
-    finally { setAuditRunning(false); }
+      // No report: the workspace closed under the run. That is not a failure, and its layout must not change (or be saved) any more.
+      if (report) showReport(report, !entry || sameCamera(layoutRef.current.camera, revealed));
+    } catch (error) {
+      setAuditError(errorText(error));
 
-    // A stopped, failed or closed entry run takes its placeholders away: return to the live previews if the camera is still where the run put it.
-    if (revealed && sameCamera(layoutRef.current.camera, revealed)) setLayout((current) => fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight));
+      // A stopped or failed entry run takes its placeholders away: return to the live previews if the camera is still where the run put it.
+      if (revealed && sameCamera(layoutRef.current.camera, revealed)) setLayout((current) => fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight));
+    } finally { setAuditRunning(false); }
   }
 
   // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
