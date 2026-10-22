@@ -75,6 +75,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return isFixture(value) ? value : "vite";
   });
 
+  /** Harnesses whose checks need a still canvas open it without the entry audit (?audit=manual); the app never sets it. */
+  const [manualAudit] = useState(() => new URLSearchParams(location.search).get("audit") === "manual");
+
   const [proofPath] = useState(() => {
     const value = new URLSearchParams(location.search).get("path");
 
@@ -754,7 +757,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
   // While the agent holds the browser it waits: the agent is checking the previews and audits them itself when it needs to.
   useEffect(() => {
-    if (entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
+    if (manualAudit || entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
 
     if (audit || auditRunning || hostAudit || site.mode !== "off" || site.running || site.discovering) { entryAudit.current = session;
 

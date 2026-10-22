@@ -41,7 +41,7 @@ async function pick(page: Page, id: string, file: string, anchor: string) {
 for (const scale of [1, 2]) for (const fixture of ["vite", "next"] as const) {
   test(`${fixture}: exact provenance, moving selection and reduced motion at display scale ${scale}`, async ({}, testInfo) => {
     test.setTimeout(120_000);
-    const app = await electron.launch({ args: [path.resolve("dist-electron/main.js"), `--force-device-scale-factor=${scale}`], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+    const app = await electron.launch({ args: [path.resolve("dist-electron/main.js"), `--force-device-scale-factor=${scale}`], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173/?audit=manual" } });
 
     try {
       const page = await app.firstWindow();
@@ -139,7 +139,7 @@ test("Next: delayed server bytes, visible fallback, hydrated card and client rou
 
   expect(fallbackAt).toBeGreaterThan(0);
   expect(contentAt - fallbackAt).toBeGreaterThan(700);
-  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173/?audit=manual" } });
 
   try {
     const page = await app.firstWindow();

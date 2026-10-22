@@ -10,7 +10,7 @@ const mobile = () => page.frameLocator('[data-testid="mobile-preview"]');
 const button = (name: string) => page.getByRole("button", { name, exact: true });
 
 test.beforeAll(async ({}, testInfo) => {
-  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } });
+  application = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_PROOF: "1", XDG_CONFIG_HOME: testInfo.outputPath("profile"), MAUXI_EVIDENCE_DIR: testInfo.outputPath("captures"), MAUXI_RENDERER_URL: "http://127.0.0.1:44173/?audit=manual" } });
   page = await application.firstWindow();
 });
 

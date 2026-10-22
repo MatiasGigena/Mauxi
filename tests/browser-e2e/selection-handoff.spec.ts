@@ -48,7 +48,7 @@ test("after handoff the agent receives selections, searches one file and lists t
   } } }));
   await writeFile(path.join(profile, "model-preference.json"), JSON.stringify({ defaultProvider: "handoff-local", defaultModel: "handoff" }));
 
-  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
+  const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: { ...process.env, MAUXI_TEST_MODE: "1", MAUXI_RENDERER_URL: "http://127.0.0.1:44173/?audit=manual", MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") } });
 
   try {
     let page = await app.firstWindow();
