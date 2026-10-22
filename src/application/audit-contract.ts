@@ -205,7 +205,8 @@ export interface AuditAxeInfo { version: string | null; profiles: string[]; dura
 
 export interface AuditInteractionSummary { durationMs: number; profiles: string[]; focusStops: number; disclosures: number; hovers: number; notes: string[] }
 
-export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "interactions" | "done"; done: number; total: number; width?: number; site?: AuditSiteStep }
+/** profile: the profile being measured. snapshot: a profile's board, sent once as soon as it is captured, ahead of the report. */
+export interface AuditProgress { phase: "loading" | "sweep" | "profiles" | "interactions" | "done"; done: number; total: number; width?: number; profile?: string; snapshot?: AuditSnapshot; site?: AuditSiteStep }
 
 /** Where a site audit is: the zero-based page index of the batch and its route. */
 export interface AuditSiteStep { index: number; total: number; route: string }

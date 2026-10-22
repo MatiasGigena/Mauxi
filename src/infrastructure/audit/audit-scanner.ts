@@ -175,12 +175,8 @@ export class AuditScanner {
     const interactionProfiles = INTERACTION_PROFILE_IDS.flatMap((id) => AUDIT_PROFILES.filter((profile) => profile.id === id));
     const total = sweep.length + AUDIT_PROFILES.length + interactionProfiles.length;
 
-    const progress = (phase: AuditProgress["phase"], done: number, width?: number) => {
-      const update: AuditProgress = { phase, done, total };
-
-      if (width) update.width = width;
-
-      if (!signal.aborted) this.options.onProgress(update);
+    const progress = (phase: AuditProgress["phase"], done: number, detail: Pick<AuditProgress, "width" | "profile" | "snapshot"> = {}) => {
+      if (!signal.aborted) this.options.onProgress({ phase, done, total, ...detail });
     };
 
     progress("loading", 0);
@@ -245,7 +241,7 @@ export class AuditScanner {
     let done = 0;
 
     for (const width of sweep) {
-      progress("sweep", done, width);
+      progress("sweep", done, { width });
       await resize(width, SWEEP_HEIGHT, 60);
       samples.push({ width, height: SWEEP_HEIGHT, profile: null, measurement: await measure(false) });
       done++;
@@ -254,7 +250,7 @@ export class AuditScanner {
     const snapshots: AuditSnapshot[] = [];
 
     for (const profile of AUDIT_PROFILES) {
-      progress("profiles", done, profile.width);
+      progress("profiles", done, { width: profile.width, profile: profile.id });
 
       if (profile.textSpacing) await evaluate(`(() => { const style = document.createElement("style"); style.dataset.mauxiOverlay = "true"; style.id = "mauxi-audit-spacing"; style.textContent = ${JSON.stringify(SPACING_STYLE)}; document.head.append(style); })()`);
       await resize(profile.width, profile.height, 250);
@@ -278,6 +274,7 @@ export class AuditScanner {
 
       if (profile.note) snapshot.note = profile.note;
       snapshots.push(snapshot);
+      progress("profiles", done, { width: profile.width, profile: profile.id, snapshot });
 
       if (profile.textSpacing) await evaluate(`document.getElementById("mauxi-audit-spacing")?.remove()`);
       done++;
@@ -311,7 +308,7 @@ export class AuditScanner {
       resize: (width, height) => resize(width, height, 250),
       capture: async () => `data:image/jpeg;base64,${(await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72 })).data}`,
       blockedNavigations: () => interaction.blocked,
-    }, interactionProfiles, signal, (profile) => { progress("interactions", done, profile.width); done++; }).finally(() => { interaction.active = false; });
+    }, interactionProfiles, signal, (profile) => { progress("interactions", done, { width: profile.width, profile: profile.id }); done++; }).finally(() => { interaction.active = false; });
 
     if (!allowed(contents.getURL())) throw new Error("The audited page left the approved project origin.");
     progress("done", total);
