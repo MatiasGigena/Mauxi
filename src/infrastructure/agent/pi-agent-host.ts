@@ -944,7 +944,7 @@ export class PiAgentHost {
       return [{
         id: `${session.sessionId}:${message === streaming ? "streaming" : index}`,
         role: message.role,
-        text: visibleText || errorMessage || (message === streaming ? "" : "No response text"),
+        text: visibleText || (stopReason === "aborted" ? "Stopped before a response." : errorMessage) || (message === streaming ? "" : "No response text"),
         pending: message === streaming,
         error: stopReason === "error",
       }, ...(noticeView ? [noticeView] : [])];
