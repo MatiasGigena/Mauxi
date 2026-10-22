@@ -258,8 +258,7 @@ export class AuditScanner {
 
       if (profile.textSpacing) await evaluate(`(() => { const style = document.createElement("style"); style.dataset.mauxiOverlay = "true"; style.id = "mauxi-audit-spacing"; style.textContent = ${JSON.stringify(SPACING_STYLE)}; document.head.append(style); })()`);
       await resize(profile.width, profile.height, 250);
-      // axe runs once per distinct layout: text-spacing overrides and the short 400% zoom viewport repeat a measured width.
-      const axeRun = profile.textSpacing || profile.viewportOnly ? null : await runAxeHere(profile.label);
+      const axeRun = profile.axe ? await runAxeHere(profile.label) : null;
       const targets = [...new Set(axeRun?.results.flatMap((result) => result.nodes.flatMap((node) => node.target.includes(" >>> ") ? [] : [node.target])) ?? [])].slice(0, 200);
       const measurement = await measure(true, axeRun ? targets : undefined);
       const sample: AuditSample = { width: profile.width, height: profile.height, profile, measurement };
@@ -272,15 +271,13 @@ export class AuditScanner {
       }
 
       samples.push(sample);
+      // Every profile becomes a canvas board. The short zoom viewports show only what fits on screen.
+      const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
+      const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: request.snapshotScale ?? 1 } });
+      const snapshot: AuditSnapshot = { profileId: profile.id, label: profile.label, width: profile.width, height: profile.height, imageHeight, image: `data:image/jpeg;base64,${shot.data}` };
 
-      if (profile.snapshot) {
-        const imageHeight = profile.viewportOnly ? profile.height : Math.max(profile.height, Math.min(SNAPSHOT_MAX_HEIGHT, Math.ceil(measurement.documentHeight)));
-        const shot = await query(Screenshot, "Page.captureScreenshot", { format: "jpeg", quality: 72, captureBeyondViewport: !profile.viewportOnly, clip: { x: 0, y: 0, width: profile.width, height: imageHeight, scale: request.snapshotScale ?? 1 } });
-        const snapshot: AuditSnapshot = { profileId: profile.id, label: profile.label, width: profile.width, height: profile.height, imageHeight, image: `data:image/jpeg;base64,${shot.data}` };
-
-        if (profile.note) snapshot.note = profile.note;
-        snapshots.push(snapshot);
-      }
+      if (profile.note) snapshot.note = profile.note;
+      snapshots.push(snapshot);
 
       if (profile.textSpacing) await evaluate(`document.getElementById("mauxi-audit-spacing")?.remove()`);
       done++;

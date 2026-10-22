@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
-import { formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
+import { AUDIT_PROFILES, formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
 import { mergeRanges } from "../application/audit-site";
 
 const MIN_WIDTH = 320;
@@ -129,7 +129,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     {report && pageBar}
 
     {!report && !running && !siteView && <div className="audit-empty">
-      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks phone, tablet, laptop, desktop, 400% zoom and text-spacing profiles, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
+      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks {AUDIT_PROFILES.length} profiles from a 320px phone to a 1920px desktop, in portrait and landscape, at 200% and 400% zoom and with increased text spacing, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
       <ul aria-label="Checks">{CHECKS.map((check) => <li key={check}>{check}</li>)}</ul>
       <p className="audit-empty-site"><Layers size={13} aria-hidden="true" />Use <strong>Audit site</strong> to find the pages linked from here and audit them together.</p>
     </div>}

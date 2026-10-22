@@ -83,21 +83,29 @@ export interface AuditProfile {
   height: number;
   note?: string;
   textSpacing?: boolean;
-  snapshot: boolean;
+  /** Run axe-core here: once per distinct breakpoint layout, since its rules rarely change between neighbouring widths. */
+  axe?: boolean;
   /** Capture only the viewport instead of the full page, to show what fits on screen. */
   viewportOnly?: boolean;
 }
 
-/** Profiles measured with every check. The width sweep below covers the gaps between them. */
+/** Profiles measured with every check and captured as a canvas board each, in board order. The width sweep below covers the gaps between them. */
 export const AUDIT_PROFILES: readonly AuditProfile[] = [
-  { id: "phone-sm", label: "Small phone", width: 320, height: 568, note: "WCAG 1.4.10 reflow width", snapshot: true },
-  { id: "phone", label: "Phone", width: 390, height: 844, snapshot: true },
-  { id: "tablet", label: "Tablet", width: 768, height: 1024, snapshot: true },
-  { id: "laptop", label: "Laptop", width: 1280, height: 800, snapshot: true },
-  { id: "desktop", label: "Desktop", width: 1440, height: 900, snapshot: true },
-  { id: "zoom-400", label: "400% zoom", width: 320, height: 256, note: "1280×1024 at 400% zoom", snapshot: true, viewportOnly: true },
-  { id: "text-spacing", label: "Text spacing", width: 320, height: 568, note: "WCAG 1.4.12 overrides", textSpacing: true, snapshot: true },
-  { id: "text-spacing-wide", label: "Text spacing (wide)", width: 1280, height: 800, note: "WCAG 1.4.12 overrides", textSpacing: true, snapshot: false },
+  { id: "phone-sm", label: "Small phone", width: 320, height: 568, note: "WCAG 1.4.10 reflow width", axe: true },
+  { id: "android", label: "Android", width: 360, height: 800 },
+  { id: "phone", label: "Phone", width: 390, height: 844, axe: true },
+  { id: "phone-lg", label: "Large phone", width: 430, height: 932 },
+  { id: "tablet", label: "Tablet", width: 768, height: 1024, axe: true },
+  { id: "phone-landscape", label: "Phone landscape", width: 844, height: 390, note: "WCAG 1.3.4 orientation" },
+  { id: "tablet-landscape", label: "Tablet landscape", width: 1024, height: 768, axe: true },
+  { id: "laptop", label: "Laptop", width: 1280, height: 800, axe: true },
+  { id: "laptop-hd", label: "HD laptop", width: 1366, height: 768 },
+  { id: "desktop", label: "Desktop", width: 1440, height: 900, axe: true },
+  { id: "desktop-wide", label: "Wide desktop", width: 1920, height: 1080, axe: true },
+  { id: "zoom-200", label: "200% zoom", width: 640, height: 512, note: "1280×1024 at 200% zoom", viewportOnly: true },
+  { id: "zoom-400", label: "400% zoom", width: 320, height: 256, note: "1280×1024 at 400% zoom", viewportOnly: true },
+  { id: "text-spacing", label: "Text spacing", width: 320, height: 568, note: "WCAG 1.4.12 overrides", textSpacing: true },
+  { id: "text-spacing-wide", label: "Text spacing (wide)", width: 1280, height: 800, note: "WCAG 1.4.12 overrides", textSpacing: true },
 ];
 
 export const SWEEP_HEIGHT = 900;
