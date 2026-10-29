@@ -1,3 +1,4 @@
+import selection, { type BendList, type BendSel } from "./generated/selection.mjs";
 import type { ElementFingerprint, SelectionCapture } from "./preview-contract";
 
 export type SelectionStatus = "current" | "stale";
@@ -10,10 +11,28 @@ export interface StoredSelection {
   requiresRepick?: boolean;
 }
 
+// Freshness decisions live in bend/selection.bend, where LAWS.bend proves them;
+// each returns one flag per stored selection, in order.
+function toBend(selections: readonly StoredSelection[]): BendList<BendSel> {
+  return selections.reduceRight<BendList<BendSel>>((tail, { capture, status, requiresRepick }) => ({
+    $: "Con",
+    head: { $: "Sel", preview: capture.previewId, generation: capture.documentGeneration, current: status === "current", repick: requiresRepick === true },
+    tail,
+  }), { $: "Nil" });
+}
+
+function flags(list: BendList<boolean>): boolean[] {
+  const result: boolean[] = [];
+
+  for (let node = list; node.$ === "Con"; node = node.tail) result.push(node.head);
+
+  return result;
+}
+
 export function selectionMarkerIds(selections: readonly StoredSelection[], previewId: string, generation: string): string[] {
-  return selections.filter(item => item.status === "current" && !item.requiresRepick
-    && item.capture.previewId === previewId && item.capture.documentGeneration === generation)
-    .slice(0, 8).map(item => item.capture.selectionId);
+  const marked = flags(selection["Selection.markers"](toBend(selections), 8, previewId, generation));
+
+  return selections.filter((_, index) => marked[index]).map(item => item.capture.selectionId);
 }
 
 export function selectionCapturePaths(selections: readonly StoredSelection[]): string[] {
@@ -34,9 +53,11 @@ export function markSelectionsAfterRouteChange(
   selections: StoredSelection[],
   previewId: string,
 ): StoredSelection[] {
-  return selections.map((selection) => selection.capture.previewId === previewId
-    ? { ...selection, status: "stale", requiresRepick: true, staleReason: "The preview route changed; pick this target again." }
-    : selection);
+  const stale = flags(selection["Selection.stale_after_route"](toBend(selections), previewId));
+
+  return selections.map((item, index) => stale[index]
+    ? { ...item, status: "stale", requiresRepick: true, staleReason: "The preview route changed; pick this target again." }
+    : item);
 }
 
 export function markSelectionsAfterDocumentChange(
@@ -44,9 +65,9 @@ export function markSelectionsAfterDocumentChange(
   previewId: string,
   newGeneration: string,
 ): StoredSelection[] {
-  return selections.map((selection) =>
-    selection.capture.previewId === previewId && selection.capture.documentGeneration !== newGeneration
-      ? { ...selection, status: "stale", requiresRepick: true, staleReason: "The preview document changed; pick this target again." }
-      : selection,
-  );
+  const stale = flags(selection["Selection.stale_after_document"](toBend(selections), previewId, newGeneration));
+
+  return selections.map((item, index) => stale[index]
+    ? { ...item, status: "stale", requiresRepick: true, staleReason: "The preview document changed; pick this target again." }
+    : item);
 }

@@ -30,6 +30,8 @@
     "test:session-e2e": "vitest run tests/session-e2e",
     "test:release-gates": "vitest run tests/release-gates",
     "test:live-acceptance": "playwright test --config playwright.live.config.ts",
+    "bend:build": "bend bend/selection.bend -o src/application/generated/selection.mjs",
+    "bend:proof": "bend PROOF.bend",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

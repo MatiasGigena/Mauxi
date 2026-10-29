@@ -15,6 +15,7 @@
     "dist/**",
     "dist-electron/**",
     "release/**",
+    "src/application/generated/**",
     "fixtures/*/.next/**",
     "fixtures/*/dist/**",
     "fixtures/*/next-env.d.ts",
