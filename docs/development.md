@@ -48,6 +48,10 @@ Browser-only Playwright suites (`test:setup-e2e`, the `selection-composer` spec 
 
 Do not delete recovery state to resolve a failed cleanup. Inspect conflicts and use the recovery guidance instead.
 
+## Product demo
+
+`demo/` holds an animated illustration of the main view (the audit finding shown, handed to the agent, fixed and resolved), built with the Stageshow skill in `.agents/skills/stageshow` and its kit vendored in `demo/kit`. `npm run demo` serves it; `npm run demo:film` rehearses it in headless Chromium at 1080px and 390px and writes contact sheets to `evidence/demo/`. It is an authored illustration, not the running app: when the workspace, audit panel or chat dock changes, update `demo/MauxiDemo.tsx` to match. See `demo/REHEARSAL.md`.
+
 ## Generated output
 
 Playwright writes screenshots, JSON diagnostics, stderr, traces, and failure artifacts under **`test-results/<suite>/`**. Test-owned files use `testInfo.outputPath()` so they get a test-specific directory and do not depend on checked-in artifact folders. The workspace capture tests share their Electron session and capture folder within the test file. Each suite refreshes its own output; other suites' output is left alone. The package suite records the tested AppImage digest/runtime/cycles. Failed package projects and recovery journals are retained in a temporary directory identified by `recovery-location.txt`; inspect before removing them. The workspace HTML report goes in **`playwright-report/`**.
