@@ -12,6 +12,7 @@
     ".pi/**",
     ".roo/**",
     ".windsurf/**",
+    "demo/kit/**",
     "dist/**",
     "dist-electron/**",
     "release/**",
