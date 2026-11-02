@@ -1,16 +1,16 @@
-# Linux private-alpha acceptance gate
+# Linux release acceptance gate
 
-**NOT ACCEPTED — issue [#9](https://github.com/MatiasGigena/Mauxi/issues/9) stays open.**
+**NOT ACCEPTED — issue [#9](https://github.com/MatiasGigena/Mauxi/issues/9) stays open.** The source is public under the MIT License; this gate decides when an AppImage is offered as a release.
 
-This is the active release checklist, not a historical test receipt. Passing unit tests alone does not establish an alpha. Re-run the required checks against the current source and rebuilt artifact; record results outside the repository. Setup/recovery instructions: [private-alpha notes](private-alpha.md). Test commands and artifact handling: [development](development.md).
+This is the active release checklist, not a historical test receipt. Passing unit tests alone does not establish a release. Re-run the required checks against the current source and rebuilt artifact; record results outside the repository. Setup/recovery instructions: [usage notes](usage.md). Test commands and artifact handling: [development](development.md).
 
 ## Scope and remaining blockers
 
-- Linux x86_64 AppImage is the private-alpha target. Other distributions, GPUs, Wayland, FUSE/desktop installation, macOS and Windows are not certified.
+- Linux x86_64 AppImage is the release target. Other distributions, GPUs, Wayland, FUSE/desktop installation, macOS and Windows are not certified.
 - React/Vite and Next.js App Router/Webpack fixtures use the versions pinned in their lockfiles. Fixture Turbopack coverage is bridge loading, disposable imports and the Next audit lab; selection, editing and agent flows are covered on Webpack only. The 2026-10-15 real-project run additionally exercised Vite 8.2 and Next 16.3 under its default Turbopack dev server on one project each; that is single-project evidence, not a supported matrix. Pages Router and other versions remain unverified.
 - **Product scope:** the gate covers the responsive accessibility audit (single-route and site audits, the interaction pass, axe-core at the width profiles, **Fix with agent** and `responsive_audit` verification) on top of the workspace, safety and recovery behavior. Bundled design skills, the reference library, design tools and their tests were removed in October 2026; no row requires design guidance or design-quality assessment.
-- The 2026-10-15 [real-project run](real-project-acceptance.md) predates the audit and exercised design tasks. Its lifecycle, packaging and live-authentication evidence still counts toward AC-11 and AC-20, but it **does not satisfy AC-19**; a new live audit run with founder sign-off is required.
-- Live-provider testing for the 2026-10-15 run was authorized for `openai-codex` / `gpt-6-luna` through the founder's existing ChatGPT OAuth subscription; there is no per-request billing or provider-enforced dollar cap. Turn/time limits are not dollar caps. Usage is recorded in the private receipt. The new AC-19 run needs its own provider/budget approval.
+- The 2026-10-15 [real-project run](real-project-acceptance.md) predates the audit and exercised design tasks. Its lifecycle, packaging and live-authentication evidence still counts toward AC-11 and AC-20, but it **does not satisfy AC-19**; a new live audit run with maintainer sign-off is required.
+- Live-provider testing for the 2026-10-15 run was authorized for `openai-codex` / `gpt-6-luna` through the maintainer's existing ChatGPT OAuth subscription; there is no per-request billing or provider-enforced dollar cap. Turn/time limits are not dollar caps. The new AC-19 run needs its own provider/budget approval.
 - The Next source-picking gate passes with exact provenance assertions (`npm run test:e2e`).
 - Package tests validate the current minimal UI: preview activation before page clicks, the current model picker, browser handoff beside Send and project close in the repository-title menu. Trusted-host tests still exercise checkpoint/undo safeguards. They do not run an audit: the packaged audit (axe-core is bundled into the host) is exercised only by the live run.
 
@@ -48,10 +48,10 @@ The rows define required behavior, not a frozen pass/fail report. Every row need
 
 ## Failure coverage and sign-off
 
-Retain regression coverage for interrupted setup/cleanup, concurrent edits, conflicting undo, inode replacement, checkpoint/journal persistence failures, capacity exhaustion, stale browser targets and authentication cancellation. [Storage admission](../tests/unit/artifact-budget.test.ts) and [capture cleanup](../tests/unit/capture-cache.test.ts) must preserve protected attachments, conversations and recovery data; see the [storage policy](private-alpha.md#capacity-and-explicit-cleanup). Fault injection is not physical disk-full/power-loss certification.
+Retain regression coverage for interrupted setup/cleanup, concurrent edits, conflicting undo, inode replacement, checkpoint/journal persistence failures, capacity exhaustion, stale browser targets and authentication cancellation. [Storage admission](../tests/unit/artifact-budget.test.ts) and [capture cleanup](../tests/unit/capture-cache.test.ts) must preserve protected attachments, conversations and recovery data; see the [storage policy](usage.md#capacity-and-explicit-cleanup). Fault injection is not physical disk-full/power-loss certification.
 
 Run integration suites sequentially using the [development commands](development.md#integration-checks), including residual-hook production exclusion and the rebuilt package gate. Never suppress a failing gate or treat an old artifact's results as current-source validation.
 
 Keep receipts, screenshots, traces, artifact digests, runtime versions, process cleanup results and responsiveness samples outside Git. Review failed package projects and unfinished journals before deletion. Do not publish private projects, credentials, session bodies or arbitrary screenshots. Live runs need an approved budget and a private usage receipt.
 
-Complete every required check and the new real-project audit run (AC-19), identify the exact rebuilt artifact, and obtain tester-delivery approval before acceptance. No public release is authorized.
+Complete every required check and the new real-project audit run (AC-19), identify the exact rebuilt artifact, and obtain maintainer sign-off before acceptance. Until then no AppImage is published as a release.

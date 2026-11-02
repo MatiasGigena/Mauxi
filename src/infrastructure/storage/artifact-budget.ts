@@ -46,7 +46,7 @@ export function assertArtifactCapacity(root: string, limits: ArtifactBudget, add
   const bytes = artifacts.reduce((sum, item) => sum + item.size, 0); const files = artifacts.length;
 
   if (files + addedFiles > limits.files || bytes + addedBytes > limits.bytes) {
-    throw new Error(`Storage capacity at ${root}: ${files} files / ${bytes} bytes; admission limit ${limits.files} files / ${limits.bytes} bytes (requested +${addedFiles} files / +${addedBytes} bytes). Stop Mauxi, back up and review this directory, then manually remove only unneeded captures, completed clean journals, or explicitly chosen conversations. Never delete unfinished recovery records. See docs/private-alpha.md.`);
+    throw new Error(`Storage capacity at ${root}: ${files} files / ${bytes} bytes; admission limit ${limits.files} files / ${limits.bytes} bytes (requested +${addedFiles} files / +${addedBytes} bytes). Stop Mauxi, back up and review this directory, then manually remove only unneeded captures, completed clean journals, or explicitly chosen conversations. Never delete unfinished recovery records. See docs/usage.md.`);
   }
 }
 

@@ -1,8 +1,8 @@
 # Real-project acceptance run
 
-The founder nominated Rondo (Vite) and nenazo-nicho (Next.js) as the real projects for [AC-19](alpha-acceptance.md#required-checks). This page describes what the next live run must cover for the responsive audit, how the live runner works today, and the historical record of the 2026-10-15 run. Do not publish project contents, credentials, session bodies or screenshots.
+The maintainer nominated Rondo (Vite) and nenazo-nicho (Next.js) as the real projects for [AC-19](acceptance.md#required-checks). This page describes what the next live run must cover for the responsive audit, how the live runner works today, and the historical record of the 2026-10-15 run. Do not publish project contents, credentials, session bodies or screenshots.
 
-**Status:** the only live run so far (2026-10-15) predates the audit pivot and exercised design tasks. It **does not count toward the restated AC-19**. A new live audit run with founder sign-off is required.
+**Status:** the only live run so far (2026-10-15) predates the audit pivot and exercised design tasks. It **does not count toward the restated AC-19**. A new live audit run with maintainer sign-off is required.
 
 ## Next run: responsive audit (AC-19)
 
@@ -33,11 +33,11 @@ Keep `provider`, `model`, `authFrom`, `evidence` and each project's `name`, `pat
 
 Store everything in the plan's evidence directory, outside Git:
 
-- AppImage SHA-256, runtime versions, OS and external Node/npm versions, and the private usage receipt.
+- AppImage SHA-256, runtime versions, OS and external Node/npm versions, and the provider usage for the run.
 - Per project: the source revision; every audit report as JSON without snapshot image data, like the [audit suites](development.md#integration-checks) write, plus any snapshots the review needs; the site summary and skipped links.
 - The classification review: one row per finding with its ID, kind, criterion, classification, widths, human verdict and note, and the false-positive rate.
 - Per fix: the attached finding IDs, the agent response, its `responsive_audit` calls and results, approvals, duration, the diff and its SHA-256, and the before/after reports.
-- Lifecycle results (cycles, restart, cleanup) and the founder's sign-off with the date.
+- Lifecycle results (cycles, restart, cleanup) and the maintainer's sign-off with the date.
 
 ## How the runner works
 
@@ -55,7 +55,7 @@ Evidence (report JSON, screenshots, diffs) stays outside Git in the plan's evide
 
 This run exercised the design-polish product that was later removed: responsive refinement, component polish and animation tasks with design guidance. It is kept as a record of live authentication, packaging and lifecycle behavior on real projects. It does not count toward the restated AC-19, and its artifact predates the current source.
 
-The founder authorized `openai-codex` / `gpt-6-luna` through the existing ChatGPT OAuth login. AppImage SHA-256 `39d2dd6ac548184271fa00101e84df906a25bb883469d511d36f49ebb2da53ee`. Linux Mint 22.3 / X11 / x86_64, external Node 22.23.1 / npm 10.9.8. Usage over all attempts: 261 model calls, about 0.7M input (plus 10M cached) and 25k output tokens, roughly $0.18 at catalog list price, billed to the ChatGPT subscription rather than per request.
+The maintainer authorized `openai-codex` / `gpt-6-luna` through the existing ChatGPT OAuth login. AppImage SHA-256 `39d2dd6ac548184271fa00101e84df906a25bb883469d511d36f49ebb2da53ee`. Linux Mint 22.3 / X11 / x86_64, external Node 22.23.1 / npm 10.9.8. Usage over all attempts: 261 model calls, about 0.7M input (plus 10M cached) and 25k output tokens, roughly $0.18 at catalog list price, billed to the ChatGPT subscription rather than per request.
 
 | Project | Responsive refinement | Component polish | Animation / reduced motion | Visible checks + external diff | Human assessment | Auth / spend receipt |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Both projects completed two close/reopen cycles with both bridges ready, a resta
 - `browser_targets` required a workspace ID the model is never given.
 - The agent host captured the setup window's browser control and reported "Visible window unavailable" after the workspace window replaced it.
 - `workspace_search` failed on a single-file `path`, which also revoked preview control.
-- The 16-turn run budget stopped ordinary tasks before verification; the founder approved 40 turns.
+- The 16-turn run budget stopped ordinary tasks before verification; the maintainer approved 40 turns.
 
 Regression coverage: [selection handoff](../tests/browser-e2e/selection-handoff.spec.ts) and the updated [package gate](../tests/package-e2e/private-alpha.spec.ts).
 
@@ -81,4 +81,4 @@ Regression coverage: [selection handoff](../tests/browser-e2e/selection-handoff.
 - Browser tools cannot dispatch drags or toggle `prefers-reduced-motion`; motion behavior still needs a human check.
 - A budget stop surfaced as "This operation was aborted" instead of naming the budget. Fixed since: chat now names the limit ([run recovery](../tests/browser-e2e/agent-run-recovery.spec.ts)).
 
-When the new audit run is complete and the founder has signed off and recorded tester-delivery approval, update the [acceptance gate](alpha-acceptance.md). Until then the AppImage is a validation candidate. No public release is authorized.
+When the new audit run is complete and the maintainer has signed off, update the [acceptance gate](acceptance.md). Until then no AppImage is published as a release.

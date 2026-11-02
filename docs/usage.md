@@ -1,15 +1,15 @@
-# Private-alpha candidate: setup and recovery
+# Setup, privacy, limits and recovery
 
-**Validation candidate only — not accepted for tester rollout.** The [acceptance gate](alpha-acceptance.md) is incomplete: the real-project live audit run (AC-19), with the founder's review of the findings and agent fixes and sign-off, has not happened yet (the 2026-10-15 run predates the audit), and tester-delivery approval is missing. This is Linux-only private validation, not a public release or general compatibility promise.
+Mauxi is early software. The 0.1.0 AppImage has not passed the [acceptance gate](acceptance.md): the real-project live audit run (AC-19) is still missing. Linux x86_64 is the only target, and only one environment has been tested. Expect rough edges and keep backups.
 
 ## Artifact and setup
 
-Build with `npm ci && npm run dist:linux`. Output: `release/Mauxi-0.1.0-x86_64.AppImage`; publishing is disabled. The delivery receipt/checksum identifies the tested bytes—another build can have a different digest even at the same version.
+Build with `npm ci && npm run dist:linux`. Output: `release/Mauxi-0.1.0-x86_64.AppImage`; publishing is disabled. A checksum identifies the bytes you tested; another build can have a different digest even at the same version.
 
-On the declared Linux Mint 22.3/X11 x86_64 environment:
+On the tested Linux Mint 22.3/X11 x86_64 environment:
 
 ```bash
-sha256sum Mauxi-0.1.0-x86_64.AppImage  # compare with the private delivery receipt
+sha256sum Mauxi-0.1.0-x86_64.AppImage  # record it with any bug report
 chmod +x Mauxi-0.1.0-x86_64.AppImage
 PI_TELEMETRY=0 APPIMAGE_EXTRACT_AND_RUN=1 ./Mauxi-0.1.0-x86_64.AppImage
 ```
@@ -33,7 +33,7 @@ The agent follows a fixed responsive accessibility policy; there are no design s
 
 ## Known blockers and limits
 
-- Regression suites cover atomic managed replacement, moved-hook conflicts, owned process-group cleanup, storage admission limits, pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance. The audit suites cover planted findings, the interaction pass, axe-core checks, site audits and the fake-model fix loop on fixture labs. Run them against the current source; they do not complete the alpha acceptance matrix. Turbopack coverage is bridge loading, imports and the Next audit lab. Other versions/routers, audit accuracy on real projects, live auth, real-model fix quality and other tester environments remain unverified. See the [next live audit run](real-project-acceptance.md#next-run-responsive-audit-ac-19).
+- Regression suites cover atomic managed replacement, moved-hook conflicts, owned process-group cleanup, storage admission limits, pinned Motion/GSAP, reduced motion, delayed Next streaming and exact JSX provenance. The audit suites cover planted findings, the interaction pass, axe-core checks, site audits and the fake-model fix loop on fixture labs. Run them against the current source; they do not complete the acceptance matrix. Turbopack coverage is bridge loading, imports and the Next audit lab. Other versions/routers, audit accuracy on real projects, live auth, real-model fix quality and other tester environments remain unverified. See the [next live audit run](real-project-acceptance.md#next-run-responsive-audit-ac-19).
 - Mobile is a Chromium viewport, not Safari/hardware simulation. Both previews share cookies/storage **inside one workspace**; canonical workspaces have separate browser partitions.
 
 ## Local storage, privacy and network behavior
@@ -62,7 +62,7 @@ Inherited SDK behavior at pin 0.86.1:
 - The SDK can discover credentials from the process environment/provider-supported sources in addition to Mauxi's profile. Launch with a clean environment for isolated testing; Mauxi does not import/mutate the terminal's pi profile automatically.
 - SDK install/update telemetry is a CLI interactive-mode path, not a path Mauxi invokes. SDK provider-attribution headers are enabled by its default settings; `PI_TELEMETRY=0` disables the optional attribution governed by that flag. Provider protocol/client/session headers (for example OpenCode) may remain. Do not describe that flag as disabling all provider-side telemetry.
 - SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 40 model turns/five minutes, browser verification to 24 calls/four screenshots per run, and `responsive_audit` to four audits per run (a site batch counts as one). These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
-- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) (pre-pivot design tasks) used `openai-codex` / `gpt-6-luna` through the founder's ChatGPT OAuth subscription, as authorized; its usage is in the private receipt. Each further live run needs its own provider/account/budget approval and a spend receipt; never silently spend to fill missing evidence.
+- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) (pre-pivot design tasks) used `openai-codex` / `gpt-6-luna` through an existing ChatGPT OAuth subscription. Live runs spend your own provider credits; set a budget before running `test:live-acceptance`.
 
 ## Capacity and explicit cleanup
 

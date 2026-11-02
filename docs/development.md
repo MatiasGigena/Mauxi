@@ -62,7 +62,7 @@ Both folders are ignored and disposable when no test is running. Do not commit g
 
 ## Release gate
 
-See the [acceptance table](alpha-acceptance.md) and [candidate usage notes](private-alpha.md). `npm run check` remains the fast deterministic owner-test suite, not release certification. Release gates and package checks assert actual required behavior; the missing real-project audit run (AC-19) and its founder sign-off still block acceptance even when these suites pass. Build packaging uses pinned `electron-builder` 26.15.3 with `--publish never`. This includes the AppImage runtime search-path fix described in [GHSA-7g7r-gx96-252g](https://github.com/electron-userland/electron-builder/security/advisories/GHSA-7g7r-gx96-252g). `MAUXI_APPIMAGE=/absolute/path` can select a candidate for `test:package-e2e`; otherwise it tests `release/Mauxi-0.1.0-x86_64.AppImage`. Rebuild before claiming evidence for source changes.
+See the [acceptance table](acceptance.md) and [usage notes](usage.md). `npm run check` remains the fast deterministic owner-test suite, not release certification. Release gates and package checks assert actual required behavior; the missing real-project audit run (AC-19) and its founder sign-off still block acceptance even when these suites pass. Build packaging uses pinned `electron-builder` 26.15.3 with `--publish never`. This includes the AppImage runtime search-path fix described in [GHSA-7g7r-gx96-252g](https://github.com/electron-userland/electron-builder/security/advisories/GHSA-7g7r-gx96-252g). `MAUXI_APPIMAGE=/absolute/path` can select a candidate for `test:package-e2e`; otherwise it tests `release/Mauxi-0.1.0-x86_64.AppImage`. Rebuild before claiming evidence for source changes.
 
 ## What these checks do not establish
 
