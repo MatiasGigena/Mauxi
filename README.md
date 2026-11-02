@@ -17,7 +17,7 @@ Open a local project, run the **responsive audit**, and Mauxi sweeps the page fr
 - Applies live edits with retained checkpoints, conflict-aware recovery, and one-time command approval.
 - Lets the agent inspect the same visible previews after an explicit handoff from chat, with separate approvals for interactions and checks retained in session history.
 
-Mauxi is a **private-alpha validation candidate**, not yet accepted for tester rollout and not a general-purpose browser or OS sandbox. Use trusted projects and development accounts. The [acceptance gate](docs/alpha-acceptance.md) defines the required checks, validation scope and remaining blockers. macOS and Windows are outside this repository's scope.
+Mauxi is **early software**: the 0.1.0 AppImage has not yet passed its [acceptance gate](docs/acceptance.md), and it is not a general-purpose browser or OS sandbox. Opening a project runs its dev server with your user's privileges, so use trusted projects and development accounts. Only Linux is supported; macOS and Windows are outside this repository's scope.
 
 ## Run locally
 
@@ -44,10 +44,22 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Workspace, project setup, and preview controls](docs/workspace.md)
 - [Agent conversations and responsive accessibility guidance](docs/agent.md)
 - [Changes, command approval, undo, and recovery](docs/changes-and-recovery.md)
-- [Private-alpha setup, privacy, limits, and recovery](docs/private-alpha.md)
-- [AC-01–AC-25 acceptance gate and blockers](docs/alpha-acceptance.md)
+- [Setup, privacy, limits, and recovery](docs/usage.md)
+- [AC-01–AC-25 acceptance gate and blockers](docs/acceptance.md)
 - [Development and automated checks](docs/development.md)
 
-axe-core is © Deque Systems, Inc. and bundled unmodified under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
-
 The application uses one simple layered architecture: **presentation → application → infrastructure**. Automated tests and their fixtures stay in the repository; generated screenshots, logs, traces, and reports do not.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in public issues.
+
+## License
+
+Mauxi is released under the [MIT License](LICENSE).
+
+Third-party code keeps its own license:
+
+- [axe-core](https://github.com/dequelabs/axe-core) is © Deque Systems, Inc. and bundled unmodified under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
+- The [anti-slop](https://github.com/dmmulroy/anti-slop) Oxlint plugin in `tools/oxlint/anti-slop/` is © Dillon Mulroy under the [MIT License](tools/oxlint/anti-slop/LICENSE).
+- Its vendored `padding-line-between-statements` rule from [ESLint Stylistic](https://github.com/eslint-stylistic/eslint-stylistic) is under the [MIT License](tools/oxlint/anti-slop/vendor/eslint-stylistic/LICENSE).

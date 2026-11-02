@@ -5,4 +5,5 @@
 - Copied from: `skills/install-anti-slop/assets/anti-slop/` (identical to upstream `src/` minus `*.test.ts`)
 - Installed at: `tools/oxlint/anti-slop/` (generic plugin `index.ts`; Effect plugin `effect/index.ts` copied but not enabled — no direct `effect` dependency)
 - Oxlint: `oxlint` and `@oxlint/plugins` pinned to 1.88.0
+- License: MIT, kept verbatim in `LICENSE` beside this file
 - Local deviations: none
