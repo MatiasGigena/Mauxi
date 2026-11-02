@@ -1,7 +1,8 @@
 # Rehearsal: Mauxi main view
 
-Built with the [Stageshow](../.agents/skills/stageshow/SKILL.md) skill and its kit (vendored in `demo/kit`).
-Run it with `npm run demo` (http://127.0.0.1:44180/); rehearse it with `npm run demo:film`.
+Built with the Stageshow skill (`npx skills add benjitaylor/skills --skill stageshow`) and its kit, vendored in `demo/kit`.
+Run it with `npm run demo` (http://127.0.0.1:44180/). To film it again, reinstall the skill and run its
+`scripts/film.mjs` against that URL with `--select '#mauxi-demo' --gate`.
 
 **Gold:** `linear` (the wide hero: a real product's window at 1:1, inset top and sides, off the bottom,
 realistic words on the subject, placeholder bars elsewhere). Kept: the wide-hero layout, one gutter

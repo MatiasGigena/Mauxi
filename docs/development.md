@@ -50,7 +50,7 @@ Do not delete recovery state to resolve a failed cleanup. Inspect conflicts and 
 
 ## Product demo
 
-`demo/` holds an animated illustration of the main view (the audit finding shown, handed to the agent, fixed and resolved), built with the Stageshow skill in `.agents/skills/stageshow` and its kit vendored in `demo/kit`. `npm run demo` serves it; `npm run demo:film` rehearses it in headless Chromium at 1080px and 390px and writes contact sheets to `evidence/demo/`. It is an authored illustration, not the running app: when the workspace, audit panel or chat dock changes, update `demo/MauxiDemo.tsx` to match. See `demo/REHEARSAL.md`.
+`demo/` holds an animated illustration of the main view (the audit finding shown, handed to the agent, fixed and resolved), built with the Stageshow skill (`npx skills add benjitaylor/skills --skill stageshow`, not kept in the repository) and its kit vendored in `demo/kit`. `npm run demo` serves it; filming it with the skill's `scripts/film.mjs` is described in `demo/REHEARSAL.md`. It is an authored illustration, not the running app: when the workspace, audit panel or chat dock changes, update `demo/MauxiDemo.tsx` to match. See `demo/REHEARSAL.md`.
 
 ## Generated output
 
