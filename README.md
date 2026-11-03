@@ -47,6 +47,7 @@ The artifact is written to `release/`. If FUSE is unavailable, launch the AppIma
 - [Setup, privacy, limits, and recovery](docs/usage.md)
 - [AC-01–AC-25 acceptance gate and blockers](docs/acceptance.md)
 - [Development and automated checks](docs/development.md)
+- [Bend selection rules and proofs](docs/bend.md)
 
 The application uses one simple layered architecture: **presentation → application → infrastructure**. Automated tests and their fixtures stay in the repository; generated screenshots, logs, traces, and reports do not.
 

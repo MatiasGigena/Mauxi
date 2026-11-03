@@ -29,7 +29,7 @@ Use disposable, trusted copies with non-production data/accounts:
 
 For problems the audit does not report, select a preview element, inspect/remove its context and send; give agent control with the scan icon beside Send when the agent needs to check the visible previews. Review source diffs in your editor/Git; the minimal chat has no diff/Undo panel. Commands and consequential browser interactions require their own approvals. Take back control revokes queued browser actions; Stop also aborts the agent, not an unrelated external server. See [responsive audit](audit.md) for what is measured and its limits.
 
-The agent follows a fixed responsive accessibility policy; there are no design skills, reference libraries or design-direction controls. See [agent guidance](agent.md) for verification limits.
+The agent follows a fixed responsive accessibility policy. See [agent guidance](agent.md) for verification limits.
 
 ## Known blockers and limits
 
@@ -62,7 +62,7 @@ Inherited SDK behavior at pin 0.86.1:
 - The SDK can discover credentials from the process environment/provider-supported sources in addition to Mauxi's profile. Launch with a clean environment for isolated testing; Mauxi does not import/mutate the terminal's pi profile automatically.
 - SDK install/update telemetry is a CLI interactive-mode path, not a path Mauxi invokes. SDK provider-attribution headers are enabled by its default settings; `PI_TELEMETRY=0` disables the optional attribution governed by that flag. Provider protocol/client/session headers (for example OpenCode) may remain. Do not describe that flag as disabling all provider-side telemetry.
 - SDK inference/retry/compaction can make provider requests during approved model work. Mauxi currently permits one configured retry, limits runs to 40 model turns/five minutes, browser verification to 24 calls/four screenshots per run, and `responsive_audit` to four audits per run (a site batch counts as one). These are not dollar-budget enforcement. No Mauxi auto-updater is configured.
-- Default tests use local fakes and incur no model credits. The 2026-10-15 [real-project run](real-project-acceptance.md) (pre-pivot design tasks) used `openai-codex` / `gpt-6-luna` through an existing ChatGPT OAuth subscription. Live runs spend your own provider credits; set a budget before running `test:live-acceptance`.
+- Default tests use local fakes and incur no model credits. Live runs (`test:live-acceptance`) spend your own provider credits; set a budget before running them.
 
 ## Capacity and explicit cleanup
 
