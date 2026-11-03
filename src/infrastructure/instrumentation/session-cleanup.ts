@@ -18,20 +18,41 @@ async function missing(file: string): Promise<boolean> {
   catch (error) { if (hasErrorCode(error, "ENOENT")) return true; throw error; }
 }
 
-/** Polled every 25 ms while a session stops, so every process is inspected at once instead of one /proc read at a time. */
-async function liveGroup(pid: number): Promise<boolean> {
-  const live = await Promise.all((await readdir("/proc")).filter((entry) => /^\d+$/.test(entry)).map(async (entry) => {
-    try {
-      const stat = await readFile(`/proc/${entry}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+/** Bounds parallel /proc reads: an unbounded fan-out over every PID can exhaust file descriptors (EMFILE) and abort cleanup. */
+export const PROC_READ_CONCURRENCY = 16;
 
-      return Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X";
-    } catch (error) { if (!hasErrorCode(error, "ENOENT", "ESRCH")) throw error;
+/** The process table liveGroup scans; tests substitute a faithful in-memory table. */
+export interface ProcessTable {
+  pids(): Promise<string[]>;
+  stat(pid: string): Promise<string>;
+}
 
-    return false; }
-  }));
+const systemProcessTable: ProcessTable = {
+  pids: async () => (await readdir("/proc")).filter((entry) => /^\d+$/.test(entry)),
+  stat: (pid) => readFile(`/proc/${pid}/stat`, "utf8"),
+};
 
-  return live.some(Boolean);
+/** Polled every 25 ms while a session stops, so the table is scanned by a small worker pool that stops once a live member is found. */
+export async function liveGroup(pid: number, table: ProcessTable = systemProcessTable): Promise<boolean> {
+  const entries = await table.pids();
+  let next = 0; let live = false;
+
+  const worker = async () => {
+    while (!live && next < entries.length) {
+      const entry = entries[next++];
+
+      try {
+        const stat = await table.stat(entry);
+        const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+
+        if (Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X") live = true;
+      } catch (error) { if (!hasErrorCode(error, "ENOENT", "ESRCH")) throw error; }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(PROC_READ_CONCURRENCY, entries.length) }, worker));
+
+  return live;
 }
 
 export async function stopSessionProcess(journal: InstrumentationJournal): Promise<void> {
