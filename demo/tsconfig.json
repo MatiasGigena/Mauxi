@@ -1,5 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "noUnusedLocals": false },
-  "include": [".", "../vite.demo.config.ts"]
-}
