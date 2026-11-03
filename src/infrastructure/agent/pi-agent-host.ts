@@ -304,14 +304,21 @@ export class PiAgentHost {
 
   private async initializeOnce(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true, mode: 0o700 });
-    await mkdir(this.sessionDir, { recursive: true, mode: 0o700 });
-    this.changes = await ChangeCoordinator.create(this.workspaceId, this.cwd, path.join(this.profileDir, "checkpoints"));
-    this.modelRuntime = this.suppliedModelRuntime ?? await ModelRuntime.create({
-      authPath: path.join(this.profileDir, "auth.json"),
-      modelsPath: path.join(this.profileDir, "models.json"),
-      modelsStorePath: path.join(this.profileDir, "models-store.json"),
-      allowModelNetwork: false,
-    });
+
+    // The session directory, checkpoint store and model runtime only share the profile directory created above.
+    const [, changes, modelRuntime] = await Promise.all([
+      mkdir(this.sessionDir, { recursive: true, mode: 0o700 }),
+      ChangeCoordinator.create(this.workspaceId, this.cwd, path.join(this.profileDir, "checkpoints")),
+      this.suppliedModelRuntime ?? ModelRuntime.create({
+        authPath: path.join(this.profileDir, "auth.json"),
+        modelsPath: path.join(this.profileDir, "models.json"),
+        modelsStorePath: path.join(this.profileDir, "models-store.json"),
+        allowModelNetwork: false,
+      }),
+    ]);
+
+    this.changes = changes;
+    this.modelRuntime = modelRuntime;
 
     const askQuestion = defineTool({
       name: "ask_question",
@@ -684,26 +691,35 @@ export class PiAgentHost {
       ...[operation.executable, ...operation.args].flatMap((item) => item && !item.startsWith("-") ? [path.resolve(operation.cwd, item)] : []),
     ];
 
-    for (const target of candidates) {
-      let canonical: string;
+    // Resolve every candidate at once, then dedupe and fail in candidate order so the fingerprint stays deterministic.
+    const resolved = await Promise.all(candidates.map((target) => realpath(target).then(
+      (canonical) => ({ canonical }),
+      (error) => (hasErrorCode(error, "ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP") ? null : { error }),
+    )));
 
-      try { canonical = await realpath(target); }
-      catch (error) {
-        if (hasErrorCode(error, "ENOENT", "ENOTDIR", "ENAMETOOLONG", "ELOOP")) continue;
-        throw error;
-      }
+    const inputs: Array<{ canonical: string; relative: string }> = [];
 
-      const relative = path.relative(canonicalRoot, canonical);
+    for (const item of resolved) {
+      if (!item) continue;
 
-      if (relative.startsWith("..") || path.isAbsolute(relative) || seen.has(canonical)) continue;
-      seen.add(canonical);
-      const info = await stat(canonical);
+      if ("error" in item) throw item.error;
+      const relative = path.relative(canonicalRoot, item.canonical);
 
-      if (!info.isFile()) continue;
-
-      if (info.size > 50 * 1024 * 1024) throw new Error(`Unsupported command approval input: ${relative}`);
-      digest.update(relative).update("\0").update(await readFile(canonical)).update("\0");
+      if (relative.startsWith("..") || path.isAbsolute(relative) || seen.has(item.canonical)) continue;
+      seen.add(item.canonical);
+      inputs.push({ canonical: item.canonical, relative });
     }
+
+    const infos = await Promise.all(inputs.map(({ canonical }) => stat(canonical)));
+    const files = inputs.filter((_, index) => infos[index]!.isFile());
+
+    for (const [index, input] of inputs.entries()) {
+      if (infos[index]!.isFile() && infos[index]!.size > 50 * 1024 * 1024) throw new Error(`Unsupported command approval input: ${input.relative}`);
+    }
+
+    const contents = await Promise.all(files.map(({ canonical }) => readFile(canonical)));
+
+    files.forEach(({ relative }, index) => { digest.update(relative).update("\0").update(contents[index]!).update("\0"); });
 
     return digest.digest("hex");
   }
