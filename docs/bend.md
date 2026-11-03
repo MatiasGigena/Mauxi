@@ -1,10 +1,10 @@
-# Bend 2 feasibility spike
+# Bend selection rules
 
 Bend 2.0.39 (`curl -fsSL https://bend-lang.com/install.sh | sh`, installs to `~/.bend`).
 
-## What moved
+## What lives in Bend
 
-`selection-state.ts` decides which picked elements get on-canvas markers and which go stale after a route or document change. Those decisions are now `bend/selection.bend`, compiled with `bend -o *.mjs` into `src/application/generated/selection.mjs` and called through a small adapter in `selection-state.ts`. TypeScript keeps the full `SelectionCapture` records; Bend sees one `Sel{preview, generation, current, repick}` per selection and returns one flag per selection.
+`selection-state.ts` decides which picked elements get on-canvas markers and which go stale after a route or document change. Those decisions live in `bend/selection.bend`, compiled with `bend -o *.mjs` into `src/application/generated/selection.mjs` and called through a small adapter in `selection-state.ts`. TypeScript keeps the full `SelectionCapture` records; Bend sees one `Sel{preview, generation, current, repick}` per selection and returns one flag per selection.
 
 `LAWS.bend` states eight rules, all proven in `PROOF.bend`:
 
@@ -30,7 +30,7 @@ Planted bugs (over-marking in `cap`, a document change ignoring the preview, a r
 - Bend has no JSON, regex, URL parsing or F64. The IPC contracts validate untrusted JSON, `route-link.ts` relies on `URL` and regexes, and the canvas and geometry code needs double precision (Bend has only F32, and proves nothing about it).
 - Everything must be annotated, recursion must be provably terminating, values are affine, and mutual recursion is banned. Even this small module needed restructuring (`live_mask` + `cap`) to satisfy the checker.
 
-## Recommendation
+## Where else Bend fits
 
 Use Bend for small, rule-heavy pure decisions where a proven law has real value, behind TypeScript adapters. Candidates: selection freshness (done), audit scoring and severity rules in `audit-report.ts`, and workspace lifecycle transitions in `workspace-manager.ts` once their I/O is separated out. A full migration is not feasible with Bend 2.0.x.
 
@@ -38,4 +38,4 @@ Use Bend for small, rule-heavy pure decisions where a proven law has real value,
 
 - `npm run bend:proof` — prove `LAWS.bend`.
 - `npm run bend:build` — regenerate `src/application/generated/selection.mjs`.
-- `bend PROOF.bend --verdict` rechecks with the Lean-verified kernel; it needs Lean 4.34 and was not run here.
+- `bend PROOF.bend --verdict` rechecks with the Lean-verified kernel; it needs Lean 4.34 and has not been run yet.

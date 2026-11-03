@@ -33,7 +33,7 @@ Project/global resource discovery and executable extensions are disabled. The ap
 
 The agent works under a fixed host policy focused on responsive accessibility: the WCAG 2.2 criteria that depend on the viewport (1.4.10 Reflow, 1.4.4 Resize text, 1.4.12 Text spacing, 2.5.8 Target size, 2.4.11 Focus not obscured, 1.3.4 Orientation). It prefers intrinsic, fluid fixes that hold across the whole width range over breakpoint-specific patches, keeps intentional horizontal scrollers (carousels, tables, code blocks) scrollable, and preserves the project's framework, tokens, brand and conventions. It never claims full WCAG conformance.
 
-There are no bundled design skills, visual reference libraries, or design tools. Audit findings attached with **Fix with agent** are deterministic DOM measurements sent as a compact text description (criterion, width ranges, element, source, measurement and fix direction; no snapshots). The agent treats them as evidence but reads the source before changing it. Missing browser capabilities or packages do not grant permission to install or simulate them.
+Audit findings attached with **Fix with agent** are deterministic DOM measurements sent as a compact text description (criterion, width ranges, element, source, measurement and fix direction; no snapshots). The agent treats them as evidence but reads the source before changing it. Missing browser capabilities or packages do not grant permission to install or simulate them.
 
 ### `responsive_audit`
 
