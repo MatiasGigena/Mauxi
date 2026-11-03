@@ -26,6 +26,7 @@
     "test:e2e": "bash scripts/e2e.sh",
     "test:audit-e2e": "bash scripts/e2e.sh --config playwright.audit.config.ts",
     "test:browser-e2e": "npm run build && playwright test --config playwright.browser.config.ts",
+    "docs:screenshot": "npm run build && MAUXI_README_SCREENSHOT=1 playwright test --config playwright.browser.config.ts readme-screenshot",
     "test:lifecycle-e2e": "npm run build:host && playwright test --config playwright.lifecycle.config.ts",
     "test:setup-e2e": "npm run build && playwright test --config playwright.setup.config.ts",
     "test:turbopack-e2e": "bash scripts/turbopack-e2e.sh",
