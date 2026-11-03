@@ -78,14 +78,15 @@ export type DesiredMetadata = Pick<LinuxFileMetadata, "uid" | "gid" | "mode"> & 
 
 async function trustedPython(): Promise<string> {
   if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) throw new Error("Managed metadata requires 64-bit Linux.");
-  const executable = await realpath("/usr/bin/python3");
+  // Runs before every metadata inspection, so the fixed ancestors are checked while the interpreter path resolves.
+  const ancestors = ["/", "/usr", "/usr/bin"];
+  const [executable, ...ancestorInfos] = await Promise.all([realpath("/usr/bin/python3"), ...ancestors.map((item) => stat(item))]);
 
   if (path.dirname(executable) !== "/usr/bin") throw new Error("Untrusted system Python location.");
+  const infos = [...ancestorInfos.map((info) => ({ info, executable: false })), { info: await stat(executable), executable: true }];
 
-  for (const item of ["/", "/usr", "/usr/bin", executable]) {
-    const info = await stat(item);
-
-    if (info.uid !== 0 || (info.mode & 0o022) !== 0 || (item === executable ? !info.isFile() : !info.isDirectory())) throw new Error("System Python and its ancestors must be root-owned and not group/world-writable.");
+  for (const { info, executable: isExecutable } of infos) {
+    if (info.uid !== 0 || (info.mode & 0o022) !== 0 || (isExecutable ? !info.isFile() : !info.isDirectory())) throw new Error("System Python and its ancestors must be root-owned and not group/world-writable.");
   }
 
   return executable;

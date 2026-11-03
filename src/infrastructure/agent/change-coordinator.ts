@@ -235,17 +235,23 @@ export class ChangeCoordinator {
 
   static async create(workspaceId: string, workspaceRoot: string, directory: string, files: ChangeFileSystem = nodeFileSystem): Promise<ChangeCoordinator> {
     const root = await realpath(workspaceRoot);
+    const ancestors = [root];
+
+    while (path.dirname(ancestors.at(-1)!) !== ancestors.at(-1)) ancestors.push(path.dirname(ancestors.at(-1)!));
+
+    // Probe every ancestor at once; the nearest one with a .git entry (or an earlier hard failure) wins, as in a walk upward.
+    const probes = await Promise.all(ancestors.map((ancestor) => lstat(path.join(ancestor, ".git")).then(
+      () => ({ found: true as const }),
+      (cause) => (hasErrorCode(cause, "ENOENT", "ENOTDIR") ? null : { error: cause }),
+    )));
+
     let repositoryBoundary = root;
 
-    for (let ancestor = root; ; ancestor = path.dirname(ancestor)) {
-      const git = await lstat(path.join(ancestor, ".git")).catch((cause) => {
-        if (hasErrorCode(cause, "ENOENT", "ENOTDIR")) return undefined;
-        throw cause;
-      });
+    for (const [index, probe] of probes.entries()) {
+      if (!probe) continue;
 
-      if (git) { repositoryBoundary = ancestor; break; }
-
-      if (path.dirname(ancestor) === ancestor) break;
+      if ("error" in probe) throw probe.error;
+      repositoryBoundary = ancestors[index]!; break;
     }
 
     if (inside(repositoryBoundary, path.resolve(directory))) throw new Error("Checkpoint storage and its recovery vault must be outside the project and its repository.");
@@ -379,17 +385,14 @@ export class ChangeCoordinator {
   }
 
   private async pruneCompletedForCapacity(changeSets: StoredChangeSet[]): Promise<StoredChangeSet[]> {
-    for (const set of changeSets) {
-      const retainedRecoveries = [];
+    await Promise.all(changeSets.map(async (set) => {
+      const recoveries = set.recoveries ?? [];
 
-      for (const recovery of set.recoveries ?? []) {
-        const exists = await lstat(path.resolve(this.root, recovery.directory)).then(() => true, (cause) => !hasErrorCode(cause, "ENOENT"));
+      const exists = await Promise.all(recoveries.map((recovery) => recovery.status === "prepared"
+        || lstat(path.resolve(this.root, recovery.directory)).then(() => true, (cause) => !hasErrorCode(cause, "ENOENT"))));
 
-        if (recovery.status === "prepared" || exists) retainedRecoveries.push(recovery);
-      }
-
-      set.recoveries = retainedRecoveries;
-    }
+      set.recoveries = recoveries.filter((_, index) => exists[index]);
+    }));
 
     const retained = [...changeSets];
 
@@ -610,12 +613,11 @@ export class ChangeCoordinator {
         await mkdir(this.vaultPath, { mode: 0o700, recursive: true });
         directory = await this.files.open(this.vaultPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
         const descriptor = `/proc/self/fd/${directory.fd}`;
-        const canonical = await realpath(descriptor);
+        const [canonical, vaultInfo, targetInfo] = await Promise.all([realpath(descriptor), this.files.stat(descriptor), this.files.stat(path.dirname(target))]);
 
         if (inside(this.repositoryBoundary, canonical)) throw new Error("Recovery vault must be outside the project and its repository; no in-project fallback is allowed.");
-        const vaultInfo = await this.files.stat(descriptor);
 
-        if (vaultInfo.dev !== (await this.files.stat(path.dirname(target))).dev) {
+        if (vaultInfo.dev !== targetInfo.dev) {
           throw new Error(`The recovery vault (${canonical}) and target are on different filesystems. Atomic no-clobber recovery is unavailable. Move the app-owned checkpoint storage to the project filesystem; this file was not mutated and no in-project fallback is allowed.`);
         }
 
@@ -628,18 +630,25 @@ export class ChangeCoordinator {
 
         if (entries.length >= RECOVERY_VAULT_LIMITS.entries) throw full();
 
-        for (const entry of entries) {
+        // Inspect every retained entry concurrently (at most 128 entries × 3 files), then account for them in directory order.
+        const inspected = await Promise.allSettled(entries.map(async (entry) => {
           const entryInfo = await lstat(path.join(descriptor, entry.name));
 
           if (!entryInfo.isDirectory()) throw new Error(`Recovery directory changed: ${entry.name}. Review it manually before further mutations.`);
-          bytes += Math.max(entryInfo.size, entryInfo.blocks * 512);
           const files = await readdir(path.join(descriptor, entry.name), { withFileTypes: true });
 
           if (files.length > 3) throw new Error(`Unexpected recovery entry contents: ${entry.name}. Review them manually before further mutations.`);
 
-          for (const file of files) {
-            const info = await lstat(path.join(descriptor, entry.name, file.name));
+          return { entryInfo, infos: await Promise.all(files.map((file) => lstat(path.join(descriptor, entry.name, file.name)))) };
+        }));
 
+        for (const [index, entry] of entries.entries()) {
+          const result = inspected[index]!;
+
+          if (result.status === "rejected") throw result.reason;
+          bytes += Math.max(result.value.entryInfo.size, result.value.entryInfo.blocks * 512);
+
+          for (const info of result.value.infos) {
             if (!info.isFile() && !info.isSymbolicLink()) throw new Error(`Unsupported retained recovery data in ${entry.name}. Review it manually before further mutations.`);
             bytes += Math.max(info.size, info.blocks * 512);
 
@@ -669,9 +678,11 @@ export class ChangeCoordinator {
       let parentMetadata: LinuxFileMetadata; let creationMetadata: LinuxFileMetadata | undefined;
 
       try {
-        parentMetadata = await inspectLinuxPath(`${path.dirname(target)}/.`);
-
-        if (!metadata && content !== null) creationMetadata = await inspectLinuxPath(`${path.dirname(target)}/.`, true);
+        // Each inspection spawns the metadata helper; the parent and creation views are independent, so run them together.
+        [parentMetadata, creationMetadata] = await Promise.all([
+          inspectLinuxPath(`${path.dirname(target)}/.`),
+          !metadata && content !== null ? inspectLinuxPath(`${path.dirname(target)}/.`, true) : undefined,
+        ]);
       } catch (error) { throw new MutationNotStartedError(error instanceof Error ? error.message : String(error)); }
 
       const checkParent = async () => {
@@ -996,10 +1007,12 @@ export class ChangeCoordinator {
       if (unique.length > 50) throw new Error("Commands may declare at most 50 checkpoint-covered paths.");
       const previousFiles = structuredClone(set.files);
       const previousWarnings = [...set.coverageWarnings];
-      const workspace = await this.scanWorkspace();
-      const covered: FileSnapshot[] = [];
 
-      for (const item of unique) covered.push(await this.readRelative(item, true));
+      // The workspace scan and the covered-file reads are independent read-only observations.
+      const [workspace, covered] = await Promise.all([
+        this.scanWorkspace(),
+        Promise.all(unique.map((item) => this.readRelative(item, true))),
+      ]);
 
       for (const before of covered) {
         const existing = set.files.find((item) => item.path === before.path);
@@ -1030,13 +1043,15 @@ export class ChangeCoordinator {
     });
   }
 
-  private async observeCommandFile(set: StoredChangeSet, record: FileRecord): Promise<void> {
+  /** Records a command's effect on one covered file. Pass `observed` to apply a read made ahead of time; the budget is always applied here, in call order. */
+  private async observeCommandFile(set: StoredChangeSet, record: FileRecord, observed?: PromiseSettledResult<FileSnapshot>): Promise<void> {
     record.nonUndoable = true; record.attribution = "command";
     record.pending = false; record.commandPending = false;
     delete record.reviewWarning;
 
     try {
-      const after = await this.readRelative(record.path, true);
+      if (observed?.status === "rejected") throw observed.reason;
+      const after = observed ? observed.value : await this.readRelative(record.path, true);
       const available = MAX_SET_BYTES - this.setSize(set) + Buffer.byteLength(record.afterContent ?? "");
       record.afterHash = after.hash;
       record.kind = record.beforeContent === null ? "create" : after.content === null ? "delete" : "modify";
@@ -1060,16 +1075,19 @@ export class ChangeCoordinator {
 
       if (!set) throw new Error("Command checkpoint disappeared.");
 
-      for (const before of checkpoint.covered) {
+      // Read every covered file and rescan the workspace concurrently; results are applied in the original order below.
+      const [observed, scanned] = await Promise.all([
+        Promise.allSettled(checkpoint.covered.map((before) => this.readRelative(before.path, true))),
+        this.scanWorkspace().then((value) => ({ value }), (error) => ({ error })),
+      ]);
+
+      for (const [index, before] of checkpoint.covered.entries()) {
         const record = set.files.find((item) => item.path === before.path)!;
-        await this.observeCommandFile(set, record);
+        await this.observeCommandFile(set, record, observed[index]);
       }
 
-      const current = await this.scanWorkspace().catch((error) => {
-        set.coverageWarnings.push(`Command workspace comparison is incomplete: ${error instanceof Error ? error.message : String(error)}`);
-
-        return checkpoint.workspace;
-      });
+      if ("error" in scanned) set.coverageWarnings.push(`Command workspace comparison is incomplete: ${scanned.error instanceof Error ? scanned.error.message : String(scanned.error)}`);
+      const current = "value" in scanned ? scanned.value : checkpoint.workspace;
 
       const covered = new Set(checkpoint.covered.map((item) => item.path));
       const changed = new Set([...checkpoint.workspace.keys(), ...current.keys()]);
@@ -1095,14 +1113,14 @@ export class ChangeCoordinator {
       const set = [...this.store.changeSets].reverse().find((item) => this.undoEligible(item));
 
       if (!set || set.id !== changeSetId) throw new Error("The displayed change set is no longer the latest eligible change set for undo.");
-      const conflicts: string[] = [];
+      const changed = set.files.filter((file) => file.beforeHash !== file.afterHash);
+      const snapshots = await Promise.all(changed.map((file) => this.readRelative(file.path, true).catch(() => undefined)));
 
-      for (const file of set.files) {
-        if (file.beforeHash === file.afterHash) continue;
-        const current = await this.readRelative(file.path, true).catch(() => undefined);
+      const conflicts = changed.flatMap((file, index) => {
+        const current = snapshots[index];
 
-        if (!current || !this.matchesInstalled(file, current)) conflicts.push(`${file.path} no longer matches the recorded agent result`);
-      }
+        return !current || !this.matchesInstalled(file, current) ? [`${file.path} no longer matches the recorded agent result`] : [];
+      });
 
       if (conflicts.length) {
         set.state = "conflicted"; set.errors.push(...conflicts); set.updatedAt = new Date().toISOString(); await this.persist();
