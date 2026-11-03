@@ -139,16 +139,18 @@ export class JournalStore {
 
     try { names = await readdir(this.directory); } catch { return []; }
 
+    const files = names.filter((entry) => entry.endsWith(".json")).sort();
+    const read = await Promise.allSettled(files.map((name) => readJournal(path.join(this.directory, name))));
     const journals: InstrumentationJournal[] = [];
 
-    for (const name of names.filter((entry) => entry.endsWith(".json")).sort()) {
-      try {
-        const journal = await readJournal(path.join(this.directory, name));
-
-        if (journal) journals.push(journal);
-      } catch (error) {
-        throw new Error(`Unreadable recovery record ${path.join(this.directory, name)}: ${error instanceof Error ? error.message : String(error)}`);
+    // Read concurrently, but report the first unreadable record in sorted order, as a sequential pass would.
+    for (const [index, result] of read.entries()) {
+      if (result.status === "rejected") {
+        const error: unknown = result.reason;
+        throw new Error(`Unreadable recovery record ${path.join(this.directory, files[index]!)}: ${error instanceof Error ? error.message : String(error)}`);
       }
+
+      if (result.value) journals.push(result.value);
     }
 
     return journals;

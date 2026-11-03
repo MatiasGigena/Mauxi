@@ -93,15 +93,17 @@ async function exists(filePath: string): Promise<boolean> {
 }
 
 async function firstExistingConfig(root: string): Promise<string | null> {
-  for (const name of ["vite.config.js", "vite.config.mjs", "vite.config.ts", "vite.config.cjs", "vite.config.mts", "vite.config.cts"]) {
-    if (!(await exists(path.join(root, name)))) continue;
+  const names = ["vite.config.js", "vite.config.mjs", "vite.config.ts", "vite.config.cjs", "vite.config.mts", "vite.config.cts"];
+  const present = await Promise.all(names.map((name) => exists(path.join(root, name))));
 
-    if (name.endsWith(".cjs") || name.endsWith(".cts")) throw new Error(`Vite loads ${name}, which Mauxi does not support yet. Mauxi made no changes.`);
+  // Vite's own lookup order decides which configuration wins; probe all at once and pick the first present.
+  const name = names.find((_, index) => present[index]);
 
-    return path.join(root, name);
-  }
+  if (!name) return null;
 
-  return null;
+  if (name.endsWith(".cjs") || name.endsWith(".cts")) throw new Error(`Vite loads ${name}, which Mauxi does not support yet. Mauxi made no changes.`);
+
+  return path.join(root, name);
 }
 
 async function prepareVitePlan(root: string): Promise<IntegrationPlan> {
@@ -165,13 +167,9 @@ async function prepareNextPlan(root: string): Promise<IntegrationPlan> {
     "src/instrumentation-client.jsx",
   ];
 
-  const existing: string[] = [];
-
-  for (const candidate of candidates) {
-    const filePath = path.join(root, candidate);
-
-    if (await exists(filePath)) existing.push(filePath);
-  }
+  const paths = candidates.map((candidate) => path.join(root, candidate));
+  const present = await Promise.all(paths.map(exists));
+  const existing = paths.filter((_, index) => present[index]);
 
   if (existing.length > 1) throw new Error("Multiple instrumentation-client files were found. Mauxi cannot choose one safely.");
   const bridgePath = path.join(root, ".mauxi", "bridge.js");
@@ -294,13 +292,14 @@ export async function applyIntegration(
     if (originalContent.includes("mauxi-owned:start preview-bridge")) throw new Error(`${plan.configPath} is already instrumented`);
   }
 
-  if (await exists(plan.bridgePath)) throw new Error(`Refusing to replace existing artifact ${plan.bridgePath}`);
+  const artifactPaths = [plan.bridgePath, ...plan.createdFiles.map((artifact) => artifact.path)];
+  const [occupied, journals] = await Promise.all([Promise.all(artifactPaths.map(exists)), Promise.allSettled([store.list()])]);
+  const replaced = artifactPaths.find((_, index) => occupied[index]);
 
-  for (const artifact of plan.createdFiles) {
-    if (await exists(artifact.path)) throw new Error(`Refusing to replace existing artifact ${artifact.path}`);
-  }
+  if (replaced) throw new Error(`Refusing to replace existing artifact ${replaced}`);
 
-  const unfinished = (await store.list()).filter((entry) => entry.state !== "clean");
+  if (journals[0].status === "rejected") throw journals[0].reason;
+  const unfinished = journals[0].value.filter((entry) => entry.state !== "clean");
   const transactionId = transactionIdFor(plan);
 
   if (unfinished.length >= 64 && !unfinished.some((entry) => entry.transactionId === transactionId)) {

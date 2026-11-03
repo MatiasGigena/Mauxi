@@ -18,19 +18,20 @@ async function missing(file: string): Promise<boolean> {
   catch (error) { if (hasErrorCode(error, "ENOENT")) return true; throw error; }
 }
 
+/** Polled every 25 ms while a session stops, so every process is inspected at once instead of one /proc read at a time. */
 async function liveGroup(pid: number): Promise<boolean> {
-  for (const entry of await readdir("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-
+  const live = await Promise.all((await readdir("/proc")).filter((entry) => /^\d+$/.test(entry)).map(async (entry) => {
     try {
       const stat = await readFile(`/proc/${entry}/stat`, "utf8");
       const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
 
-      if (Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X") return true;
-    } catch (error) { if (!hasErrorCode(error, "ENOENT", "ESRCH")) throw error; }
-  }
+      return Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X";
+    } catch (error) { if (!hasErrorCode(error, "ENOENT", "ESRCH")) throw error;
 
-  return false;
+    return false; }
+  }));
+
+  return live.some(Boolean);
 }
 
 export async function stopSessionProcess(journal: InstrumentationJournal): Promise<void> {

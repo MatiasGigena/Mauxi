@@ -66,12 +66,14 @@ export async function addSessionIntegration(plan: IntegrationPlan): Promise<Inte
   }
 
   const names = ["next.config.ts", "next.config.mjs", "next.config.js"];
-  const configs: string[] = [];
 
-  for (const name of names) {
-    try { await lstat(path.join(plan.workspaceRoot, name)); configs.push(name); }
-    catch (error) { if (!(hasErrorCode(error, "ENOENT"))) throw error; }
-  }
+  const present = await Promise.all(names.map((name) => lstat(path.join(plan.workspaceRoot, name)).then(() => true, (error) => {
+    if (!(hasErrorCode(error, "ENOENT"))) throw error;
+
+    return false;
+  })));
+
+  const configs = names.filter((_, index) => present[index]);
 
   if (configs.length > 1) throw new Error("Multiple Next configurations were found; choose one before importing.");
   plan.createdFiles.push({ path: path.join(plan.workspaceRoot, ".mauxi/next-session.cjs"), content: helper });
