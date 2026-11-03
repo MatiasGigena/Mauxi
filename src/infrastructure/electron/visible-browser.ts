@@ -112,32 +112,34 @@ export class ElectronVisibleBrowser implements VisibleBrowserAdapter {
     if (this.window.isDestroyed() || !this.window.isVisible() || this.window.isMinimized()) { this.invalidate("Visible window unavailable; browser control returned"); throw new Error("Visible window unavailable"); }
 
     await this.initialize();
-    const { frameTree } = await this.query(FrameTree, "Page.getFrameTree");
+    // CDP pipelines commands, so independent queries are issued together and their results applied in frame order.
+    const [{ frameTree }, { targetInfos }] = await Promise.all([this.query(FrameTree, "Page.getFrameTree"), this.query(TargetInfos, "Target.getTargets")]);
     const children: FrameTreeNode[] = [...(frameTree.childFrames ?? [])];
-    const { targetInfos } = await this.query(TargetInfos, "Target.getTargets");
 
-    for (const info of targetInfos) {
-      const sessionId = this.sessions.get(info.targetId);
+    const remoteTargets = targetInfos.filter((info, index) => info.type === "iframe" && info.parentFrameId === frameTree.frame.id && this.sessions.has(info.targetId)
+      && !children.some(child => child.frame.id === info.targetId) && targetInfos.findIndex(other => other.targetId === info.targetId) === index);
 
-      if (info.type !== "iframe" || info.parentFrameId !== frameTree.frame.id || !sessionId || children.some(child => child.frame.id === info.targetId)) continue;
-      const remote = await this.query(FrameTree, "Page.getFrameTree", {}, sessionId);
+    const remotes = await Promise.all(remoteTargets.map(info => this.query(FrameTree, "Page.getFrameTree", {}, this.sessions.get(info.targetId))));
 
-      if (remote.frameTree.frame.id === info.targetId) children.push(remote.frameTree);
-    }
+    remoteTargets.forEach((info, index) => { if (remotes[index]!.frameTree.frame.id === info.targetId) children.push(remotes[index]!.frameTree); });
+
+    const owners = await Promise.all(children.map(async (child) => {
+      try {
+        const owner = await this.query(FrameOwner, "DOM.getFrameOwner", { frameId: child.frame.id });
+        const { node } = await this.query(DescribedNode, "DOM.describeNode", { backendNodeId: owner.backendNodeId });
+
+        return node.nodeName === "IFRAME" ? { owner, attrs: node.attributes ?? [] } : null;
+      } catch { return null; }
+    }));
 
     const found = new Set<PreviewId>();
 
-    for (const child of children) {
+    for (const [index, child] of children.entries()) {
       const frame = child.frame;
-      let owner: { backendNodeId: number }; let attrs: string[];
+      const described = owners[index];
 
-      try {
-        owner = await this.query(FrameOwner, "DOM.getFrameOwner", { frameId: frame.id });
-        const { node } = await this.query(DescribedNode, "DOM.describeNode", { backendNodeId: owner.backendNodeId });
-
-        if (node.nodeName !== "IFRAME") continue;
-        attrs = node.attributes ?? [];
-      } catch { continue; }
+      if (!described) continue;
+      const { owner, attrs } = described;
 
       const attributes = new Map<string, string>();
 
