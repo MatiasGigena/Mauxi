@@ -121,18 +121,19 @@ export async function resolveWorkspaceSource(
 
   if (isBasenameOnly || isBundlerUrl) await walk(canonicalRoot);
   const unique = [...new Set(candidates)];
-  const valid: string[] = [];
 
-  for (const candidate of unique) {
+  const checked = await Promise.all(unique.map(async (candidate) => {
     try {
       const canonical = await realpath(candidate);
 
-      if (!(canonical === canonicalRoot || canonical.startsWith(`${canonicalRoot}${path.sep}`))) continue;
+      if (!(canonical === canonicalRoot || canonical.startsWith(`${canonicalRoot}${path.sep}`))) return null;
       const file = await lstat(canonical);
 
-      if (file.isFile() && !file.isSymbolicLink() && file.size <= 2_097_152) valid.push(canonical);
-    } catch {}
-  }
+      return file.isFile() && !file.isSymbolicLink() && file.size <= 2_097_152 ? canonical : null;
+    } catch { return null; }
+  }));
+
+  const valid = checked.filter((canonical): canonical is string => canonical !== null);
 
   if (valid.length !== 1) return null;
   const content = await readFile(valid[0]);

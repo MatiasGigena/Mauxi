@@ -185,18 +185,24 @@ const auditScanner = new AuditScanner({
 /** Host-verified source candidates for findings whose element carries a unique literal JSX test ID. */
 async function verifyFindingSources(report: AuditReport, root: string): Promise<void> {
   const signal = AbortSignal.timeout(5_000);
+  const lookups = new Map<string, ReturnType<typeof inspectDomSource>>();
 
-  for (const finding of report.findings.slice(0, 24)) {
+  // Each lookup is an independent bounded walk; findings that share an element share one walk, and all walks run together under one deadline.
+  await Promise.all(report.findings.slice(0, 24).map(async (finding) => {
     const element = finding.element;
 
-    if (!element?.testId) continue;
+    if (!element?.testId) return;
+    const key = JSON.stringify([element.tag, element.testId]);
+    let lookup = lookups.get(key);
+
+    if (!lookup) { lookup = inspectDomSource(root, element.tag, element.testId, signal); lookups.set(key, lookup); }
 
     try {
-      const match = await inspectDomSource(root, element.tag, element.testId, signal);
+      const match = await lookup;
 
       if (match.status === "static-match" && "filePath" in match) element.source = { component: element.source?.component ?? null, file: match.filePath, line: match.lineNumber, verified: true };
-    } catch { return; }
-  }
+    } catch {}
+  }));
 }
 
 /** Runs one route. A site batch captures half-resolution snapshots and reports through site events instead. An aborted signal cancels this run only and stores nothing. */
