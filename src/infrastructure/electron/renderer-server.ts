@@ -11,14 +11,14 @@ export async function startRendererServer(directory: string) {
   const assets = new Map<string, { body: Buffer; type: string }>();
   const types = new Map([[".html", "text/html; charset=utf-8"], [".js", "text/javascript; charset=utf-8"], [".css", "text/css; charset=utf-8"], [".png", "image/png"], [".svg", "image/svg+xml"], [".woff2", "font/woff2"]]);
 
-  async function collect(relative = "") {
-    for (const entry of await readdir(path.join(directory, relative), { withFileTypes: true })) {
+  async function collect(relative = ""): Promise<void> {
+    await Promise.all((await readdir(path.join(directory, relative), { withFileTypes: true })).map(async (entry) => {
       const name = path.posix.join(relative, entry.name);
       const type = types.get(path.extname(name));
 
       if (entry.isDirectory()) await collect(name);
       else if (entry.isFile() && type) assets.set(name, { body: await readFile(path.join(directory, name)), type });
-    }
+    }));
   }
 
   await collect();
