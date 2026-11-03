@@ -219,6 +219,10 @@ describe("bundled pi host", () => {
       let body = "";
       request.on("data", (chunk) => { body += String(chunk); });
       request.on("end", () => {
+        if (!request.complete || !body) { response.destroy();
+
+ return; }
+
         requests += 1;
 
         if (expired) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: { message: "Expired API credential", type: "authentication_error" } }));
