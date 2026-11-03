@@ -92,9 +92,8 @@ export class WorkspaceManager {
   async inspect(selectedPath: string): Promise<ProjectDiscovery> {
     if (this.active || this.confirmation) throw new Error("Close the active project before opening another one.");
     const initial = await discoverProject(selectedPath);
-    const remembered = await this.workspaces.rememberedPlan(initial.canonicalRoot);
+    const [remembered, startPath] = await Promise.all([this.workspaces.rememberedPlan(initial.canonicalRoot), this.workspaces.startPath(initial.canonicalRoot)]);
     this.discovery = remembered ? await discoverProject(selectedPath, remembered) : initial;
-    const startPath = await this.workspaces.startPath(initial.canonicalRoot);
 
     if (startPath) for (const plan of this.discovery.plans) plan.startPath = validateStartPath(startPath);
 
@@ -130,15 +129,17 @@ export class WorkspaceManager {
 
     if (request.mode === "attach" && plan.framework === "next") throw new Error("Next.js needs a Mauxi-owned server to isolate and clean its build cache. Choose Confirm & start; external servers remain untouched.");
 
-    if (plan.framework === "next" && await existingNextServer(plan.appRoot)) throw new Error("This Next.js project already has a development server running. Close it before importing so it cannot compile Mauxi hooks into its own cache. Mauxi did not stop it.");
-    const occupied = await isPortOccupied(plan.port);
+    // Both probes are read-only: scanning /proc for a Next.js server and checking the port can overlap.
+    const [nextServerRunning, occupied] = await Promise.all([plan.framework === "next" && existingNextServer(plan.appRoot), isPortOccupied(plan.port)]);
+
+    if (nextServerRunning) throw new Error("This Next.js project already has a development server running. Close it before importing so it cannot compile Mauxi hooks into its own cache. Mauxi did not stop it.");
 
     if (request.mode === "start") plan = withSessionPort(plan, occupied ? await availablePort() : plan.port);
     plan.startPath = validateStartPath(request.startPath ?? selectedPlan.startPath ?? plan.startPath ?? "/");
 
     if (request.mode === "attach" && !occupied) throw new Error(`Nothing is listening on ${plan.origin}; attachment was not started.`);
 
-    const integration = await prepareIntegrationPlan(plan.appRoot, plan.framework, request.mode === "start");
+    const [integration, canvas] = await Promise.all([prepareIntegrationPlan(plan.appRoot, plan.framework, request.mode === "start"), this.workspaces.canvas(plan.projectRoot)]);
 
     const active: ActiveInternal = {
       plan,
@@ -149,7 +150,7 @@ export class WorkspaceManager {
       setup: null,
       value: {
         workspaceId: randomUUID(),
-        canvas: await this.workspaces.canvas(plan.projectRoot),
+        canvas,
         projectRoot: plan.projectRoot,
         appRoot: plan.appRoot,
         framework: plan.framework,

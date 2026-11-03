@@ -187,18 +187,23 @@ export function withSessionPort(plan: LaunchPlan, port: number): LaunchPlan {
 }
 
 export async function existingNextServer(appRoot: string): Promise<number | null> {
-  for (const entry of await readdir("/proc")) {
-    if (!/^\d+$/.test(entry) || Number(entry) === process.pid) continue;
+  const entries = (await readdir("/proc")).filter((entry) => /^\d+$/.test(entry) && Number(entry) !== process.pid);
 
+  // Inspect every process at once, then report the first match in /proc order.
+  const matches = await Promise.all(entries.map(async (entry) => {
     try {
-      if (await realpath(`/proc/${entry}/cwd`) !== appRoot) continue;
+      if (await realpath(`/proc/${entry}/cwd`) !== appRoot) return false;
       const argv = (await readFile(`/proc/${entry}/cmdline`, "utf8")).split("\0");
 
-      if (argv[0]?.startsWith("next-server (") || argv.some((arg, index) => /(?:^|\/)next$/.test(arg) && argv[index + 1] === "dev")) return Number(entry);
+      return argv[0]?.startsWith("next-server (") || argv.some((arg, index) => /(?:^|\/)next$/.test(arg) && argv[index + 1] === "dev");
     } catch (error) {
       if (!hasErrorCode(error, "ENOENT", "ESRCH", "EACCES", "EPERM")) throw error;
-    }
-  }
 
-  return null;
+      return false;
+    }
+  }));
+
+  const index = matches.findIndex(Boolean);
+
+  return index < 0 ? null : Number(entries[index]);
 }
