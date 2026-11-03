@@ -1,6 +1,6 @@
 # Linux release acceptance gate
 
-**NOT ACCEPTED — issue [#9](https://github.com/MatiasGigena/Mauxi/issues/9) stays open.** The source is public under the MIT License; this gate decides when an AppImage is offered as a release.
+**NOT ACCEPTED.** The source is public under the MIT License; this gate decides when an AppImage is offered as a release.
 
 This is the active release checklist, not a historical test receipt. Passing unit tests alone does not establish a release. Re-run the required checks against the current source and rebuilt artifact; record results outside the repository. Setup/recovery instructions: [usage notes](usage.md). Test commands and artifact handling: [development](development.md).
 
