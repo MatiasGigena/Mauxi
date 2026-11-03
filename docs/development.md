@@ -48,6 +48,10 @@ Browser-only Playwright suites (`test:setup-e2e`, the `selection-composer` spec 
 
 Do not delete recovery state to resolve a failed cleanup. Inspect conflicts and use the recovery guidance instead.
 
+## README screenshot
+
+`npm run docs:screenshot` regenerates `docs/images/mauxi-workspace.png`: it opens the Vite audit lab with a local fake model, waits for the entry audit and captures the window with the first finding expanded. It needs a graphical display (or Xvfb). The spec is skipped in `test:browser-e2e` unless `MAUXI_README_SCREENSHOT=1` is set, so ordinary runs never overwrite the image. Commit the new image only after looking at it.
+
 ## Generated output
 
 Playwright writes screenshots, JSON diagnostics, stderr, traces, and failure artifacts under **`test-results/<suite>/`**. Test-owned files use `testInfo.outputPath()` so they get a test-specific directory and do not depend on checked-in artifact folders. The workspace capture tests share their Electron session and capture folder within the test file. Each suite refreshes its own output; other suites' output is left alone. The package suite records the tested AppImage digest/runtime/cycles. Failed package projects and recovery journals are retained in a temporary directory identified by `recovery-location.txt`; inspect before removing them. The workspace HTML report goes in **`playwright-report/`**.

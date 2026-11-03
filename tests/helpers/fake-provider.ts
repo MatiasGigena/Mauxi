@@ -38,7 +38,7 @@ export const unavailable: Reply = response => {
   response.end(JSON.stringify({ error: { message: "Service unavailable", type: "server_error" } }));
 };
 
-export async function launch(state: string, replies: (request: number) => Reply, env: Record<string, string> = {}, startPath?: string) {
+export async function launch(state: string, replies: (request: number) => Reply, env: Record<string, string> = {}, startPath?: string, modelName = "Recovery local fake") {
   const requests: string[] = [];
 
   const server = createServer((request, response) => {
@@ -52,7 +52,7 @@ export async function launch(state: string, replies: (request: number) => Reply,
   await mkdir(profile, { recursive: true });
   await writeFile(path.join(profile, "models.json"), JSON.stringify({ providers: { "recovery-local": {
     baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "local-placeholder", api: "openai-completions",
-    models: [{ id: "recovery", name: "Recovery local fake", reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+    models: [{ id: "recovery", name: modelName, reasoning: false, input: ["text", "image"], contextWindow: 100_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
   } } }));
   await writeFile(path.join(profile, "model-preference.json"), JSON.stringify({ defaultProvider: "recovery-local", defaultModel: "recovery" }));
 
