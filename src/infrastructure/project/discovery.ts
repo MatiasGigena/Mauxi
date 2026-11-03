@@ -216,19 +216,19 @@ async function supportsNextClientInstrumentation(manifest: PackageManifest, appR
 
   if (isNextClientVersion(declared)) return true;
 
-  for (const root of new Set([appRoot, projectRoot])) {
+  const checks = [...new Set([appRoot, projectRoot])].map(async (root) => {
     const installedManifest = path.join(root, "node_modules", "next", "package.json");
 
-    if (!(await isFile(installedManifest))) continue;
+    if (!(await isFile(installedManifest))) return false;
 
     try {
       const installed = await readManifest(installedManifest);
 
-      if (installed.version !== null && isNextClientVersion(installed.version)) return true;
-    } catch {}
-  }
+      return installed.version !== null && isNextClientVersion(installed.version);
+    } catch { return false; }
+  });
 
-  return false;
+  return (await Promise.all(checks)).some(Boolean);
 }
 
 function scriptCandidates(manifest: PackageManifest, framework: SupportedFramework): Array<[string, string]> {
@@ -259,27 +259,23 @@ async function resolvePackageManagerExecutable(manager: SupportedPackageManager)
     path.join(home, ".asdf", "shims"),
   ]) directories.add(candidate);
 
-  for (const versionRoot of [path.join(home, ".nvm", "versions", "node"), path.join(home, ".local", "share", "fnm", "node-versions")]) {
-    try {
-      for (const entry of await readdir(versionRoot, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        directories.add(versionRoot.endsWith("node-versions")
-          ? path.join(versionRoot, entry.name, "installation", "bin")
-          : path.join(versionRoot, entry.name, "bin"));
-      }
-    } catch {}
-  }
+  const versionRoots = [path.join(home, ".nvm", "versions", "node"), path.join(home, ".local", "share", "fnm", "node-versions")];
+  const versionEntries = await Promise.all(versionRoots.map((versionRoot) => readdir(versionRoot, { withFileTypes: true }).catch(() => [])));
 
-  for (const directory of directories) {
-    const candidate = path.join(directory, manager);
+  versionRoots.forEach((versionRoot, index) => {
+    for (const entry of versionEntries[index]!) {
+      if (!entry.isDirectory()) continue;
+      directories.add(versionRoot.endsWith("node-versions")
+        ? path.join(versionRoot, entry.name, "installation", "bin")
+        : path.join(versionRoot, entry.name, "bin"));
+    }
+  });
 
-    try { await access(candidate, constants.X_OK);
+  // Probe every directory at once, then keep the first executable in PATH order.
+  const candidates = [...directories].map((directory) => path.join(directory, manager));
+  const executable = await Promise.all(candidates.map((candidate) => access(candidate, constants.X_OK).then(() => true, () => false)));
 
-    return candidate; }
-    catch {}
-  }
-
-  return null;
+  return candidates.find((_, index) => executable[index]) ?? null;
 }
 
 function commandFor(manager: SupportedPackageManager, executable: string, script: string) {
@@ -327,15 +323,23 @@ async function configurationFingerprint(appRoot: string, projectRoot: string, ma
     ...frameworkFiles.map((name) => path.join(appRoot, name)),
   ])];
 
-  const digest = createHash("sha256");
-
-  for (const filePath of paths) {
-    if (!(await isFile(filePath))) continue;
+  const contents = await Promise.all(paths.map(async (filePath) => {
+    if (!(await isFile(filePath))) return null;
     const file = await lstat(filePath);
 
     if (file.isSymbolicLink() || file.size > 50 * 1_048_576) throw new Error(`Approval input is unsupported or too large: ${filePath}`);
-    digest.update(filePath).update("\0").update(await readFile(filePath)).update("\0");
-  }
+
+    return readFile(filePath);
+  }));
+
+  // Hash in the fixed path order so the fingerprint stays deterministic.
+  const digest = createHash("sha256");
+
+  paths.forEach((filePath, index) => {
+    const content = contents[index];
+
+    if (content) digest.update(filePath).update("\0").update(content).update("\0");
+  });
 
   return digest.digest("hex");
 }
@@ -343,15 +347,9 @@ async function configurationFingerprint(appRoot: string, projectRoot: string, ma
 async function dependenciesPresent(appRoot: string, projectRoot: string, framework: SupportedFramework): Promise<boolean> {
   const executable = framework === "next" ? "next" : "vite";
 
-  for (const root of new Set([appRoot, projectRoot])) {
-    try {
-      await access(path.join(root, "node_modules", ".bin", executable));
+  const present = await Promise.all([...new Set([appRoot, projectRoot])].map((root) => access(path.join(root, "node_modules", ".bin", executable)).then(() => true, () => false)));
 
-      return true;
-    } catch {}
-  }
-
-  return false;
+  return present.some(Boolean);
 }
 
 async function integrationPreview(root: string, framework: SupportedFramework): Promise<IntegrationPreview> {
@@ -368,13 +366,15 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
 
   if (!rootStat.isDirectory()) throw new Error("Choose a project folder, not a file.");
 
+  // git status is a subprocess with a 5 s timeout; start it now so it overlaps the filesystem probes below.
+  const git = gitStatus(canonicalRoot);
   const diagnostics: ProjectDiagnostic[] = [];
   const rootManifestPath = path.join(canonicalRoot, "package.json");
 
   if (!(await isFile(rootManifestPath))) {
     return {
       discoveryId: randomUUID(), selectedRoot, canonicalRoot, packageJsonPath: null,
-      git: await gitStatus(canonicalRoot), plans: [], rememberedPlanId: null,
+      git: await git, plans: [], rememberedPlanId: null,
       diagnostics: [{ level: "error", code: "missing-manifest", message: "No package.json was found in the selected folder." }],
     };
   }
@@ -382,41 +382,53 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
   const rootManifest = await readManifest(rootManifestPath);
   const candidateRoots = new Set<string>([canonicalRoot]);
 
-  for (const pattern of rootManifest.workspaces) {
+  const expandedPatterns = await Promise.all(rootManifest.workspaces.map(async (pattern) => {
     const expanded = await expandWorkspacePattern(canonicalRoot, pattern);
 
-    for (const candidate of expanded) {
-      const canonical = await canonicalWorkspaceCandidate(canonicalRoot, candidate);
+    return { pattern, canonical: await Promise.all(expanded.map((candidate) => canonicalWorkspaceCandidate(canonicalRoot, candidate))) };
+  }));
 
+  for (const { pattern, canonical: resolved } of expandedPatterns) {
+    for (const canonical of resolved) {
       if (canonical) candidateRoots.add(canonical);
       else diagnostics.push({ level: "warning", code: "escaped-workspace", message: `Ignored workspace pattern ${pattern}: its resolved path is unavailable or outside the selected project.` });
     }
   }
 
-  const plans: LaunchPlan[] = [];
+  // The package manager and its executable depend only on the selected root, so resolve them once for every candidate.
+  let toolchain: Promise<{ manager: SupportedPackageManager; managerExecutable: string | null }> | undefined;
 
-  for (const candidateRoot of candidateRoots) {
+  const resolveToolchain = () => toolchain ??= detectPackageManager(canonicalRoot, rootManifest)
+    .then(async (manager) => ({ manager, managerExecutable: await resolvePackageManagerExecutable(manager) }));
+
+  const inspectCandidate = async (candidateRoot: string): Promise<{ diagnostics: ProjectDiagnostic[]; plans: LaunchPlan[] }> => {
+    const diagnostics: ProjectDiagnostic[] = [];
+    const plans: LaunchPlan[] = [];
     const manifestPath = path.join(candidateRoot, "package.json");
 
-    if (!(await isFile(manifestPath))) continue;
+    if (!(await isFile(manifestPath))) return { diagnostics, plans };
     let manifest: PackageManifest;
 
     try { manifest = await readManifest(manifestPath); }
     catch (error) {
       diagnostics.push({ level: "warning", code: "invalid-workspace-manifest", message: error instanceof Error ? error.message : String(error) });
-      continue;
+
+      return { diagnostics, plans };
     }
 
     const framework = detectFramework(manifest);
 
-    if (!framework) continue;
-    const manager = await detectPackageManager(canonicalRoot, rootManifest);
+    if (!framework) return { diagnostics, plans };
     const scripts = scriptCandidates(manifest, framework);
-    const managerExecutable = await resolvePackageManagerExecutable(manager);
-    const integration = await integrationPreview(candidateRoot, framework);
-    const installed = await dependenciesPresent(candidateRoot, canonicalRoot, framework);
+
+    const [{ manager, managerExecutable }, integration, installed, nextClientSupported] = await Promise.all([
+      resolveToolchain(),
+      integrationPreview(candidateRoot, framework),
+      dependenciesPresent(candidateRoot, canonicalRoot, framework),
+      framework !== "next" || supportsNextClientInstrumentation(manifest, candidateRoot, canonicalRoot),
+    ]);
+
     const approvalFingerprint = await configurationFingerprint(candidateRoot, canonicalRoot, manager, framework);
-    const nextClientSupported = framework !== "next" || await supportsNextClientInstrumentation(manifest, candidateRoot, canonicalRoot);
 
     for (const [scriptName, rawCommand] of scripts) {
       const command = commandFor(manager, managerExecutable ?? manager, scriptName);
@@ -469,6 +481,16 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
         diagnostics: planDiagnostics,
       });
     }
+
+    return { diagnostics, plans };
+  };
+
+  const plans: LaunchPlan[] = [];
+
+  // Inspect workspace candidates concurrently, then merge results in candidate order to keep plan order stable.
+  for (const result of await Promise.all([...candidateRoots].map(inspectCandidate))) {
+    diagnostics.push(...result.diagnostics);
+    plans.push(...result.plans);
   }
 
   if (!plans.length) diagnostics.push({ level: "error", code: "unsupported-project", message: "No supported React + Vite or Next.js development script was found. Mauxi did not execute project configuration." });
@@ -477,7 +499,7 @@ export async function discoverProject(selectedPath: string, rememberedPlanId: st
 
   return {
     discoveryId: randomUUID(), selectedRoot, canonicalRoot, packageJsonPath: rootManifestPath,
-    git: await gitStatus(canonicalRoot), plans,
+    git: await git, plans,
     rememberedPlanId: plans.some((plan) => plan.id === rememberedPlanId) ? rememberedPlanId : null,
     diagnostics,
   };
