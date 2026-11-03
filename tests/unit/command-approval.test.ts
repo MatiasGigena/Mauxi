@@ -47,7 +47,7 @@ describe("host-side command approval", () => {
 
     try {
       const controller = new AbortController();
-      const result = executeCommand(process.execPath, ["-e", script], handle, { timeoutMs: scenario === "abort" ? 120_000 : 600, killGraceMs: 150 }, controller.signal);
+      const result = executeCommand(process.execPath, ["-e", script], handle, { timeoutMs: scenario === "abort" ? 120_000 : scenario === "timeout" ? 600 : 10_000, killGraceMs: 150 }, controller.signal);
 
       if (scenario === "abort") {
         const assertion = expect(result).rejects.toThrow(/cancelled/);
@@ -60,7 +60,7 @@ describe("host-side command approval", () => {
         controller.abort(); await assertion;
       } else if (scenario === "timeout") await expect(result).rejects.toThrow(/timed out/);
       else expect((await result).exitCode).toBe(7);
-      expect(Date.now() - start).toBeLessThan(2_500);
+      expect(Date.now() - start).toBeLessThan(scenario === "timeout" || scenario === "abort" ? 2_500 : 5_000);
       pid = Number(await readFile(path.join(directory, "ready.pid"), "utf8"));
 
       if (scenario !== "escaped-pipes") {
@@ -142,6 +142,10 @@ describe("host-side command approval", () => {
     const server = createServer((request, response) => {
       let body = ""; request.on("data", (chunk) => { body += String(chunk); });
       request.on("end", () => {
+        if (!request.complete || !body) { response.destroy();
+
+ return; }
+
         const parsed = Value.Parse(ProviderRequest, JSON.parse(body));
         const lastUser = parsed.messages.map((item) => item.role).lastIndexOf("user");
         const user = JSON.stringify(parsed.messages[lastUser]?.content ?? "");

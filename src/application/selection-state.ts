@@ -32,7 +32,7 @@ function flags(list: BendList<boolean>): boolean[] {
 export function selectionMarkerIds(selections: readonly StoredSelection[], previewId: string, generation: string): string[] {
   const marked = flags(selection["Selection.markers"](toBend(selections), 8, previewId, generation));
 
-  return selections.filter((_, index) => marked[index]).map(item => item.capture.selectionId);
+  return selections.flatMap((item, index) => marked[index] ? [item.capture.selectionId] : []);
 }
 
 export function selectionCapturePaths(selections: readonly StoredSelection[]): string[] {

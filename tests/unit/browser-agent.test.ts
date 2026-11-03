@@ -35,6 +35,10 @@ it.each(["model-error", "stop", "disconnect"])("real SDK browser tool plumbing r
   const server = createServer((request, response) => {
     let body = ""; request.on("data", chunk => { body += chunk; });
     request.on("end", () => {
+      if (!request.complete || !body) { response.destroy();
+
+ return; }
+
       const parsed = JSON.parse(body); requests.push(parsed);
 
       if (scenario === "model-error") { response.writeHead(400, { "content-type": "application/json" }); response.end(JSON.stringify({ error: { message: "Deterministic model failure", type: "invalid_request_error" } }));
