@@ -8,7 +8,7 @@ export const LABELS = { desktop: "Desktop", mobile: "Mobile" };
 /** The furthest the user zooms out; the audit matrix overview may fit further, down to OVERVIEW_MIN_ZOOM. */
 export const MIN_ZOOM = 0.1;
 
-/** Full-page boards of long pages need less than 10% to fit with the live previews. */
+/** A sheet with many interaction tiles may need less than 10% to fit with the live previews. */
 export const OVERVIEW_MIN_ZOOM = 0.05;
 
 /** Automatic fits stop here; only the audit matrix overview fits below it. */
@@ -20,8 +20,8 @@ export interface Point { x: number; y: number }
 
 export interface Camera extends Point { zoom: number }
 
-/** stack: header bands stacked above the board in screen space (they do not scale with the camera), for boards in rows below others. */
-export interface Artboard extends Point { width: number; height: number; stack?: number }
+/** inset: screen px (they do not scale with the camera) between the board's body and its canvas position, beyond its own header; boards in rows below others carry their bands. */
+export interface Artboard extends Point { width: number; height: number; inset?: number }
 
 export interface CanvasState {
   version: 1;
@@ -54,16 +54,16 @@ export function dragBoard(board: Artboard, delta: Point, zoom: number): Artboard
   return { ...board, x: board.x + delta.x / zoom, y: board.y + delta.y / zoom };
 }
 
-export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM): Camera {
+export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM, maxZoom = MAX_ZOOM): Camera {
   const left = Math.min(...boards.map((b) => b.x));
   const top = Math.min(...boards.map((b) => b.y));
 
   const size = (zoom: number) => ({
     width: Math.max(...boards.map((b) => (b.x - left + b.width) * zoom)),
-    height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight * (1 + (b.stack ?? 0)))),
+    height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight + (b.inset ?? 0))),
   });
 
-  let low = minZoom; let high = MAX_ZOOM;
+  let low = minZoom; let high = Math.max(minZoom, maxZoom);
 
   for (let i = 0; i < 30; i++) {
     const mid = (low + high) / 2; const bounds = size(mid);

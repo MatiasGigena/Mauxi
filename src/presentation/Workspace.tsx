@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -16,6 +16,7 @@ import { RepositoryMenu } from "./RepositoryMenu";
 import { ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
 import { auditMatrix, AuditBoards, type FormingAudit } from "./AuditBoards";
+import { CAPTION, CROP_FADE } from "../application/audit-layout";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
@@ -96,6 +97,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
   const [hoveredFinding, setHoveredFinding] = useState<string | null>(null);
+  /** Audit sheet tiles shown uncropped. */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
   const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
   const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
@@ -690,32 +693,38 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   // A single-route run (the user's or the agent's) forms the matrix on the canvas; a site batch reports in the panel only.
   const forming = auditRunning || hostAudit;
   const measuring = forming && auditProgress?.phase === "profiles" ? auditProgress.profile ?? null : null;
-  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, forming, streamed, measuring, layout.boards]);
+  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, PREVIEW_IDS.map((id) => layout.boards[id]), expanded), [audit, forming, streamed, measuring, layout.boards, expanded]);
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
   /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
   function showReport(report: AuditReport, fit = true) {
     setAudit(report);
-    setSelectedFinding(null); setHoveredFinding(null);
+    setSelectedFinding(null); setHoveredFinding(null); setExpanded(new Set());
 
     if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
 
-  /** Fits the live previews and the audit matrix in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
   function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean): Camera {
     const live = PREVIEW_IDS.map((id) => state.boards[id]);
-    const boards = [...live, ...auditMatrix(report, forming, live).boards];
+    const { boards, sheet } = auditMatrix(report, forming, live);
+
+    return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : []], panel, OVERVIEW_MIN_ZOOM);
+  }
+
+  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM): Camera {
     const element = canvas.current;
 
-    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, minZoom, maxZoom);
     const rect = element.getBoundingClientRect();
     const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
     const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
     const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
-    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, minZoom, maxZoom);
 
     return { ...camera, y: camera.y + top };
   }
@@ -795,6 +804,49 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     return () => window.clearTimeout(timer);
   }, [showing, runtimes, send]);
+
+  /** Opens a cropped sheet tile downward in place, or crops an open one keeping its bottom (where its button was) in place. */
+  function toggleTile(profileId: string) {
+    const next = new Set(expanded);
+
+    if (!next.delete(profileId)) { next.add(profileId); setExpanded(next);
+
+      return; }
+
+    const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
+    const open = matrix.boards.find((board) => board.id === profileId);
+    const cropped = auditMatrix(audit, null, live, next).boards.find((board) => board.id === profileId);
+    setExpanded(next);
+
+    if (open && cropped) setLayout((current) => ({ ...current, camera: { ...current.camera, y: current.camera.y + (open.height - cropped.height) * current.camera.zoom } }));
+  }
+
+  /**
+   * Brings one audit sheet tile into view, uncropping it first when the finding's marker there lies below the crop, at
+   * most at the snapshot's own pixel size.
+   */
+  function locateFinding(finding: AuditFinding, profileId: string) {
+    if (!audit) return;
+    const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
+    const find = (open: ReadonlySet<string>) => auditMatrix(audit, null, live, open).boards.find((board) => board.id === profileId);
+    const tile = find(expanded);
+
+    if (!tile) return;
+    const marker = finding.markers.find((item) => item.profileId === profileId);
+    const below = !!marker && tile.cropped && Math.max(0, marker.rect.y) * tile.scale >= tile.height - CROP_FADE;
+    const open = below ? new Set([...expanded, profileId]) : expanded;
+    const target = below ? find(open)! : tile;
+    // Show the first screen of the tile with its caption, or a screen around a marker further down the page.
+    const view = Math.min(target.height, 560);
+    const from = below ? Math.max(0, Math.min(target.height - view, Math.max(0, marker!.rect.y) * target.scale - view / 3)) : 0;
+    const caption = from === 0 ? CAPTION : 0;
+    const header = geometry.current.headerHeight;
+    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale));
+
+    if (below) setExpanded(open);
+    setSelectedFinding(finding.id);
+    setLayout((current) => ({ ...unfocus(current), camera: { ...camera, y: camera.y - (header + target.inset - caption) } }));
+  }
 
   /** Opens the finding's route in the closest live preview, resizes it to the worst width and outlines the element there. */
   function showFinding(finding: AuditFinding) {
@@ -876,7 +928,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
+      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
+        expanded={expanded} onSelect={(finding) => setSelectedFinding(finding.id)} onExpand={toggleTile} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -908,7 +961,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
     {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
-      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)}
+      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)} onLocate={locateFinding}
       onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };

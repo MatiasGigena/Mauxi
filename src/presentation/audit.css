@@ -106,22 +106,40 @@
 .audit-clean { display: flex; align-items: center; gap: .4rem; margin: 1rem .375rem; color: var(--audit-resolved); font-size: .75rem; }
 
 /* Snapshot boards and markers */
-.snapshot-board { box-shadow: none; transition: opacity 160ms ease-out; }
-.snapshot-board .artboard-header { border-color: var(--sheet-border); }
-.snapshot-surface::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--sheet-border); border-top: 0; pointer-events: none; }
-.snapshot-header { cursor: default; padding: .25rem .75rem; }
-.snapshot-title { display: flex; flex-direction: column; min-width: 0; }
-.snapshot-title strong { display: flex; align-items: baseline; gap: .4rem; min-width: 0; overflow: hidden; color: var(--text); font-size: .75rem; font-weight: 500; white-space: nowrap; }
+/* The audit sheet: one surface under the live previews; its heading, lane labels and tile captions keep their size at every zoom. */
+.audit-sheet { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--sheet-border); border-radius: 1rem; background: var(--sheet-bg); pointer-events: none; }
+.sheet-lane-label { position: absolute; display: flex; align-items: flex-end; padding: 0 2px 5px; overflow: hidden; color: var(--text-muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
+.sweep-strip { flex: none; height: 38px; padding: 4px 14px 0; }
+.sweep-cells { display: flex; gap: 1px; height: 8px; }
+.sweep-cells span { flex: 1; border-radius: 1px; background: var(--track); transition: opacity 160ms ease-out; }
+.sweep-cells span[data-severity=serious] { background: var(--severity-serious); }
+.sweep-cells span[data-severity=moderate] { background: var(--severity-moderate); }
+.sweep-cells span[data-severity=minor] { background: var(--severity-minor); }
+.sweep-strip[data-spotlight] .sweep-cells span:not([data-lit]) { opacity: .25; }
+.sweep-strip[data-spotlight] .sweep-cells span[data-lit] { box-shadow: 0 -2px 0 var(--accent-text); }
+.sweep-marks { position: relative; height: 14px; margin-top: 4px; color: var(--text-faint); font-size: 9px; font-variant-numeric: tabular-nums; }
+.sweep-marks span { position: absolute; transform: translateX(-50%); }
+.sweep-marks span:first-child { transform: none; }
+.sweep-marks span:last-child { transform: translateX(-100%); }
+
+.snapshot-board { border-radius: 0; box-shadow: none; transition: opacity 160ms ease-out; }
+.workspace .snapshot-board .snapshot-header { align-items: center; gap: .35rem; padding: 0 1px 4px; border: 0; border-radius: 0; background: transparent; cursor: default; }
+.snapshot-surface { border-radius: 6px; }
+.snapshot-surface::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--sheet-border); border-radius: inherit; pointer-events: none; }
+.snapshot-title { display: flex; align-items: baseline; gap: .35rem; min-width: 0; overflow: hidden; }
+.snapshot-title strong { display: flex; flex: none; align-items: baseline; gap: .35rem; min-width: 0; max-width: 100%; overflow: hidden; color: var(--text); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .snapshot-width { flex: none; font: 600 .6875rem/1.5 ui-monospace, "SFMono-Regular", Menlo, monospace; font-variant-numeric: tabular-nums; color: var(--text); }
 .snapshot-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .snapshot-tag { display: none; flex: none; padding: 0 .3rem; border-radius: .3rem; background: var(--surface-3); color: var(--text-2); font-size: .625rem; font-weight: 600; }
-.snapshot-detail { overflow: hidden; color: var(--text-muted); font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
+.snapshot-detail { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.snapshot-board .snapshot-count { flex: none; margin-left: auto; padding: 0 .4rem; font-size: 10px; line-height: 16px; }
 .snapshot-count { flex: none; padding: .1rem .5rem; border-radius: 999px; background: var(--danger-bg); color: var(--severity-serious); font-size: .6875rem; font-weight: 500; }
 .snapshot-count[data-clean] { background: var(--ok-bg); color: var(--audit-resolved); }
 .snapshot-surface { position: relative; overflow: hidden; background: var(--surface-2); }
 .snapshot-surface img { display: block; user-select: none; }
 .snapshot-fold { position: absolute; left: 0; right: 0; border-top: 1px dashed rgb(24 27 34 / .45); pointer-events: none; }
 .snapshot-fold span { position: absolute; right: 4px; top: 2px; padding: 0 4px; border-radius: 4px; background: rgb(24 27 34 / .6); color: #fff; font-size: 9px; }
+.snapshot-board .snapshot-state { margin-left: auto; padding: 0 .4rem; font-size: 10px; line-height: 16px; }
 .snapshot-state { display: inline-flex; flex: none; align-items: center; gap: .3rem; padding: .1rem .5rem; border-radius: 999px; background: var(--surface-3); color: var(--text-faint); font-size: .6875rem; font-weight: 500; }
 .snapshot-state[data-state=measuring] { background: color-mix(in srgb, var(--audit-teal) 12%, var(--surface)); color: var(--audit-teal); }
 .snapshot-state[data-state=captured] { background: var(--ok-bg); color: var(--audit-resolved); }
@@ -134,11 +152,11 @@
 .snapshot-board[data-state=captured] img { animation: snapshot-in 420ms cubic-bezier(.23,1,.32,1); }
 @keyframes matrix-scan { from { transform: translateY(-100%); } to { transform: translateY(334%); } }
 @keyframes snapshot-in { from { opacity: 0; filter: saturate(0); } }
-.audit-matrix-title { position: absolute; display: flex; align-items: center; gap: .45rem; width: max-content; height: 2.25rem; padding: 0 .85rem 0 .7rem; border: 1px solid var(--sheet-border); border-radius: .75rem; background: var(--surface); color: var(--text-2); font-size: .75rem; white-space: nowrap; pointer-events: none; }
+.audit-matrix-title { display: flex; flex: none; align-items: center; gap: .45rem; height: 38px; padding: 0 12px 0 14px; overflow: hidden; border-bottom: 1px solid var(--sheet-border); color: var(--text-2); font-size: .75rem; white-space: nowrap; }
 .audit-matrix-title svg { flex: none; color: var(--audit-teal); }
 .audit-matrix-title strong { color: var(--text); font-weight: 600; }
 .audit-matrix-title code { font: 500 .6875rem/1.4 ui-monospace, "SFMono-Regular", Menlo, monospace; color: var(--text-2); }
-.audit-matrix-detail { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.audit-matrix-detail { min-width: 0; overflow: hidden; color: var(--text-muted); font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
 .audit-matrix-title > .snapshot-count, .audit-matrix-meter { margin-left: auto; }
 .audit-matrix-meter { width: 6rem; height: .25rem; overflow: hidden; border-radius: 999px; background: var(--track); }
 .audit-matrix-meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #218f90, #f4785d); transition: width 160ms ease; }
@@ -159,6 +177,20 @@
 .snapshot-rail span[data-severity=minor] { --severity: var(--severity-minor); }
 .snapshot-rail span[data-spotlit] { width: 8px; height: 5px; margin-top: -2px; box-shadow: 0 0 0 1px rgb(14 15 18 / .85); }
 .snapshot-board[data-spotlight] .snapshot-rail span:not([data-spotlit]) { opacity: .3; }
+.workspace .finding-marker[data-grouped] span { opacity: 0; }
+.workspace .finding-marker[data-group] span { border-radius: 4px 0 4px 0; white-space: nowrap; }
+/* A cropped tile fades out at the bottom and says how many markers it hides; open tiles can be cropped again. */
+.snapshot-crop { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: center; height: 56px; padding-bottom: 6px; background: linear-gradient(transparent, rgb(14 15 18 / .78)); pointer-events: none; }
+.snapshot-crop[data-open] { height: auto; background: none; }
+.workspace .snapshot-crop button { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.5rem; padding: .15rem .55rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: 10px; font-weight: 500; white-space: nowrap; box-shadow: none; pointer-events: auto; }
+.workspace .snapshot-crop button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .workspace .snapshot-crop button:hover { border-color: var(--border-strong); color: var(--text); } }
+.finding-seen { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin: 0 0 .45rem; }
+.finding-seen > span { margin-right: .15rem; color: var(--text-muted); }
+.workspace .finding-seen button { display: inline-flex; align-items: baseline; gap: .25rem; min-height: 1.5rem; padding: .1rem .45rem; border: 1px solid var(--border); border-radius: .4rem; background: var(--surface-2); color: var(--text-2); font-size: .625rem; }
+.workspace .finding-seen button code { color: var(--text); font-size: .625rem; font-weight: 600; }
+.workspace .finding-seen button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .workspace .finding-seen button:hover { border-color: var(--border-strong); color: var(--text); } }
 .workspace .finding-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Attached findings in chat */
@@ -231,31 +263,37 @@
   .workspace[data-audit-panel] .topbar, .workspace[data-audit-panel] .canvas-surface > .chat-dock { visibility: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spin { animation-duration: 2.4s; } .finding-chevron, .audit-progress-bar span, .audit-matrix-meter span, .snapshot-board, .workspace .finding-marker { transition: none; }
+  .spin { animation-duration: 2.4s; } .finding-chevron, .audit-progress-bar span, .audit-matrix-meter span, .snapshot-board, .workspace .finding-marker, .sweep-cells span { transition: none; }
   .snapshot-board[data-state=measuring] .snapshot-placeholder::after, .snapshot-board[data-state=captured] img { animation: none; }
 }
-/* Density follows the board's on-screen width: full pins from 17.5rem, hairlines with small pins below, a page rail under 7.5rem. */
+/* Density follows the tile's on-screen width: full pins from 17.5rem, hairlines with small pins below, a page rail under 7.5rem. */
 @container artboard (width < 17.5rem) {
   .snapshot-detail, .snapshot-count-unit { display: none; }
-  .snapshot-count { padding-inline: .4rem; }
   .workspace .finding-marker:not([data-selected], [data-spotlit]) { border-width: 1px; }
   .workspace .finding-marker span { min-width: .85rem; height: .85rem; padding: 0 .1rem; font-size: .5rem; }
 }
 @container artboard (max-width: 160px) { .snapshot-fold span, .snapshot-placeholder span { display: none; } }
 @container artboard (width < 7.5rem) {
-  .snapshot-header { padding-inline: .4rem; gap: .2rem; }
+  .workspace .snapshot-board .snapshot-header { justify-content: flex-start; align-items: flex-end; gap: 3px; padding-bottom: 3px; }
   .snapshot-name { display: none; }
-  .snapshot-tag { display: inline; padding: 0 .15rem; }
-  .snapshot-title strong { flex-wrap: wrap; column-gap: .3rem; line-height: 1.35; }
-  .snapshot-title strong:has(.snapshot-tag) .snapshot-width { line-height: 1.35; }
-  .snapshot-state { gap: 0; padding: .3rem; font-size: 0; }
-  .snapshot-count { padding-inline: .35rem; }
+  /* Width first, then the tag on a second line when both do not fit. */
+  .snapshot-title { flex: 1; }
+  .snapshot-title strong { flex: 1; flex-wrap: wrap; align-items: center; column-gap: .25rem; line-height: 11px; }
+  .snapshot-width { line-height: 11px; }
+  .snapshot-tag { display: inline; padding: 0 .15rem; line-height: 10px; }
+  /* The issue count shrinks to a severity dot ahead of the width; the state of a forming tile likewise. */
+  .snapshot-board .snapshot-count, .snapshot-board .snapshot-state { order: -1; align-self: flex-end; width: 6px; height: 6px; margin: 0 0 2.5px; padding: 0; font-size: 0; }
+  .snapshot-board .snapshot-count { background: var(--severity-serious); }
+  .snapshot-board .snapshot-count[data-clean] { background: var(--audit-resolved); }
+  .snapshot-board .snapshot-state { background: var(--text-faint); }
+  .snapshot-board .snapshot-state[data-state=measuring] { background: var(--audit-teal); }
+  .snapshot-board .snapshot-state svg { display: none; }
   .snapshot-rail { display: block; }
+  .snapshot-crop { height: 32px; }
+  .workspace .snapshot-crop button { display: none; }
   .workspace .finding-marker:not([data-selected], [data-spotlit], :focus-visible) { opacity: 0; }
   .workspace .finding-marker:is([data-selected], [data-spotlit]) span { min-width: .85rem; height: .85rem; font-size: .5rem; }
 }
 @container artboard (width < 4.5rem) {
-  .snapshot-header { justify-content: center; padding-inline: .15rem; }
-  .snapshot-header .snapshot-count, .snapshot-header .snapshot-state { display: none; }
   .snapshot-tag { padding: 0 .1rem; font-size: .5rem; letter-spacing: -.02em; }
 }

@@ -1,6 +1,7 @@
-import { LoaderCircle, ScanSearch } from "lucide-react";
-import type { Artboard, Camera, Point } from "../application/canvas-state";
-import { AUDIT_PROFILES, type AuditFinding, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
+import { ChevronsDown, ChevronsUp, LoaderCircle, ScanSearch } from "lucide-react";
+import type { Artboard, Camera } from "../application/canvas-state";
+import { AUDIT_PROFILES, sweepWidths, type AuditFinding, type AuditProgress, type AuditReport, type AuditSnapshot, type FindingSeverity } from "../application/audit-contract";
+import { CAPTION, clusterPins, CROP_FADE, LANE_LABEL, layoutSheet, profileTag, seenOn, type Sheet, type SheetTile } from "../application/audit-layout";
 import { progressPercent, progressText } from "./AuditPanel";
 
 /** queued: not measured yet; measuring: being measured now; captured: its snapshot arrived. */
@@ -8,60 +9,26 @@ export type BoardState = "queued" | "measuring" | "captured";
 
 interface MatrixItem { id: string; label: string; note?: string; viewport: { width: number; height: number }; snapshot: AuditSnapshot | null; state: BoardState }
 
-export interface MatrixBoard extends Artboard, MatrixItem { stack: number }
+export interface MatrixBoard extends SheetTile, MatrixItem {}
 
 /** A single-route run in progress: the snapshots streamed so far and the profile being measured. */
 export interface FormingAudit { snapshots: AuditSnapshot[]; current: string | null }
 
-/** title: where the matrix heading sits, one header band above the first row, and how wide the matrix below it spans. */
-export interface AuditMatrix { boards: MatrixBoard[]; title: (Point & { width: number }) | null }
+/** sheet: the surface, lane labels and tile placement under the live previews (see audit-layout.ts). */
+export interface AuditMatrix { boards: MatrixBoard[]; sheet: Sheet | null }
 
-const ROW_GAP = 220;
-const BOARD_GAP = 96;
+/** Pins closer than this (screen px) share one label. */
+const PIN_RADIUS = 18;
 
-/** Rows are packed to fit a landscape canvas of this aspect ratio best. */
-const ASPECT = 1.5;
-
-/** Wraps boards in order into rows no wider than limit. */
-function wrap(widths: number[], limit: number): number[][] {
-  const rows: number[][] = [];
-  let width = Infinity;
-
-  widths.forEach((board, index) => {
-    if (width + BOARD_GAP + board > limit) { rows.push([index]); width = board; } else { rows.at(-1)!.push(index); width += BOARD_GAP + board; }
-  });
-
-  return rows;
-}
-
-/** Tries every row width the boards can wrap at and keeps the rows that let the camera fit the live previews and the matrix largest; on a tie, the narrowest, most even rows. */
-function pack(sizes: Array<{ width: number; height: number }>, span: number, liveHeight: number): number[][] {
-  const limits = new Set<number>();
-
-  for (let start = 0; start < sizes.length; start++) {
-    for (let end = start, width = -BOARD_GAP; end < sizes.length; end++) { width += BOARD_GAP + sizes[end].width; limits.add(width); }
-  }
-
-  let best = { rows: sizes.map((_size, index) => [index]), scale: 0 };
-
-  for (const limit of [...limits].sort((a, b) => a - b)) {
-    const rows = wrap(sizes.map((size) => size.width), limit);
-    const width = Math.max(span, ...rows.map((row) => row.reduce((sum, index) => sum + sizes[index].width, (row.length - 1) * BOARD_GAP)));
-    const height = rows.reduce((sum, row) => sum + ROW_GAP + Math.max(...row.map((index) => sizes[index].height)), liveHeight);
-    const scale = Math.min(ASPECT / width, 1 / height);
-
-    if (scale > best.scale * 1.000001) best = { rows, scale };
-  }
-
-  return best.rows;
-}
+const RANK: Record<FindingSeverity, number> = { serious: 3, moderate: 2, minor: 1 };
 
 /**
- * Lays out one board per audit profile below the live previews, in canvas coordinates. While a run forms the matrix, every
- * profile has a viewport-sized board (a placeholder until its snapshot streams in, then the part above the fold), so the
- * layout holds still for the whole run; a finished report packs its full-page snapshots, interaction boards included.
+ * Lays out one tile per audit profile on the audit sheet below the live previews. While a run forms the matrix, every
+ * profile has a viewport-sized tile (a placeholder until its snapshot streams in, then the part above the fold), so the
+ * layout holds still for the whole run; a finished report shows its full-page snapshots cropped to the first screen
+ * (expanded: tiles shown uncropped), interaction boards included.
  */
-export function auditMatrix(report: AuditReport | null, forming: FormingAudit | null, live: Artboard[]): AuditMatrix {
+export function auditMatrix(report: AuditReport | null, forming: FormingAudit | null, live: Artboard[], expanded: ReadonlySet<string> = new Set()): AuditMatrix {
   const items: MatrixItem[] = forming
     ? AUDIT_PROFILES.map((profile) => {
       const snapshot = forming.snapshots.find((item) => item.profileId === profile.id) ?? null;
@@ -71,58 +38,44 @@ export function auditMatrix(report: AuditReport | null, forming: FormingAudit | 
     })
     : (report?.snapshots ?? []).map((snapshot) => ({ id: snapshot.profileId, label: snapshot.label, note: snapshot.note, viewport: { width: snapshot.width, height: snapshot.height }, snapshot, state: "captured" }));
 
-  if (!items.length || !live.length) return { boards: [], title: null };
-  const left = Math.min(...live.map((board) => board.x));
-  const top = Math.min(...live.map((board) => board.y));
-  const bottom = Math.max(...live.map((board) => board.y + board.height));
-  const span = Math.max(...live.map((board) => board.x + board.width)) - left;
-  const height = (item: MatrixItem) => forming ? item.viewport.height : item.snapshot?.imageHeight ?? item.viewport.height;
-  const rows = pack(items.map((item) => ({ width: item.viewport.width, height: height(item) })), span, bottom - top);
-  let y = bottom + ROW_GAP;
+  const sheet = layoutSheet(items.map((item) => ({ id: item.id, width: item.viewport.width, height: item.viewport.height, content: forming ? item.viewport.height : item.snapshot?.imageHeight ?? item.viewport.height })), live, forming ? new Set() : expanded);
 
-  // Row n sits below the live previews' headers, the matrix title and its own header: n + 2 bands that do not scale.
-  const boards = rows.flatMap((row, index) => {
-    let x = left;
+  if (!sheet) return { boards: [], sheet: null };
 
-    const placed = row.map((at) => {
-      const item = items[at];
-      const board: MatrixBoard = { ...item, x, y, width: item.viewport.width, height: height(item), stack: index + 2 };
-      x += item.viewport.width + BOARD_GAP;
-
-      return board;
-    });
-
-    y += Math.max(...placed.map((board) => board.height)) + ROW_GAP;
-
-    return placed;
-  });
-
-  const right = Math.max(left + span, ...boards.map((board) => board.x + board.width));
-
-  return { boards, title: { x: left, y: bottom + ROW_GAP, width: right - left } };
+  return { boards: items.map((item, index) => ({ ...item, ...sheet.tiles[index] })), sheet };
 }
 
-/** A few characters that tell a board apart from others of the same width once its name no longer fits: "400%", "Aa" for text spacing, "Menu" for an interaction board. */
-export function profileTag(profileId: string): string {
-  const interaction = /^(focus|menu|hover)-/.exec(profileId)?.[1];
-  const zoom = /zoom-(\d+)/.exec(profileId)?.[1];
-  const parts = [interaction && { focus: "Tab", menu: "Menu", hover: "Hover" }[interaction], zoom && `${zoom}%`, profileId.includes("text-spacing") && "Aa"];
+/** One cell per width the sweep measured, coloured by the worst finding there; the spotlit finding's widths stay lit. */
+function SweepStrip({ findings, lit }: { findings: AuditFinding[]; lit: AuditFinding | null }) {
+  const widths = sweepWidths();
+  const covers = (finding: AuditFinding, width: number) => finding.ranges.some(([from, to]) => from <= width && width <= to);
+  const marks = [{ label: "320", at: 0 }, { label: "480", at: widths.findIndex((width) => width > 480) }, { label: "1024", at: widths.findIndex((width) => width > 1024) }, { label: "1920", at: widths.length }];
 
-  return parts.filter(Boolean).join(" ");
+  return <div className="sweep-strip" data-spotlight={lit ? "" : undefined} aria-hidden="true">
+    <div className="sweep-cells">
+      {widths.map((width) => {
+        const worst = findings.filter((finding) => covers(finding, width)).sort((a, b) => RANK[b.severity] - RANK[a.severity])[0];
+
+        return <span key={width} data-severity={worst?.severity} data-lit={lit && covers(lit, width) || undefined} title={`${width}px`} />;
+      })}
+    </div>
+    <div className="sweep-marks">{marks.map(({ label, at }) => <span key={label} style={{ left: `${at / widths.length * 100}%` }}>{label}</span>)}</div>
+  </div>;
 }
 
-/** Whether a finding was seen on a profile's board: it has a marker there or names the profile. */
-function seenOn(finding: AuditFinding, profileId: string) {
-  return finding.profiles.includes(profileId) || finding.markers.some((marker) => marker.profileId === profileId);
+/** The finding numbers a pin label shows for a group: up to three, then the first and how many more. */
+function groupLabel(indexes: number[]) {
+  return indexes.length <= 3 ? indexes.join("·") : `${indexes[0]} +${indexes.length - 1}`;
 }
 
 /**
- * spotlight: the finding hovered or selected in the panel. Boards where it was seen are lit, the others dim, and on lit
- * boards its markers stay prominent while the rest fade (they stay real buttons either way).
+ * spotlight: the finding hovered or selected in the panel. Tiles where it was seen are lit, the others dim, and on lit
+ * tiles its markers stay prominent while the rest fade (they stay real buttons either way). expanded: tiles shown
+ * uncropped; onExpand toggles one.
  */
-export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, onSelect }: {
+export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, onSelect, onExpand }: {
   matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; spotlight: string | null; ignored: ReadonlySet<string>;
-  onSelect: (finding: AuditFinding) => void;
+  expanded: ReadonlySet<string>; onSelect: (finding: AuditFinding) => void; onExpand: (profileId: string) => void;
 }) {
   const zoom = camera.zoom;
   const findings = forming || !report ? [] : report.findings;
@@ -131,28 +84,48 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
   const bugs = visible.filter((finding) => finding.classification === "bug").length;
   const percent = progressPercent(progress);
   const lit = visible.find((finding) => finding.id === spotlight) ?? null;
+  const sheet = matrix.sheet;
+  // Screen position of a canvas y, below the live previews' header band and px more of bands that keep their size.
+  const top = (y: number, px: number) => `calc(${camera.y + y * zoom}px + 3rem + ${px}px)`;
 
   return <>
-    {matrix.title && <div className="audit-matrix-title" data-forming={forming || undefined} role={forming ? "status" : undefined} aria-live={forming ? "polite" : undefined}
-      style={{ left: camera.x + matrix.title.x * zoom, top: `calc(${camera.y + matrix.title.y * zoom}px + 3rem)`, minWidth: matrix.title.width * zoom }}>
-      {forming ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <ScanSearch size={14} aria-hidden="true" />}
-      <strong>{forming ? "Auditing" : "Responsive audit"}</strong>
-      {!forming && report && <code>{report.route}</code>}
-      <span className="audit-matrix-detail">{forming ? `${progressText(progress)} · ${captured} of ${matrix.boards.length} viewports` : `${report?.profiles.length ?? 0} viewports · ${report?.widthsScanned ?? 0} widths`}</span>
-      {forming ? <span className="audit-matrix-meter" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span> : <span className="snapshot-count" data-clean={bugs === 0 || undefined}>{bugs === 0 ? "No bugs" : `${bugs} ${bugs === 1 ? "bug" : "bugs"}`}</span>}
-      {forming && <span className="audit-matrix-percent">{percent}%</span>}
+    {sheet && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: sheet.frame.height * zoom + sheet.frame.inset }}>
+      <div className="audit-matrix-title" data-forming={forming || undefined} role={forming ? "status" : undefined} aria-live={forming ? "polite" : undefined}>
+        {forming ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <ScanSearch size={14} aria-hidden="true" />}
+        <strong>{forming ? "Auditing" : "Responsive audit"}</strong>
+        {!forming && report && <code>{report.route}</code>}
+        <span className="audit-matrix-detail">{forming ? `${progressText(progress)} · ${captured} of ${matrix.boards.length} viewports` : `${report?.profiles.length ?? 0} viewports · ${report?.widthsScanned ?? 0} widths`}</span>
+        {forming ? <span className="audit-matrix-meter" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span> : <span className="snapshot-count" data-clean={bugs === 0 || undefined}>{bugs === 0 ? "No bugs" : `${bugs} ${bugs === 1 ? "bug" : "bugs"}`}</span>}
+        {forming && <span className="audit-matrix-percent">{percent}%</span>}
+      </div>
+      <SweepStrip findings={visible} lit={lit} />
     </div>}
-    {matrix.boards.map(({ id, label, note, viewport, snapshot, state, x, y, width, height, stack }) => {
+    {sheet?.lanes.map((lane) => lane.label && <div key={lane.id} className="sheet-lane-label" data-lane={lane.id} aria-hidden="true"
+      style={{ left: camera.x + lane.x * zoom, top: top(lane.y, lane.inset - CAPTION - LANE_LABEL), width: lane.width * zoom, height: LANE_LABEL }}>{lane.label}</div>)}
+    {matrix.boards.map(({ id, label, note, viewport, snapshot, state, x, y, width, height, scale, cropped, inset }) => {
       const markers = visible.flatMap((finding) => finding.markers.filter((marker) => marker.profileId === id).map((marker) => ({ finding, marker, index: findings.indexOf(finding) + 1 })));
       const issues = new Set(markers.map((item) => item.finding.id)).size + visible.filter((finding) => !finding.markers.length && finding.profiles.includes(id)).length;
       const status = state === "queued" ? "Queued" : state === "measuring" ? "Measuring" : "Captured";
+      const imageHeight = snapshot?.imageHeight ?? viewport.height;
+      // Markers that start in the crop's fade or under it count as hidden, as when the panel locates a finding.
+      const below = cropped ? markers.filter(({ marker }) => Math.max(0, marker.rect.y) * scale >= height - CROP_FADE).length : 0;
+      const open = expanded.has(id) && !forming;
 
-      const imageHeight = snapshot?.imageHeight ?? height;
+      // Pins that would overlap share the first one's label; the spotlit finding and pins below the crop keep their own.
+      const pins = markers.map(({ marker }) => ({ x: Math.max(0, marker.rect.x) * scale * zoom, y: Math.max(0, marker.rect.y) * scale * zoom }));
+      const free = markers.map((item, at) => at).filter((at) => markers[at].finding.id !== lit?.id && pins[at].y < height * zoom);
+      const labels = new Map<number, string>();
+      const hidden = new Set<number>();
 
-      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} aria-busy={forming && state !== "captured" || undefined}
+      for (const group of clusterPins(free.map((at) => pins[at]), PIN_RADIUS).filter((members) => members.length > 1).map((members) => members.map((member) => free[member]))) {
+        labels.set(group[0], groupLabel(group.map((at) => markers[at].index)));
+        group.slice(1).forEach((at) => hidden.add(at));
+      }
+
+      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} aria-busy={forming && state !== "captured" || undefined}
         aria-label={forming ? `${label} viewport, ${status.toLowerCase()}` : `${label} snapshot, ${issues} findings`}
-        style={{ left: camera.x + x * zoom, top: `calc(${camera.y + y * zoom}px + ${stack * 3}rem)`, width: width * zoom }}>
-        <header className="artboard-header snapshot-header">
+        style={{ left: camera.x + x * zoom, top: top(y, inset - CAPTION), width: width * zoom }}>
+        <header className="artboard-header snapshot-header" style={{ height: CAPTION }}>
           <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>
             <strong><code className="snapshot-width">{viewport.width}</code>{profileTag(id) && <span className="snapshot-tag">{profileTag(id)}</span>}<span className="snapshot-name">{label}</span></strong>
             <span className="snapshot-detail">× {viewport.height}{note ? ` · ${note}` : ""}</span>
@@ -163,22 +136,29 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
         </header>
         <div className="snapshot-surface" style={{ width: width * zoom, height: height * zoom }}>
           {snapshot
-            ? <img src={snapshot.image} alt={`${label} at ${viewport.width} by ${viewport.height}`} draggable={false} style={{ width: width * zoom, height: snapshot.imageHeight * zoom }} />
+            ? <img src={snapshot.image} alt={`${label} at ${viewport.width} by ${viewport.height}`} draggable={false} style={{ width: width * zoom, height: snapshot.imageHeight * scale * zoom }} />
             : <div className="snapshot-placeholder" aria-hidden="true"><span>{viewport.width} × {viewport.height}</span></div>}
-          {snapshot && height > snapshot.height && <div className="snapshot-fold" style={{ top: snapshot.height * zoom }} aria-hidden="true"><span>Viewport fold</span></div>}
-          {markers.map(({ finding, marker, index }) => {
-            const left = Math.max(0, marker.rect.x) * zoom;
-            const top = Math.max(0, marker.rect.y) * zoom;
-            const boxWidth = Math.max(8, Math.min(marker.rect.width, width - Math.max(0, marker.rect.x) + 40)) * zoom;
-            const boxHeight = Math.max(8, Math.min(marker.rect.height, height - Math.max(0, marker.rect.y))) * zoom;
+          {snapshot && snapshot.imageHeight > snapshot.height && snapshot.height * scale < height && <div className="snapshot-fold" style={{ top: snapshot.height * scale * zoom }} aria-hidden="true"><span>Viewport fold</span></div>}
+          {markers.map(({ finding, marker, index }, at) => {
+            const left = Math.max(0, marker.rect.x) * scale * zoom;
+            const markerTop = Math.max(0, marker.rect.y) * scale * zoom;
+            const boxWidth = Math.max(8, Math.min(marker.rect.width, viewport.width - Math.max(0, marker.rect.x) + 40) * scale * zoom);
+            const boxHeight = Math.max(8, Math.min(marker.rect.height, imageHeight - Math.max(0, marker.rect.y)) * scale * zoom);
 
             return <button key={`${finding.id}-${id}`} type="button" className="finding-marker" data-severity={finding.severity} data-classification={finding.classification} data-selected={selected === finding.id || undefined} data-spotlit={lit?.id === finding.id || undefined}
-              aria-label={`Finding ${index}: ${finding.title}`} title={`${index}. ${finding.title}`} style={{ left, top, width: boxWidth, height: boxHeight }} onClick={(event) => { event.stopPropagation(); onSelect(finding); }}>
-              <span>{index}</span>
+              data-grouped={hidden.has(at) || undefined} data-group={labels.has(at) || undefined}
+              aria-label={`Finding ${index}: ${finding.title}`} title={`${index}. ${finding.title}`} style={{ left, top: markerTop, width: boxWidth, height: boxHeight }} onClick={(event) => { event.stopPropagation(); onSelect(finding); }}>
+              <span>{labels.get(at) ?? index}</span>
             </button>;
           })}
           {markers.length > 0 && <div className="snapshot-rail" aria-hidden="true">
             {markers.map(({ finding, marker }) => <span key={finding.id} data-severity={finding.severity} data-spotlit={lit?.id === finding.id || undefined} style={{ top: `${Math.min(100, Math.max(0, marker.rect.y) / imageHeight * 100)}%` }} />)}
+          </div>}
+          {(cropped || open) && <div className="snapshot-crop" data-open={open || undefined}>
+            <button type="button" aria-expanded={open} aria-label={open ? `Crop ${label} to the first screen` : `Show the full ${label} page${below ? `, ${below} more ${below === 1 ? "marker" : "markers"} below` : ""}`} onClick={(event) => { event.stopPropagation(); onExpand(id); }}>
+              {open ? <ChevronsUp size={12} aria-hidden="true" /> : <ChevronsDown size={12} aria-hidden="true" />}
+              <span>{open ? "Crop" : below ? `${below} more below` : "Full page"}</span>
+            </button>
           </div>}
         </div>
       </section>;

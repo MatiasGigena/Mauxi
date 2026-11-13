@@ -69,6 +69,7 @@
   --dialog-shadow: 0 24px 80px rgba(0,0,0,.6);
   --popup-shadow: 0 6px 24px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3);
   --sheet-border: #262830;
+  --sheet-bg: #15171c;
   --live-ring: #3cc2bd66;
   --live-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px #3cc2bd66;
 }
@@ -135,6 +136,7 @@
   --dialog-shadow: 0 24px 80px #15102035;
   --popup-shadow: 0 6px 24px #24242a14, 0 2px 6px #24242a0a;
   --sheet-border: #e8e5e1;
+  --sheet-bg: #f6f5f2;
   --live-ring: #147a7a55;
   --live-shadow: 0 12px 32px #181b221f, 0 0 0 1px #147a7a55;
 }
