@@ -73,13 +73,17 @@ for (const width of [320, 768, 1440]) {
   });
 }
 
-test("pills, previews and chat share the same subtle shadow", async ({ page }) => {
+test("pills and chat share the same subtle shadow; live previews carry a deeper one with a teal ring", async ({ page }) => {
   await openWorkspace(page);
   const shadow = await page.locator(".brand").evaluate(node => getComputedStyle(node).boxShadow);
   expect(shadow).not.toBe("none");
 
-  for (const selector of [".zoom", '[data-preview-id="desktop"]', '[data-preview-id="mobile"]', ".chat-surface"]) {
+  for (const selector of [".zoom", ".chat-surface"]) {
     await expect(page.locator(selector)).toHaveCSS("box-shadow", shadow);
+  }
+
+  for (const selector of ['[data-preview-id="desktop"]', '[data-preview-id="mobile"]']) {
+    await expect(page.locator(selector)).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.45) 0px 12px 32px 0px, rgba(60, 194, 189, 0.4) 0px 0px 0px 1px");
   }
 
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Shadow check");

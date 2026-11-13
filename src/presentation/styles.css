@@ -68,6 +68,9 @@
   --modal-shadow: 0 2px 6px rgba(0,0,0,.3), 0 16px 48px rgba(0,0,0,.5);
   --dialog-shadow: 0 24px 80px rgba(0,0,0,.6);
   --popup-shadow: 0 6px 24px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3);
+  --sheet-border: #262830;
+  --live-ring: #3cc2bd66;
+  --live-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px #3cc2bd66;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -125,12 +128,15 @@
   --mix-ink: #000;
   --on-severity: #fff;
   --severity-serious: #c43d27;
-  --severity-moderate: #b7791f;
+  --severity-moderate: #9a6412;
   --severity-minor: #7a7480;
   --floating-shadow: 0 4px 16px #181b2214, 0 1px 3px #181b220f;
   --modal-shadow: 0 2px 6px #181b220a, 0 16px 48px #181b2217;
   --dialog-shadow: 0 24px 80px #15102035;
   --popup-shadow: 0 6px 24px #24242a14, 0 2px 6px #24242a0a;
+  --sheet-border: #e8e5e1;
+  --live-ring: #147a7a55;
+  --live-shadow: 0 12px 32px #181b221f, 0 0 0 1px #147a7a55;
 }
 :root { --audit-teal: var(--accent-text); --audit-resolved: var(--ok); font: 100%/1.5 "Poppins", system-ui, sans-serif; color: var(--text); background: var(--bg-app); font-synthesis: none; font-optical-sizing: auto; }
 * { box-sizing: border-box; } html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; } button, input, select, textarea { font: inherit; }

@@ -95,6 +95,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  const [hoveredFinding, setHoveredFinding] = useState<string | null>(null);
   /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
   const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
   const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
@@ -696,7 +697,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
   function showReport(report: AuditReport, fit = true) {
     setAudit(report);
-    setSelectedFinding(null);
+    setSelectedFinding(null); setHoveredFinding(null);
 
     if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
@@ -875,7 +876,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
+      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -907,7 +908,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
     {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
-      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored}
+      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)}
       onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };

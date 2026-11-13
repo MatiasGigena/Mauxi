@@ -13,8 +13,8 @@ export interface MatrixBoard extends Artboard, MatrixItem { stack: number }
 /** A single-route run in progress: the snapshots streamed so far and the profile being measured. */
 export interface FormingAudit { snapshots: AuditSnapshot[]; current: string | null }
 
-/** title: where the matrix heading sits, one header band above the first row. */
-export interface AuditMatrix { boards: MatrixBoard[]; title: Point | null }
+/** title: where the matrix heading sits, one header band above the first row, and how wide the matrix below it spans. */
+export interface AuditMatrix { boards: MatrixBoard[]; title: (Point & { width: number }) | null }
 
 const ROW_GAP = 220;
 const BOARD_GAP = 96;
@@ -97,11 +97,31 @@ export function auditMatrix(report: AuditReport | null, forming: FormingAudit | 
     return placed;
   });
 
-  return { boards, title: { x: left, y: bottom + ROW_GAP } };
+  const right = Math.max(left + span, ...boards.map((board) => board.x + board.width));
+
+  return { boards, title: { x: left, y: bottom + ROW_GAP, width: right - left } };
 }
 
-export function AuditBoards({ matrix, report, forming, progress, camera, selected, ignored, onSelect }: {
-  matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; ignored: ReadonlySet<string>;
+/** A few characters that tell a board apart from others of the same width once its name no longer fits: "400%", "Aa" for text spacing, "Menu" for an interaction board. */
+export function profileTag(profileId: string): string {
+  const interaction = /^(focus|menu|hover)-/.exec(profileId)?.[1];
+  const zoom = /zoom-(\d+)/.exec(profileId)?.[1];
+  const parts = [interaction && { focus: "Tab", menu: "Menu", hover: "Hover" }[interaction], zoom && `${zoom}%`, profileId.includes("text-spacing") && "Aa"];
+
+  return parts.filter(Boolean).join(" ");
+}
+
+/** Whether a finding was seen on a profile's board: it has a marker there or names the profile. */
+function seenOn(finding: AuditFinding, profileId: string) {
+  return finding.profiles.includes(profileId) || finding.markers.some((marker) => marker.profileId === profileId);
+}
+
+/**
+ * spotlight: the finding hovered or selected in the panel. Boards where it was seen are lit, the others dim, and on lit
+ * boards its markers stay prominent while the rest fade (they stay real buttons either way).
+ */
+export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, onSelect }: {
+  matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; spotlight: string | null; ignored: ReadonlySet<string>;
   onSelect: (finding: AuditFinding) => void;
 }) {
   const zoom = camera.zoom;
@@ -110,10 +130,11 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
   const captured = matrix.boards.filter((board) => board.state === "captured").length;
   const bugs = visible.filter((finding) => finding.classification === "bug").length;
   const percent = progressPercent(progress);
+  const lit = visible.find((finding) => finding.id === spotlight) ?? null;
 
   return <>
     {matrix.title && <div className="audit-matrix-title" data-forming={forming || undefined} role={forming ? "status" : undefined} aria-live={forming ? "polite" : undefined}
-      style={{ left: camera.x + matrix.title.x * zoom, top: `calc(${camera.y + matrix.title.y * zoom}px + 3rem)` }}>
+      style={{ left: camera.x + matrix.title.x * zoom, top: `calc(${camera.y + matrix.title.y * zoom}px + 3rem)`, minWidth: matrix.title.width * zoom }}>
       {forming ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <ScanSearch size={14} aria-hidden="true" />}
       <strong>{forming ? "Auditing" : "Responsive audit"}</strong>
       {!forming && report && <code>{report.route}</code>}
@@ -126,13 +147,15 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
       const issues = new Set(markers.map((item) => item.finding.id)).size + visible.filter((finding) => !finding.markers.length && finding.profiles.includes(id)).length;
       const status = state === "queued" ? "Queued" : state === "measuring" ? "Measuring" : "Captured";
 
-      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} aria-busy={forming && state !== "captured" || undefined}
+      const imageHeight = snapshot?.imageHeight ?? height;
+
+      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} aria-busy={forming && state !== "captured" || undefined}
         aria-label={forming ? `${label} viewport, ${status.toLowerCase()}` : `${label} snapshot, ${issues} findings`}
         style={{ left: camera.x + x * zoom, top: `calc(${camera.y + y * zoom}px + ${stack * 3}rem)`, width: width * zoom }}>
         <header className="artboard-header snapshot-header">
-          <div className="snapshot-title">
-            <strong>{label}</strong>
-            <span>{viewport.width} × {viewport.height}{note ? ` · ${note}` : ""}</span>
+          <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>
+            <strong><code className="snapshot-width">{viewport.width}</code>{profileTag(id) && <span className="snapshot-tag">{profileTag(id)}</span>}<span className="snapshot-name">{label}</span></strong>
+            <span className="snapshot-detail">× {viewport.height}{note ? ` · ${note}` : ""}</span>
           </div>
           {forming
             ? <span className="snapshot-state" data-state={state}>{state === "measuring" && <LoaderCircle size={12} className="spin" aria-hidden="true" />}{status}</span>
@@ -149,11 +172,14 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
             const boxWidth = Math.max(8, Math.min(marker.rect.width, width - Math.max(0, marker.rect.x) + 40)) * zoom;
             const boxHeight = Math.max(8, Math.min(marker.rect.height, height - Math.max(0, marker.rect.y))) * zoom;
 
-            return <button key={`${finding.id}-${id}`} type="button" className="finding-marker" data-severity={finding.severity} data-classification={finding.classification} data-selected={selected === finding.id || undefined}
+            return <button key={`${finding.id}-${id}`} type="button" className="finding-marker" data-severity={finding.severity} data-classification={finding.classification} data-selected={selected === finding.id || undefined} data-spotlit={lit?.id === finding.id || undefined}
               aria-label={`Finding ${index}: ${finding.title}`} title={`${index}. ${finding.title}`} style={{ left, top, width: boxWidth, height: boxHeight }} onClick={(event) => { event.stopPropagation(); onSelect(finding); }}>
               <span>{index}</span>
             </button>;
           })}
+          {markers.length > 0 && <div className="snapshot-rail" aria-hidden="true">
+            {markers.map(({ finding, marker }) => <span key={finding.id} data-severity={finding.severity} data-spotlit={lit?.id === finding.id || undefined} style={{ top: `${Math.min(100, Math.max(0, marker.rect.y) / imageHeight * 100)}%` }} />)}
+          </div>}
         </div>
       </section>;
     })}

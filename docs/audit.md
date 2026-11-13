@@ -169,6 +169,12 @@ While a single-route audit runs (the entry audit, **Re-run**, or the agent's `re
 
 The entry audit fits the camera to the previews and every placeholder as it starts, and to the finished matrix when it ends, both in the part of the canvas left free by the top bar, the chat and the panel. It only moves the camera while you have not: once you pan or zoom, it leaves the camera alone. A stopped or failed entry audit removes its placeholders and returns to the live previews. Long pages need less than 10% zoom to fit, so this overview may go down to 5%, below the 10% you can zoom out to yourself; from there, zooming never pushes the camera further out. Board headers keep their size at every zoom, and rows stack them so a header never covers the row above.
 
+Snapshot boards sit flat under the live previews, which keep the shadow, a teal ring and a pulsing ready dot. Each board header starts with the profile width; the name, the height and the note follow as the board gets wider, and narrow boards that share a width carry a short tag (**200%**, **400%**, **Aa** for text spacing, **Tab**, **Menu** or **Hover** for interaction boards). Hover over a board header for its full name.
+
+Markers adapt to how wide a board is on screen. Wide boards show full numbered pins, narrower ones hairline outlines with small pins, and boards under 120 px show a rail on their right edge with a tick at each marker's height. Their markers stay clickable buttons and appear on keyboard focus. Bugs have filled pins, findings to review hollow ones, and intentional patterns dashed outlines.
+
+Hovering or focusing a finding in the panel spotlights it on the canvas. Boards where it was measured get a teal ring and show its marker even when they are narrow, while the other boards dim and other markers fade. Selecting a finding keeps the spotlight after the pointer leaves the list.
+
 ## Fix with the agent
 
 **Fix with agent** attaches the finding to the chat. Send it alone to use the default instruction, or add your own. The request carries a compact description of each finding: criterion, width ranges, element, source, measurement and fix direction. Snapshots and geometry are not sent.

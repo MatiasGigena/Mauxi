@@ -61,9 +61,9 @@ function sourceLabel(finding: AuditFinding): string | null {
   return `${source.component ? `${source.component} · ` : ""}${file}${source.line ? `:${source.line}` : ""}`;
 }
 
-function FindingCard({ finding, index, selected, attached, ignored, onSelect, onShow, onFix, onIgnore }: {
+function FindingCard({ finding, index, selected, attached, ignored, onSelect, onShow, onFix, onIgnore, onHover }: {
   finding: AuditFinding; index: number; selected: boolean; attached: boolean; ignored: boolean;
-  onSelect: () => void; onShow: () => void; onFix: () => void; onIgnore: () => void;
+  onSelect: () => void; onShow: () => void; onFix: () => void; onIgnore: () => void; onHover: (hovered: boolean) => void;
 }) {
   const card = useRef<HTMLElement>(null);
   const source = sourceLabel(finding);
@@ -72,7 +72,8 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
 
   useEffect(() => { if (selected) card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
-  return <article ref={card} className="finding-card" data-severity={finding.severity} data-selected={selected || undefined} data-finding-id={finding.id} aria-label={`Finding ${index}: ${finding.title}`}>
+  return <article ref={card} className="finding-card" data-severity={finding.severity} data-selected={selected || undefined} data-finding-id={finding.id} aria-label={`Finding ${index}: ${finding.title}`}
+    onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} onFocus={() => onHover(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onHover(false); }}>
     <button type="button" className="finding-summary" aria-expanded={selected} onClick={onSelect}>
       <span className="finding-index" aria-hidden="true">{index}</span>
       <span className="finding-heading">
@@ -102,11 +103,13 @@ function FindingCard({ finding, index, selected, attached, ignored, onSelect, on
 }
 
 /** siteView replaces the report body (site setup or summary); pageBar sits above a site page's report. */
-export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore, onClose, onSite, siteView, pageBar }: {
+export function AuditPanel({ report, progress, running, error, selected, attached, ignored, onRun, onCancel, onSelect, onShow, onFix, onIgnore, onHover, onClose, onSite, siteView, pageBar }: {
   report: AuditReport | null; progress: AuditProgress | null; running: boolean; error: string; selected: string | null;
   attached: ReadonlySet<string>; ignored: ReadonlySet<string>;
   onRun: () => void; onCancel: () => void; onSelect: (finding: AuditFinding) => void; onShow: (finding: AuditFinding) => void;
   onFix: (finding: AuditFinding) => void; onIgnore: (finding: AuditFinding) => void; onClose: () => void;
+  /** The finding under the pointer or keyboard focus in the list, or null when it leaves; the canvas spotlights it. */
+  onHover: (finding: AuditFinding | null) => void;
   onSite: () => void; siteView?: ReactNode; pageBar?: ReactNode;
 }) {
   const [showResolved, setShowResolved] = useState(true);
@@ -118,7 +121,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
   const percent = progressPercent(progress);
 
   const card = (finding: AuditFinding) => <FindingCard key={finding.id} finding={finding} index={report!.findings.indexOf(finding) + 1} selected={selected === finding.id} attached={attached.has(finding.id)} ignored={ignored.has(finding.id)}
-    onSelect={() => onSelect(finding)} onShow={() => onShow(finding)} onFix={() => onFix(finding)} onIgnore={() => onIgnore(finding)} />;
+    onSelect={() => onSelect(finding)} onShow={() => onShow(finding)} onFix={() => onFix(finding)} onIgnore={() => onIgnore(finding)} onHover={(hovered) => onHover(hovered ? finding : null)} />;
 
   return <aside className="audit-panel" aria-label="Responsive audit">
     <header className="audit-panel-header">
