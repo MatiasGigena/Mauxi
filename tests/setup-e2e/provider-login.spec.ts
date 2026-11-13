@@ -153,7 +153,7 @@ for (const mode of ["pointer", "keyboard", "reduced"] as const) {
     } else expect(motion).toEqual([]);
     await input.fill("not-a-real-key");
     await expect(proceed).toBeEnabled();
-    await expect(proceed).toHaveCSS("background-color", "rgb(24, 27, 34)");
+    await expect(proceed).toHaveCSS("background-color", "rgb(35, 37, 45)");
     const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
     await cancel.hover();
     await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");

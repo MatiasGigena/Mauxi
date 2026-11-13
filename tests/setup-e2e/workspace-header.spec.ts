@@ -41,12 +41,12 @@ for (const width of [320, 768, 1440]) {
     await expect(header).toHaveCSS("box-shadow", "none");
 
     for (const island of [header.locator(".brand"), header.locator(".zoom")]) {
-      await expect(island).toHaveCSS("background-color", "rgb(255, 255, 255)");
-      await expect(island).toHaveCSS("border-color", "rgb(232, 229, 225)");
+      await expect(island).toHaveCSS("background-color", "rgb(25, 26, 31)");
+      await expect(island).toHaveCSS("border-color", "rgb(45, 46, 53)");
       await expect(island).toHaveCSS("border-radius", "999px");
     }
 
-    await expect(header.locator("input")).toHaveCSS("accent-color", "rgb(33, 143, 144)");
+    await expect(header.locator("input")).toHaveCSS("accent-color", "rgb(47, 168, 168)");
     const headerBounds = (await header.boundingBox())!;
     const backgroundBounds = (await page.locator(".canvas-background").boundingBox())!;
     expect(backgroundBounds.y).toBe(0);
@@ -85,7 +85,7 @@ test("pills, previews and chat share the same subtle shadow", async ({ page }) =
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Shadow check");
   const focused = await page.locator(".chat-surface").evaluate(node => getComputedStyle(node).boxShadow);
   expect(focused.endsWith(shadow)).toBe(true);
-  await expect(page.locator(".chat-surface")).toHaveCSS("border-color", "rgb(33, 143, 144)");
+  await expect(page.locator(".chat-surface")).toHaveCSS("border-color", "rgb(47, 168, 168)");
 });
 
 test("previews remain visible and clickable between the floating pills", async ({ page }) => {

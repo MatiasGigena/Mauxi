@@ -34,6 +34,10 @@ Next-generated `next-env.d.ts` changes are reconciled against the pre-session co
 
 The preview bridge is development-only. Project pages receive no Node, Electron preload, filesystem, or provider-credential API. Only embedding response headers are adapted for the two authorized previews, as described below; other CSP restrictions, third-party cookies and external OAuth flows can still prevent integration. Desktop and mobile share browser storage within a workspace; separate workspaces have separate persistent partitions.
 
+## Appearance
+
+Mauxi opens in dark mode. Switch with the sun/moon button in the top-right corner of the launch screen, or **Light mode** / **Dark mode** in the repository-title menu. The choice is remembered across restarts. Previews always show the page as the project renders it; the theme only changes Mauxi's own chrome.
+
 ## Canvas and previews
 
 - **Move:** drag an artboard header, or use its keyboard move handle with arrows (Shift for larger steps).

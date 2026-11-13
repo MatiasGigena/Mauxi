@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, Moon, Sun } from "lucide-react";
 import logo from "./assets/logo-mauxi.png";
 import { errorText } from "./error-text";
+import { setTheme, useTheme } from "./theme";
 
 export function RepositoryMenu({ root, onClose }: { root: string; onClose: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const theme = useTheme();
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const close = useRef<HTMLButtonElement>(null);
@@ -37,6 +39,7 @@ export function RepositoryMenu({ root, onClose }: { root: string; onClose: () =>
     </button>
     {open && <section id="repository-actions" className="repository-popover action-modal" aria-label="Project actions">
       <button ref={close} type="button" className="action-modal-secondary" disabled={pending} onClick={() => void closeProject()}><LogOut size={16} aria-hidden="true" /><span>{pending ? "Closing project…" : "Close project"}</span></button>
+      <button type="button" className="preview-tool-action theme-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}<span>{theme === "dark" ? "Light mode" : "Dark mode"}</span></button>
       {error && <p className="send-error" role="alert">{error}</p>}
     </section>}
   </div>;

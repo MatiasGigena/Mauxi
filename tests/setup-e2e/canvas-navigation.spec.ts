@@ -201,8 +201,8 @@ test("preview header uses Lucide icons and transparent chat-style controls", asy
   const header = board(page).locator(".artboard-header");
   const select = header.getByRole("button", { name: "Select in Desktop", exact: true });
   const focus = header.getByRole("button", { name: "Focus Desktop", exact: true });
-  await expect(header).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  await expect(header).toHaveCSS("border-top-color", "rgb(232, 229, 225)");
+  await expect(header).toHaveCSS("background-color", "rgb(25, 26, 31)");
+  await expect(header).toHaveCSS("border-top-color", "rgb(45, 46, 53)");
   await expect(header).toHaveCSS("border-top-left-radius", "20px");
   await expect(select.locator("svg.lucide-mouse-pointer-2")).toHaveAttribute("aria-hidden", "true");
   await expect(focus.locator("svg.lucide-maximize-2")).toBeVisible();
@@ -212,7 +212,7 @@ test("preview header uses Lucide icons and transparent chat-style controls", asy
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await action.hover();
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(action).toHaveCSS("color", action === select ? "rgb(20, 122, 122)" : "rgb(185, 78, 56)");
+    await expect(action).toHaveCSS("color", action === select ? "rgb(76, 196, 192)" : "rgb(240, 138, 114)");
   }
 
   const before = await camera(page);
@@ -227,7 +227,7 @@ test("preview header uses Lucide icons and transparent chat-style controls", asy
   await header.getByRole("button", { name: "Unfocus Desktop", exact: true }).click();
   await focus.focus(); await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab");
   await expect(focus).toBeFocused();
-  await expect(focus).toHaveCSS("outline-color", "rgb(33, 143, 144)");
+  await expect(focus).toHaveCSS("outline-color", "rgb(47, 168, 168)");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await select.hover(); await page.mouse.down();
   await expect(select).toHaveCSS("transform", "none");

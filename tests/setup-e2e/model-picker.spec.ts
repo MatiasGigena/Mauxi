@@ -62,7 +62,7 @@ for (const width of [1500]) {
     expect(await providerEntries.evaluate(node => node.scrollHeight)).toBeGreaterThan(providerHeight);
     const providerThumb = providers.locator(".provider-scrollbar-thumb");
     expect((await providerThumb.boundingBox())!.height).toBeGreaterThanOrEqual(96);
-    await expect(providerThumb).toHaveCSS("background-color", "rgb(196, 192, 187)");
+    await expect(providerThumb).toHaveCSS("background-color", "rgb(74, 75, 83)");
     const fourthBottom = await providerRows.nth(3).evaluate(node => node.getBoundingClientRect().bottom);
     const fifthTop = await providerRows.nth(4).evaluate(node => node.getBoundingClientRect().top);
     const visibleBottom = await providerEntries.evaluate(node => node.getBoundingClientRect().bottom);

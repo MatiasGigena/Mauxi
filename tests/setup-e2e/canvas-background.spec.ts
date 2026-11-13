@@ -47,7 +47,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 800 
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await openWorkspace(page);
-    await expect(page.locator(".canvas-background")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(page.locator(".canvas-background")).toHaveCSS("background-color", "rgb(17, 18, 22)");
     expect(await page.locator(".canvas-background").evaluate(el => getComputedStyle(el, "::before").maskSize)).toBe("320px 320px, 320px 320px");
     await expect(page.getByRole("button", { name: /Pause.*animation/i })).toHaveCount(0);
     await expect.poll(() => page.locator(".canvas-trail-strip").count()).toBeGreaterThanOrEqual(4);

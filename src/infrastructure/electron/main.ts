@@ -543,7 +543,7 @@ async function createWindow(partition?: string, workspaceRoot: string | null = n
     height: 1000,
     minWidth: 1024,
     minHeight: 700,
-    backgroundColor: "#e9e8e5",
+    backgroundColor: "#0e0f12",
     show: false,
     webPreferences,
   });
