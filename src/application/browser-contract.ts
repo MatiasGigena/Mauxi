@@ -28,8 +28,12 @@ export interface BrowserEvidence {
   summary: string; image?: string;
 }
 
+/**
+ * revision: increases with every state the control publishes, so a reader can drop a snapshot that reaches it after a
+ * newer one in the same generation (a handoff reply can arrive after the release event it preceded).
+ */
 export interface BrowserState {
-  workspaceId: string; owner: BrowserOwner; generation: number; releasing: boolean;
+  workspaceId: string; owner: BrowserOwner; generation: number; revision: number; releasing: boolean;
   activity: string; remaining: number; evidence: BrowserEvidence[];
 }
 

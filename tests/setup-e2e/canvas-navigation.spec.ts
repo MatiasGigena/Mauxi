@@ -306,7 +306,7 @@ test("compact header keeps focus, picker and keyboard dragging accessible", asyn
 
 test("agent ownership blocks navigation and returns to passive previews", async ({ page }) => {
   await activate(page).click();
-  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
+  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, revision: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
   await page.evaluate(state => window.canvasNavigationBrowserState!(state), state);
   await expect(page.locator("[data-browser-shield]")).toHaveCount(2);
   await expect(activate(page)).toHaveCount(0);

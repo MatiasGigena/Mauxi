@@ -144,11 +144,30 @@ test("zoom updates both previews and persists; keyboard supports the complete ra
 
 test("agent lock disables zoom without adding header actions; emergency return stays available", async ({ page }) => {
   await openWorkspace(page);
-  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, revision: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
   await expect(page.locator(".topbar button")).toHaveCount(2);
   await expect(page.locator(".topbar").getByRole("button", { name: "Responsive audit", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
-  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, revision: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
+  await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
+});
+
+// Taking control back publishes "releasing" and then "released" in one generation. When the release finishes before
+// the handoff call returns, its event arrives first and the reply carries the older "releasing" snapshot; the previews
+// must not stay locked behind it.
+test("taking control back ends unlocked when the release event overtakes the handoff reply", async ({ page }) => {
+  await openWorkspace(page);
+  await page.evaluate(() => {
+    window.mauxi!.browserOwner = async () => {
+      window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, revision: 3, releasing: false, activity: "You control the previews", remaining: 24, evidence: [] });
+
+      return { workspaceId: "test-workspace", owner: "human", generation: 2, revision: 2, releasing: true, activity: "You control the previews", remaining: 24, evidence: [] };
+    };
+  });
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, revision: 1, releasing: false, activity: "Checking previews", remaining: 24, evidence: [] }));
+  await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
+  await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Emergency take back control", exact: true })).toHaveCount(0);
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
 });

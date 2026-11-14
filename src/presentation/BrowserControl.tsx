@@ -10,7 +10,10 @@ export function useBrowserControl(workspaceId?: string) {
   const latest = useRef<BrowserState | undefined>(undefined);
 
   const update = (value: BrowserState) => {
-    if (value.workspaceId !== workspaceId || (latest.current && value.generation < latest.current.generation)) return;
+    const last = latest.current;
+
+    // Older generations are stale; so is an older revision of the same one, such as a handoff reply that arrives after the release event.
+    if (value.workspaceId !== workspaceId || (last && (value.generation < last.generation || (value.generation === last.generation && value.revision < last.revision)))) return;
     latest.current = value; setState(value);
   };
 

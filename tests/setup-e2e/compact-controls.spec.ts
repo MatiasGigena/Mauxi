@@ -30,7 +30,7 @@ async function openWorkspace(page: Page) {
 
     const s: CompactControlsTest = {
       ownerCalls: [], saves: [], closeCalls: 0,
-      browser: { workspaceId: "test-workspace", owner: "human", generation: 0, releasing: false, activity: "", remaining: 24, evidence: [] },
+      browser: { workspaceId: "test-workspace", owner: "human", generation: 0, revision: 0, releasing: false, activity: "", remaining: 24, evidence: [] },
     };
 
     window.compactControlsTest = s;

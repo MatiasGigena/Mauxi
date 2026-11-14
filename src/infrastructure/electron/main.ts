@@ -639,7 +639,7 @@ function registerIpc(): void {
     if (!Value.Check(BrowserOwnerInput, input)) throw new Error("Invalid handoff");
 
     if (input.owner === "human" && (!mainWindow || manager.snapshot().active?.workspaceId !== input.workspaceId)) {
-      return { workspaceId: input.workspaceId, owner: "human", generation: 0, releasing: false, activity: "", remaining: 0, evidence: [] } satisfies BrowserState;
+      return { workspaceId: input.workspaceId, owner: "human", generation: 0, revision: 0, releasing: false, activity: "", remaining: 0, evidence: [] } satisfies BrowserState;
     }
 
     const browser = activeBrowser();
