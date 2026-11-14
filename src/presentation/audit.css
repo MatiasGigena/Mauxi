@@ -140,6 +140,12 @@
 .workspace button.snapshot-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .snapshot-board:not([data-state]) .snapshot-surface { cursor: zoom-in; }
 .snapshot-board[data-peek] .snapshot-surface { box-shadow: 0 0 0 2px var(--text-muted); }
+/* Findings resolved since the last run stay on their tiles as dashed ghosts. */
+.resolved-marker { position: absolute; border: 1.5px dashed color-mix(in srgb, var(--audit-resolved) 80%, transparent); border-radius: 4px; pointer-events: none; transition: opacity 160ms ease-out; }
+.resolved-marker::before { content: "✓"; position: absolute; top: -2px; left: -2px; display: grid; place-items: center; width: 1rem; height: 1rem; border-radius: 4px 0 4px 0; background: var(--audit-resolved); color: var(--on-severity); box-shadow: 0 0 0 1.5px rgb(14 15 18 / .85); font-size: .625rem; font-weight: 700; }
+.resolved-marker[data-spotlit] { border-style: solid; border-width: 2px; background: color-mix(in srgb, var(--audit-resolved) 16%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--audit-resolved) 25%, transparent); }
+.snapshot-board[data-spotlight] .resolved-marker:not([data-spotlit]) { opacity: .2; }
+.resolved-group li { cursor: default; }
 /* The peek bar: what the camera shows and the way back. */
 .peek-bar { position: absolute; z-index: 20; top: .75rem; left: 50%; display: flex; align-items: center; gap: .6rem; height: 3rem; padding: 0 .5rem 0 1rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; white-space: nowrap; transform: translateX(-50%); }
 .workspace[data-audit-panel] .peek-bar { left: calc((100% - var(--audit-panel-width) - 1.5rem) / 2); }
@@ -284,7 +290,7 @@
   .workspace[data-audit-panel] .topbar, .workspace[data-audit-panel] .canvas-surface > .chat-dock { visibility: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spin { animation-duration: 2.4s; } .finding-chevron, .audit-progress-bar span, .audit-matrix-meter span, .snapshot-board, .workspace .finding-marker, .sweep-cells span { transition: none; }
+  .spin { animation-duration: 2.4s; } .finding-chevron, .audit-progress-bar span, .audit-matrix-meter span, .snapshot-board, .workspace .finding-marker, .sweep-cells span, .resolved-marker { transition: none; }
   .snapshot-board[data-state=measuring] .snapshot-placeholder::after, .snapshot-board[data-state=captured] img { animation: none; }
 }
 /* Density follows the tile's on-screen width: full pins from 17.5rem, hairlines with small pins below, a page rail under 7.5rem. */
@@ -313,6 +319,7 @@
   .snapshot-crop { height: 32px; }
   .workspace .snapshot-crop button { display: none; }
   .workspace .finding-marker:not([data-selected], [data-spotlit], :focus-visible) { opacity: 0; }
+  .resolved-marker:not([data-spotlit]) { opacity: 0; }
   .workspace .finding-marker:is([data-selected], [data-spotlit]) span { min-width: .85rem; height: .85rem; font-size: .5rem; }
 }
 @container artboard (width < 4.5rem) {

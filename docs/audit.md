@@ -181,6 +181,8 @@ Hovering or focusing a finding in the panel spotlights it on the canvas. Tiles w
 
 Click a tile's page or caption (or focus the caption and press Enter) to peek at it: the tile opens to its full page and the camera flies to it, at most at the snapshot's own pixel size. A **Seen at** chip peeks the same way and centres the finding's marker. A bar at the top says which tile you are peeking at; **Back** or Esc flies back to where the camera was before the first peek and crops the tile again. Peeking at another tile first crops the one the last peek opened. The camera animates for 280 ms and stops as soon as you pan or zoom; with reduced motion it moves at once.
 
+Findings that a re-run no longer reports stay on their tiles as dashed green ghosts with a check, where the previous run measured them. Hovering one in **Resolved since last run** spotlights it like a current finding.
+
 ## Fix with the agent
 
 **Fix with agent** attaches the finding to the chat. Send it alone to use the default instruction, or add your own. The request carries a compact description of each finding: criterion, width ranges, element, source, measurement and fix direction. Snapshots and geometry are not sent.

@@ -128,7 +128,8 @@ function groupLabel(indexes: number[]) {
  * spotlight: the finding hovered or selected in the panel. Tiles where it was seen are lit, the others dim, and on lit
  * tiles its markers stay prominent while the rest fade (they stay real buttons either way). expanded: tiles shown
  * uncropped; onExpand toggles one. peek: the tile peeked at; onPeek peeks at one (a click on its page or caption). scrub:
- * the width the sweep strip shows as chosen; onScrub resizes a live preview (refused while locked).
+ * the width the sweep strip shows as chosen; onScrub resizes a live preview (refused while locked). Findings resolved since
+ * the last run stay on their tiles as dashed ghosts.
  */
 export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, peek, scrub, locked, onSelect, onExpand, onPeek, onScrub }: {
   matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; spotlight: string | null; ignored: ReadonlySet<string>;
@@ -141,7 +142,8 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
   const captured = matrix.boards.filter((board) => board.state === "captured").length;
   const bugs = visible.filter((finding) => finding.classification === "bug").length;
   const percent = progressPercent(progress);
-  const lit = visible.find((finding) => finding.id === spotlight) ?? null;
+  const resolved = forming || !report ? [] : report.resolved;
+  const lit = visible.find((finding) => finding.id === spotlight) ?? resolved.find((finding) => finding.id === spotlight) ?? null;
   const sheet = matrix.sheet;
   // Screen position of a canvas y, below the live previews' header band and px more of bands that keep their size.
   const top = (y: number, px: number) => `calc(${camera.y + y * zoom}px + 3rem + ${px}px)`;
@@ -168,6 +170,12 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
       // Markers that start in the crop's fade or under it count as hidden, as when the panel locates a finding.
       const below = cropped ? markers.filter(({ marker }) => Math.max(0, marker.rect.y) * scale >= height - CROP_FADE).length : 0;
       const open = expanded.has(id) && !forming;
+      const ghosts = resolved.flatMap((finding) => finding.markers.filter((marker) => marker.profileId === id).map((marker) => ({ finding, marker })));
+
+      const box = (rect: { x: number; y: number; width: number; height: number }) => ({
+        left: Math.max(0, rect.x) * scale * zoom, top: Math.max(0, rect.y) * scale * zoom,
+        width: Math.max(8, Math.min(rect.width, viewport.width - Math.max(0, rect.x) + 40) * scale * zoom), height: Math.max(8, Math.min(rect.height, imageHeight - Math.max(0, rect.y)) * scale * zoom),
+      });
 
       // Pins that would overlap share the first one's label; the spotlit finding and pins below the crop keep their own.
       const pins = markers.map(({ marker }) => ({ x: Math.max(0, marker.rect.x) * scale * zoom, y: Math.max(0, marker.rect.y) * scale * zoom }));
@@ -185,7 +193,7 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
         <span className="snapshot-detail">× {viewport.height}{note ? ` · ${note}` : ""}</span>
       </>;
 
-      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} data-peek={peek === id || undefined} aria-busy={forming && state !== "captured" || undefined}
+      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} data-peek={peek === id || undefined} data-resolved={ghosts.length || undefined} aria-busy={forming && state !== "captured" || undefined}
         aria-label={forming ? `${label} viewport, ${status.toLowerCase()}` : `${label} snapshot, ${issues} findings`}
         style={{ left: camera.x + x * zoom, top: top(y, inset - CAPTION), width: width * zoom }}>
         <header className="artboard-header snapshot-header" style={{ height: CAPTION }}>
@@ -201,15 +209,12 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
             ? <img src={snapshot.image} alt={`${label} at ${viewport.width} by ${viewport.height}`} draggable={false} style={{ width: width * zoom, height: snapshot.imageHeight * scale * zoom }} />
             : <div className="snapshot-placeholder" aria-hidden="true"><span>{viewport.width} × {viewport.height}</span></div>}
           {snapshot && snapshot.imageHeight > snapshot.height && snapshot.height * scale < height && <div className="snapshot-fold" style={{ top: snapshot.height * scale * zoom }} aria-hidden="true"><span>Viewport fold</span></div>}
+          {ghosts.map(({ finding, marker }) => <span key={`resolved-${finding.id}`} className="resolved-marker" role="img" aria-label={`Resolved since last run: ${finding.title}`} title={`Resolved since last run: ${finding.title}`}
+            data-spotlit={lit?.id === finding.id || undefined} style={box(marker.rect)} />)}
           {markers.map(({ finding, marker, index }, at) => {
-            const left = Math.max(0, marker.rect.x) * scale * zoom;
-            const markerTop = Math.max(0, marker.rect.y) * scale * zoom;
-            const boxWidth = Math.max(8, Math.min(marker.rect.width, viewport.width - Math.max(0, marker.rect.x) + 40) * scale * zoom);
-            const boxHeight = Math.max(8, Math.min(marker.rect.height, imageHeight - Math.max(0, marker.rect.y)) * scale * zoom);
-
             return <button key={`${finding.id}-${id}`} type="button" className="finding-marker" data-severity={finding.severity} data-classification={finding.classification} data-selected={selected === finding.id || undefined} data-spotlit={lit?.id === finding.id || undefined}
               data-grouped={hidden.has(at) || undefined} data-group={labels.has(at) || undefined}
-              aria-label={`Finding ${index}: ${finding.title}`} title={`${index}. ${finding.title}`} style={{ left, top: markerTop, width: boxWidth, height: boxHeight }} onClick={(event) => { event.stopPropagation(); onSelect(finding); }}>
+              aria-label={`Finding ${index}: ${finding.title}`} title={`${index}. ${finding.title}`} style={box(marker.rect)} onClick={(event) => { event.stopPropagation(); onSelect(finding); }}>
               <span>{labels.get(at) ?? index}</span>
             </button>;
           })}

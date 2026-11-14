@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { sweepWidths } from "../../src/application/audit-contract";
 import { launch, text } from "../helpers/fake-provider";
+
+const LAB_CSS = path.resolve("fixtures/vite/src/audit-lab/audit-lab.css");
+const PLANTED = "width: 600px; /* planted: fixed width */";
+const FIXED = "max-width: 600px; flex-wrap: wrap;";
 
 /** The camera zoom on every animation frame for ms milliseconds. */
 function recordZoom(page: Page, ms: number) {
@@ -45,9 +49,11 @@ async function settled(page: Page, profileId = "phone-sm") {
 
 const previewWidth = (page: Page, id: "desktop" | "mobile") => page.locator(`[data-testid="${id}-preview"]`).evaluate((frame) => Number(frame.getAttribute("width")));
 
-// The audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes, and the sweep strip as a slider
-// that resizes the live previews.
-test("audit sheet: peek and return, and sweep scrubbing", async ({}, testInfo) => {
+// Tier 3 of the audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes, the sweep strip as a
+// slider that resizes the live previews, and ghosts of findings a re-run no longer reports.
+test("audit sheet: peek and return, sweep scrubbing and resolved ghosts", async ({}, testInfo) => {
+  const original = await readFile(LAB_CSS, "utf8");
+  expect(original).toContain(PLANTED);
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-peek-"));
   const { page, close } = await launch(state, () => text("No browser actions needed."), {}, "/audit-lab.html", "Local model");
   const evidence: Array<{ step: string; data: object }> = [];
@@ -134,9 +140,27 @@ test("audit sheet: peek and return, and sweep scrubbing", async ({}, testInfo) =
     await page.getByRole("button", { name: "Emergency take back control" }).click();
     await expect(page.getByRole("button", { name: "Emergency take back control" })).toHaveCount(0);
 
+    // Fix the planted overflow and re-run: what the run no longer reports stays on its tiles as a dashed ghost, and
+    // hovering it in the Resolved list spotlights it.
+    await writeFile(LAB_CSS, original.replace(PLANTED, FIXED));
+    await panel.getByRole("button", { name: "Re-run", exact: true }).click();
+    await expect(panel.getByRole("button", { name: /Resolved since last run/ })).toBeVisible({ timeout: 150_000 });
+    await expect(panel.getByRole("button", { name: "Re-run", exact: true })).toBeEnabled({ timeout: 60_000 });
+    const ghosts = page.locator('.snapshot-board[data-profile-id="phone-sm"] .resolved-marker');
+    await expect(ghosts).not.toHaveCount(0);
+    const markers = await page.locator('.snapshot-board[data-profile-id="phone-sm"] .finding-marker').count();
+    await expect(panel.getByRole("button", { name: /Resolved since last run/ })).toHaveAttribute("aria-expanded", "true");
+    const resolved = panel.locator(".resolved-group li").first();
+    const resolvedId = (await resolved.getAttribute("data-finding-id"))!;
+    await resolved.hover();
+    await expect(page.locator(".resolved-marker[data-spotlit]").first()).toBeAttached();
+    await expect(page.locator('.snapshot-board[data-spotlight="lit"]:has(.resolved-marker[data-spotlit])').first()).toBeAttached();
+    evidence.push({ step: "resolved", data: { resolvedId, ghosts: await ghosts.count(), markers } });
+    await page.screenshot({ path: testInfo.outputPath("04-resolved-ghosts.png") });
     await save();
   } finally {
     await save();
+    await writeFile(LAB_CSS, original);
     await close();
     await rm(state, { recursive: true, force: true });
   }
