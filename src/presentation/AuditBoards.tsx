@@ -1,3 +1,4 @@
+import { useRef, type KeyboardEvent } from "react";
 import { ChevronsDown, ChevronsUp, LoaderCircle, ScanSearch } from "lucide-react";
 import type { Artboard, Camera } from "../application/canvas-state";
 import { AUDIT_PROFILES, sweepWidths, type AuditFinding, type AuditProgress, type AuditReport, type AuditSnapshot, type FindingSeverity } from "../application/audit-contract";
@@ -45,21 +46,76 @@ export function auditMatrix(report: AuditReport | null, forming: FormingAudit | 
   return { boards: items.map((item, index) => ({ ...item, ...sheet.tiles[index] })), sheet };
 }
 
-/** One cell per width the sweep measured, coloured by the worst finding there; the spotlit finding's widths stay lit. */
-function SweepStrip({ findings, lit }: { findings: AuditFinding[]; lit: AuditFinding | null }) {
+/**
+ * One cell per width the sweep measured, coloured by the worst finding there; the spotlit finding's widths stay lit. It is
+ * also a slider: dragging along it or using the arrow keys resizes a live preview to a measured width (onScrub).
+ * value: the width it shows as chosen.
+ */
+function SweepStrip({ findings, lit, value, locked, onScrub }: {
+  findings: AuditFinding[]; lit: AuditFinding | null; value: number; locked: boolean; onScrub: (width: number, phase: "start" | "move" | "end") => void;
+}) {
   const widths = sweepWidths();
+  const cells = useRef<HTMLDivElement>(null);
+  const drag = useRef<number | null>(null);
   const covers = (finding: AuditFinding, width: number) => finding.ranges.some(([from, to]) => from <= width && width <= to);
   const marks = [{ label: "320", at: 0 }, { label: "480", at: widths.findIndex((width) => width > 480) }, { label: "1024", at: widths.findIndex((width) => width > 1024) }, { label: "1920", at: widths.length }];
+  const clamp = (index: number) => Math.max(0, Math.min(widths.length - 1, index));
+  const index = clamp(widths.findIndex((width) => width >= value) === -1 ? widths.length - 1 : widths.findIndex((width) => width >= value));
 
-  return <div className="sweep-strip" data-spotlight={lit ? "" : undefined} aria-hidden="true">
-    <div className="sweep-cells">
-      {widths.map((width) => {
-        const worst = findings.filter((finding) => covers(finding, width)).sort((a, b) => RANK[b.severity] - RANK[a.severity])[0];
+  const under = (clientX: number) => {
+    const rect = cells.current!.getBoundingClientRect();
 
-        return <span key={width} data-severity={worst?.severity} data-lit={lit && covers(lit, width) || undefined} title={`${width}px`} />;
-      })}
+    return widths[clamp(Math.floor((clientX - rect.left) / rect.width * widths.length))];
+  };
+
+  const move = (clientX: number, phase: "start" | "move" | "end") => {
+    const width = under(clientX);
+
+    if (phase === "move" && width === drag.current) return;
+    drag.current = phase === "end" ? null : width;
+    onScrub(width, phase);
+  };
+
+  /** The measured width a key moves to: the previous or next one, five at a time with Page keys, or either end. */
+  const stepTo = (key: string): number | null => {
+    switch (key) {
+      case "ArrowLeft": case "ArrowDown": return widths.findLast((width) => width < value) ?? widths[0];
+      case "ArrowRight": case "ArrowUp": return widths.find((width) => width > value) ?? widths.at(-1)!;
+      case "PageDown": return widths[clamp(index - 5)];
+      case "PageUp": return widths[clamp(index + 5)];
+      case "Home": return widths[0];
+      case "End": return widths.at(-1)!;
+      default: return null;
+    }
+  };
+
+  const keydown = (event: KeyboardEvent) => {
+    const width = stepTo(event.key);
+
+    if (width === null) return;
+    event.preventDefault();
+    onScrub(width, "end");
+  };
+
+  return <div className="sweep-strip" data-spotlight={lit ? "" : undefined} role="slider" tabIndex={0} aria-label="Resize a live preview to a measured width"
+    aria-valuemin={widths[0]} aria-valuemax={widths.at(-1)} aria-valuenow={value} aria-valuetext={`${value} px, ${value <= 1024 ? "Mobile" : "Desktop"} preview`} aria-disabled={locked || undefined}
+    title="Drag to resize the Mobile (up to 1024 px) or Desktop preview to a measured width"
+    onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); move(event.clientX, "start"); }}
+    onPointerMove={(event) => { if (drag.current !== null) move(event.clientX, "move"); }}
+    onPointerUp={(event) => { if (drag.current !== null) move(event.clientX, "end"); }}
+    onPointerCancel={() => { if (drag.current !== null) { onScrub(drag.current, "end"); drag.current = null; } }}
+    onKeyDown={keydown}>
+    <div className="sweep-track" aria-hidden="true">
+      <div className="sweep-cells" ref={cells}>
+        {widths.map((width) => {
+          const worst = findings.filter((finding) => covers(finding, width)).sort((a, b) => RANK[b.severity] - RANK[a.severity])[0];
+
+          return <span key={width} data-severity={worst?.severity} data-lit={lit && covers(lit, width) || undefined} />;
+        })}
+      </div>
+      <span className="sweep-thumb" style={{ left: `${(index + .5) / widths.length * 100}%` }}><span>{value}</span></span>
     </div>
-    <div className="sweep-marks">{marks.map(({ label, at }) => <span key={label} style={{ left: `${at / widths.length * 100}%` }}>{label}</span>)}</div>
+    <div className="sweep-marks" aria-hidden="true">{marks.map(({ label, at }) => <span key={label} style={{ left: `${at / widths.length * 100}%` }}>{label}</span>)}</div>
   </div>;
 }
 
@@ -71,12 +127,13 @@ function groupLabel(indexes: number[]) {
 /**
  * spotlight: the finding hovered or selected in the panel. Tiles where it was seen are lit, the others dim, and on lit
  * tiles its markers stay prominent while the rest fade (they stay real buttons either way). expanded: tiles shown
- * uncropped; onExpand toggles one. peek: the tile peeked at; onPeek peeks at one (a click on its page or caption).
+ * uncropped; onExpand toggles one. peek: the tile peeked at; onPeek peeks at one (a click on its page or caption). scrub:
+ * the width the sweep strip shows as chosen; onScrub resizes a live preview (refused while locked).
  */
-export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, peek, onSelect, onExpand, onPeek }: {
+export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, peek, scrub, locked, onSelect, onExpand, onPeek, onScrub }: {
   matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; spotlight: string | null; ignored: ReadonlySet<string>;
-  expanded: ReadonlySet<string>; peek: string | null;
-  onSelect: (finding: AuditFinding) => void; onExpand: (profileId: string) => void; onPeek: (profileId: string) => void;
+  expanded: ReadonlySet<string>; peek: string | null; scrub: number; locked: boolean;
+  onSelect: (finding: AuditFinding) => void; onExpand: (profileId: string) => void; onPeek: (profileId: string) => void; onScrub: (width: number, phase: "start" | "move" | "end") => void;
 }) {
   const zoom = camera.zoom;
   const findings = forming || !report ? [] : report.findings;
@@ -99,7 +156,7 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
         {forming ? <span className="audit-matrix-meter" aria-hidden="true"><span style={{ width: `${percent}%` }} /></span> : <span className="snapshot-count" data-clean={bugs === 0 || undefined}>{bugs === 0 ? "No bugs" : `${bugs} ${bugs === 1 ? "bug" : "bugs"}`}</span>}
         {forming && <span className="audit-matrix-percent">{percent}%</span>}
       </div>
-      <SweepStrip findings={visible} lit={lit} />
+      <SweepStrip findings={visible} lit={lit} value={scrub} locked={locked} onScrub={onScrub} />
     </div>}
     {sheet?.lanes.map((lane) => lane.label && <div key={lane.id} className="sheet-lane-label" data-lane={lane.id} aria-hidden="true"
       style={{ left: camera.x + lane.x * zoom, top: top(lane.y, lane.inset - CAPTION - LANE_LABEL), width: lane.width * zoom, height: LANE_LABEL }}>{lane.label}</div>)}

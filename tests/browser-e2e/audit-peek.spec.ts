@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { sweepWidths } from "../../src/application/audit-contract";
 import { launch, text } from "../helpers/fake-provider";
 
 /** The camera zoom on every animation frame for ms milliseconds. */
@@ -42,8 +43,11 @@ async function settled(page: Page, profileId = "phone-sm") {
   return last;
 }
 
-// The audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes.
-test("audit sheet: peek and return", async ({}, testInfo) => {
+const previewWidth = (page: Page, id: "desktop" | "mobile") => page.locator(`[data-testid="${id}-preview"]`).evaluate((frame) => Number(frame.getAttribute("width")));
+
+// The audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes, and the sweep strip as a slider
+// that resizes the live previews.
+test("audit sheet: peek and return, and sweep scrubbing", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-peek-"));
   const { page, close } = await launch(state, () => text("No browser actions needed."), {}, "/audit-lab.html", "Local model");
   const evidence: Array<{ step: string; data: object }> = [];
@@ -89,6 +93,46 @@ test("audit sheet: peek and return", async ({}, testInfo) => {
     await page.locator(".peek-bar").getByRole("button", { name: /Back/ }).click();
     expect(await settled(page)).toEqual(overview);
     await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    // The sweep strip is a slider: a drag resizes the Mobile preview to the width under the pointer, and the sheet
+    // holds still under the pointer until the drag ends.
+    const strip = page.getByRole("slider", { name: "Resize a live preview to a measured width" });
+    const widths = sweepWidths();
+    const cells = (await strip.locator(".sweep-cells").boundingBox())!;
+    const at = (width: number) => cells.x + (widths.indexOf(width) + .5) / widths.length * cells.width;
+    await page.mouse.move(at(320), cells.y + cells.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(at(560), cells.y + cells.height / 2, { steps: 6 });
+    await expect.poll(() => previewWidth(page, "mobile")).toBe(560);
+    expect((await strip.locator(".sweep-cells").boundingBox())!.x).toBeCloseTo(cells.x, 0);
+    await page.mouse.move(at(768), cells.y + cells.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => previewWidth(page, "mobile")).toBe(768);
+    await expect(strip).toHaveAttribute("aria-valuenow", "768");
+    await page.screenshot({ path: testInfo.outputPath("02-scrubbed-768.png") });
+
+    // Arrow keys step through the measured widths; End widens the Desktop preview and pushes Mobile along beside it.
+    await strip.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => previewWidth(page, "mobile")).toBe(784);
+    await page.keyboard.press("End");
+    await expect.poll(() => previewWidth(page, "desktop")).toBe(1920);
+    const desktop = (await page.locator('.artboard[data-preview-id="desktop"]').boundingBox())!;
+    const mobile = (await page.locator('.artboard[data-preview-id="mobile"]').boundingBox())!;
+    expect(mobile.x).toBeGreaterThanOrEqual(desktop.x + desktop.width);
+    evidence.push({ step: "scrub", data: { mobile: await previewWidth(page, "mobile"), desktop: await previewWidth(page, "desktop") } });
+    await page.screenshot({ path: testInfo.outputPath("03-scrubbed-desktop.png") });
+
+    // While the agent holds the browser, the strip refuses to resize anything.
+    await page.getByRole("button", { name: "Give agent control", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Emergency take back control" })).toBeVisible();
+    await strip.focus();
+    await page.keyboard.press("Home");
+    await expect(page.locator(".workspace-notice")).toContainText("Return browser control to resize the previews.");
+    expect(await previewWidth(page, "mobile")).toBe(784);
+    await expect(strip).toHaveAttribute("aria-valuenow", "1920");
+    await page.getByRole("button", { name: "Emergency take back control" }).click();
+    await expect(page.getByRole("button", { name: "Emergency take back control" })).toHaveCount(0);
 
     await save();
   } finally {
