@@ -1273,7 +1273,8 @@ export class PiAgentHost {
       await this.activatePrepared(checkpointId);
       let settleAcceptance!: (accepted: boolean) => void;
       const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
-      void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
+      // pi calls preflightResult only once it has accepted the prompt (started, queued or handled); a rejection throws.
+      void this.runtime!.session.prompt(prompt, { images, preflightResult: () => settleAcceptance(true) }).catch((error) => {
         const failure = classifyError(error); this.lastError = failure; this.runState = "error"; this.status = failure.message; settleAcceptance(false);
         void this.changes?.settle(true, failure.message).finally(() => this.publish());
       });
@@ -1290,7 +1291,8 @@ export class PiAgentHost {
     await this.activatePrepared(checkpointId);
     let settleAcceptance!: (accepted: boolean) => void;
     const accepted = new Promise<boolean>((resolve) => { settleAcceptance = resolve; });
-    void this.runtime!.session.prompt(prompt, { images, preflightResult: settleAcceptance }).catch((error) => {
+    // pi calls preflightResult only once it has accepted the prompt (started, queued or handled); a rejection throws.
+    void this.runtime!.session.prompt(prompt, { images, preflightResult: () => settleAcceptance(true) }).catch((error) => {
       const failure = classifyError(error); this.lastError = failure; this.runState = "error"; this.status = failure.message; settleAcceptance(false);
       void this.changes?.settle(true, failure.message).finally(() => this.publish());
     });
