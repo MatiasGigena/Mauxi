@@ -156,6 +156,11 @@ test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a fi
     await seen.getByRole("button", { name: "Show on the Small phone snapshot" }).click();
     const tile = page.locator('.snapshot-board[data-profile-id="phone-sm"]');
     await expect.poll(async () => (await tile.boundingBox())!.width).toBeGreaterThan(200);
+    // The camera flies there; measure once it stops.
+    let last = "";
+    await expect.poll(async () => { const now = JSON.stringify(await tile.boundingBox()); const still = now === last; last = now;
+
+      return still; }, { intervals: [150], timeout: 10_000 }).toBe(true);
     const located = await snap("located phone-sm");
     const phone = located.tiles.find((item) => item.id === "phone-sm")!;
     expect(phone.image!.width).toBeLessThanOrEqual(phone.image!.naturalWidth + 1);

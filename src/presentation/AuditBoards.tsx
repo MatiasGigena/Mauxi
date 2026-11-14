@@ -71,11 +71,12 @@ function groupLabel(indexes: number[]) {
 /**
  * spotlight: the finding hovered or selected in the panel. Tiles where it was seen are lit, the others dim, and on lit
  * tiles its markers stay prominent while the rest fade (they stay real buttons either way). expanded: tiles shown
- * uncropped; onExpand toggles one.
+ * uncropped; onExpand toggles one. peek: the tile peeked at; onPeek peeks at one (a click on its page or caption).
  */
-export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, onSelect, onExpand }: {
+export function AuditBoards({ matrix, report, forming, progress, camera, selected, spotlight, ignored, expanded, peek, onSelect, onExpand, onPeek }: {
   matrix: AuditMatrix; report: AuditReport | null; forming: boolean; progress: AuditProgress | null; camera: Camera; selected: string | null; spotlight: string | null; ignored: ReadonlySet<string>;
-  expanded: ReadonlySet<string>; onSelect: (finding: AuditFinding) => void; onExpand: (profileId: string) => void;
+  expanded: ReadonlySet<string>; peek: string | null;
+  onSelect: (finding: AuditFinding) => void; onExpand: (profileId: string) => void; onPeek: (profileId: string) => void;
 }) {
   const zoom = camera.zoom;
   const findings = forming || !report ? [] : report.findings;
@@ -122,19 +123,23 @@ export function AuditBoards({ matrix, report, forming, progress, camera, selecte
         group.slice(1).forEach((at) => hidden.add(at));
       }
 
-      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} aria-busy={forming && state !== "captured" || undefined}
+      const caption = <>
+        <strong><code className="snapshot-width">{viewport.width}</code>{profileTag(id) && <span className="snapshot-tag">{profileTag(id)}</span>}<span className="snapshot-name">{label}</span></strong>
+        <span className="snapshot-detail">× {viewport.height}{note ? ` · ${note}` : ""}</span>
+      </>;
+
+      return <section key={id} className="artboard snapshot-board" data-profile-id={id} data-state={forming ? state : undefined} data-spotlight={lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} data-peek={peek === id || undefined} aria-busy={forming && state !== "captured" || undefined}
         aria-label={forming ? `${label} viewport, ${status.toLowerCase()}` : `${label} snapshot, ${issues} findings`}
         style={{ left: camera.x + x * zoom, top: top(y, inset - CAPTION), width: width * zoom }}>
         <header className="artboard-header snapshot-header" style={{ height: CAPTION }}>
-          <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>
-            <strong><code className="snapshot-width">{viewport.width}</code>{profileTag(id) && <span className="snapshot-tag">{profileTag(id)}</span>}<span className="snapshot-name">{label}</span></strong>
-            <span className="snapshot-detail">× {viewport.height}{note ? ` · ${note}` : ""}</span>
-          </div>
+          {forming
+            ? <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>{caption}</div>
+            : <button type="button" className="snapshot-title" title={`Peek at ${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`} aria-label={`Peek at the ${label} snapshot`} onClick={() => onPeek(id)}>{caption}</button>}
           {forming
             ? <span className="snapshot-state" data-state={state}>{state === "measuring" && <LoaderCircle size={12} className="spin" aria-hidden="true" />}{status}</span>
             : <span className="snapshot-count" data-clean={issues === 0 || undefined}>{issues === 0 ? "Clean" : <>{issues}<span className="snapshot-count-unit"> {issues === 1 ? "issue" : "issues"}</span></>}</span>}
         </header>
-        <div className="snapshot-surface" style={{ width: width * zoom, height: height * zoom }}>
+        <div className="snapshot-surface" style={{ width: width * zoom, height: height * zoom }} onClick={forming ? undefined : () => onPeek(id)}>
           {snapshot
             ? <img src={snapshot.image} alt={`${label} at ${viewport.width} by ${viewport.height}`} draggable={false} style={{ width: width * zoom, height: snapshot.imageHeight * scale * zoom }} />
             : <div className="snapshot-placeholder" aria-hidden="true"><span>{viewport.width} × {viewport.height}</span></div>}
