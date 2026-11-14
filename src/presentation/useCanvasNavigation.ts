@@ -15,6 +15,8 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
   const current = useRef({ locked, onExit }); current.current = { locked, onExit };
   const spaceDown = useRef(false);
   const restoreFrame = useRef<PreviewId | null>(null);
+  /** The preview just activated, waiting for its bridge to confirm canvas keys are live before it takes keyboard focus. */
+  const pendingFocus = useRef<PreviewId | null>(null);
   const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopWheel = useCallback(() => {
@@ -35,9 +37,18 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
     setInteractive(id);
   }, []);
 
-  useLayoutEffect(() => {
-    if (interactive && !current.current.locked && !spaceDown.current && !wheelTimer.current) frames.current[interactive]?.contentWindow?.focus();
-  }, [interactive, frames]);
+  // Focusing the frame before its bridge handles Escape and Space would let keys pressed right after activation slip past
+  // the canvas into the page (the bridge's enable message and the key can arrive in either order). Until the bridge
+  // confirms, focus stays in the shell, whose own listener handles both keys.
+  useLayoutEffect(() => { pendingFocus.current = interactive; }, [interactive]);
+
+  /** The bridge of preview id confirmed canvas keys are live: a preview waiting for focus since activation gets it now. */
+  const controlsReady = useCallback((id: PreviewId) => {
+    if (pendingFocus.current !== id) return;
+    pendingFocus.current = null;
+
+    if (!current.current.locked && !spaceDown.current && !wheelTimer.current) frames.current[id]?.contentWindow?.focus();
+  }, [frames]);
 
   const exit = useCallback((notify = true) => {
     setInteractive(null);
@@ -113,5 +124,5 @@ export function useCanvasNavigation({ canvas, frames, locked, onExit }: {
     restoreFrame.current = null; setSpace(false); stopWheel();
   }, [locked, stopWheel]);
 
-  return { interactive, space, wheeling, activate, exit, startSpace, endSpace, beginWheel };
+  return { interactive, space, wheeling, activate, exit, startSpace, endSpace, beginWheel, controlsReady };
 }

@@ -289,6 +289,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (browserLocked.current && ["selection", "selection-cancelled"].includes(message.kind)) return;
 
+      if (message.kind === "canvas-controls") {
+        if (message.enabled && !browserLocked.current) navigationRef.current.controlsReady(id);
+
+        return;
+      }
+
       if (message.kind === "canvas-shortcut" || message.kind === "canvas-zoom") {
         const nav = navigationRef.current;
 

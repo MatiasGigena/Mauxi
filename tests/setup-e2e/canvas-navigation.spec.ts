@@ -159,6 +159,9 @@ test("keyboard activation and Space on blank canvas are accessible", async ({ pa
   await activate(page).focus(); await page.keyboard.press("Enter");
   await expect(board(page)).toHaveAttribute("data-interacting", "true");
   await page.keyboard.press("Escape");
+  // An Escape the preview handles reaches the canvas by message; Space is meant for the blank canvas, so it waits for focus there.
+  await expect(board(page)).toHaveAttribute("data-interacting", "false");
+  await expect(page.getByTestId("canvas")).toBeFocused();
   await page.keyboard.down("Space");
   await expect(page.getByTestId("canvas")).toHaveClass(/hand-mode/);
   const bounds = (await page.getByTestId("canvas").boundingBox())!;

@@ -448,7 +448,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 
   if (message.generation !== generation) return;
 
-  if (message.kind === "canvas-controls") { canvasControlsEnabled = message.enabled;
+  // The echo tells the shell the canvas keys are live here, so it can hand this frame keyboard focus.
+  if (message.kind === "canvas-controls") { canvasControlsEnabled = message.enabled; send({ kind: "canvas-controls", enabled: message.enabled });
 
   return; }
 
