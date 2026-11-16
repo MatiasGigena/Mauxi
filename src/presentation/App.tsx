@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Moon, Sun } from "lucide-react";
 import type { ProjectDiscovery, WorkspaceBootstrap } from "../application/project-contract";
 import { Workspace } from "./Workspace";
 import { ProjectSetup } from "./ProjectSetup";
-import logoText from "./assets/logo-mauxi-text.png";
+import logoTextDark from "./assets/logo-mauxi-text.png";
+import logoTextLight from "./assets/logo-mauxi-text-light.png";
+import { setTheme, useTheme } from "./theme";
 import { errorText } from "./error-text";
 
 export function App() {
@@ -12,6 +14,8 @@ export function App() {
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const theme = useTheme();
+  const logoText = theme === "dark" ? logoTextLight : logoTextDark;
 
   useEffect(() => {
     if (!window.mauxi) {
@@ -69,6 +73,9 @@ export function App() {
 
   return (
     <main className={`launch-screen${discovery ? " has-setup" : " is-empty"}`}>
+      <button type="button" className="theme-toggle" aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+        {theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+      </button>
       {discovery ? (
         <h1 className="launch-brand setup-brand"><img className="launch-logo" src={logoText} alt="Mauxi" /></h1>
       ) : (

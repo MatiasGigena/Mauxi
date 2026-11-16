@@ -41,12 +41,12 @@ for (const width of [320, 768, 1440]) {
     await expect(header).toHaveCSS("box-shadow", "none");
 
     for (const island of [header.locator(".brand"), header.locator(".zoom")]) {
-      await expect(island).toHaveCSS("background-color", "rgb(255, 255, 255)");
-      await expect(island).toHaveCSS("border-color", "rgb(232, 229, 225)");
+      await expect(island).toHaveCSS("background-color", "rgb(25, 26, 31)");
+      await expect(island).toHaveCSS("border-color", "rgb(45, 46, 53)");
       await expect(island).toHaveCSS("border-radius", "999px");
     }
 
-    await expect(header.locator("input")).toHaveCSS("accent-color", "rgb(33, 143, 144)");
+    await expect(header.locator("input")).toHaveCSS("accent-color", "rgb(47, 168, 168)");
     const headerBounds = (await header.boundingBox())!;
     const backgroundBounds = (await page.locator(".canvas-background").boundingBox())!;
     expect(backgroundBounds.y).toBe(0);
@@ -73,19 +73,23 @@ for (const width of [320, 768, 1440]) {
   });
 }
 
-test("pills, previews and chat share the same subtle shadow", async ({ page }) => {
+test("pills and chat share the same subtle shadow; live previews carry a deeper one with a teal ring", async ({ page }) => {
   await openWorkspace(page);
   const shadow = await page.locator(".brand").evaluate(node => getComputedStyle(node).boxShadow);
   expect(shadow).not.toBe("none");
 
-  for (const selector of [".zoom", '[data-preview-id="desktop"]', '[data-preview-id="mobile"]', ".chat-surface"]) {
+  for (const selector of [".zoom", ".chat-surface"]) {
     await expect(page.locator(selector)).toHaveCSS("box-shadow", shadow);
+  }
+
+  for (const selector of ['[data-preview-id="desktop"]', '[data-preview-id="mobile"]']) {
+    await expect(page.locator(selector)).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.45) 0px 12px 32px 0px, rgba(60, 194, 189, 0.4) 0px 0px 0px 1px");
   }
 
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Shadow check");
   const focused = await page.locator(".chat-surface").evaluate(node => getComputedStyle(node).boxShadow);
   expect(focused.endsWith(shadow)).toBe(true);
-  await expect(page.locator(".chat-surface")).toHaveCSS("border-color", "rgb(33, 143, 144)");
+  await expect(page.locator(".chat-surface")).toHaveCSS("border-color", "rgb(47, 168, 168)");
 });
 
 test("previews remain visible and clickable between the floating pills", async ({ page }) => {
@@ -140,11 +144,30 @@ test("zoom updates both previews and persists; keyboard supports the complete ra
 
 test("agent lock disables zoom without adding header actions; emergency return stays available", async ({ page }) => {
   await openWorkspace(page);
-  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, revision: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
   await expect(page.locator(".topbar button")).toHaveCount(2);
   await expect(page.locator(".topbar").getByRole("button", { name: "Responsive audit", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
-  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, revision: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
+  await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
+});
+
+// Taking control back publishes "releasing" and then "released" in one generation. When the release finishes before
+// the handoff call returns, its event arrives first and the reply carries the older "releasing" snapshot; the previews
+// must not stay locked behind it.
+test("taking control back ends unlocked when the release event overtakes the handoff reply", async ({ page }) => {
+  await openWorkspace(page);
+  await page.evaluate(() => {
+    window.mauxi!.browserOwner = async () => {
+      window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, revision: 3, releasing: false, activity: "You control the previews", remaining: 24, evidence: [] });
+
+      return { workspaceId: "test-workspace", owner: "human", generation: 2, revision: 2, releasing: true, activity: "You control the previews", remaining: 24, evidence: [] };
+    };
+  });
+  await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, revision: 1, releasing: false, activity: "Checking previews", remaining: 24, evidence: [] }));
+  await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
+  await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Emergency take back control", exact: true })).toHaveCount(0);
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeEnabled();
 });

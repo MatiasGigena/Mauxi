@@ -322,7 +322,7 @@ test("stale bridge messages cannot clear marks and browser ownership hides them 
     }
   });
   await expect(markers(frame)).toBeVisible();
-  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
+  const state: BrowserState = { workspaceId: "test-workspace", generation: 1, revision: 1, owner: "agent", releasing: false, activity: "Testing", remaining: 10, evidence: [] };
   await page.evaluate(state => window.overlayTest!.browserState!(state), state);
   await expect(markers(frame)).toHaveCount(0);
   await expect(chips(page)).toHaveCount(1);

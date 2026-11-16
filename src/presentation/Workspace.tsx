@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -13,9 +13,10 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
-import { ScanSearch } from "lucide-react";
+import { ArrowLeft, ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
 import { auditMatrix, AuditBoards, type FormingAudit } from "./AuditBoards";
+import { CAPTION } from "../application/audit-layout";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
@@ -95,6 +96,13 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  const [hoveredFinding, setHoveredFinding] = useState<string | null>(null);
+  /** Audit sheet tiles shown uncropped. */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  /** A tile brought into view for a closer look: the camera to return to and whether the peek opened the tile. */
+  const [peek, setPeek] = useState<{ profileId: string; label: string; camera: Camera; opened: boolean } | null>(null);
+  /** The width last chosen on the sweep strip, and the live boards the sheet keeps its layout from while a drag lasts. */
+  const [scrub, setScrub] = useState<{ width: number; frozen: Artboard[] | null } | null>(null);
   /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
   const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
   const [attachedFindings, setAttachedFindings] = useState<AuditFindingContext[]>([]);
@@ -153,15 +161,24 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   navigationRef.current = { ...navigation, selecting };
   const navigationHeld = navigation.space;
 
+  /** The camera animation in progress; any pan or zoom by the user stops it. */
+  const flight = useRef<number | null>(null);
+
+  const stopFlight = useCallback(() => {
+    if (flight.current !== null) cancelAnimationFrame(flight.current);
+    flight.current = null;
+  }, []);
+
   const applyWheel = useCallback((event: Pick<WheelEvent, "deltaMode" | "deltaX" | "deltaY" | "ctrlKey" | "metaKey" | "clientX" | "clientY">) => {
     const element = canvas.current;
 
     if (!element || browserLocked.current) return;
+    stopFlight();
     navigationRef.current.beginWheel();
     const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
     const rect = element.getBoundingClientRect();
     setLayout((current) => ({ ...current, camera: event.ctrlKey || event.metaKey ? zoomAt(current.camera, current.camera.zoom * Math.exp(-event.deltaY * unit * .005), { x: event.clientX - rect.x, y: event.clientY - rect.y }) : { ...current.camera, x: current.camera.x - event.deltaX * unit, y: current.camera.y - event.deltaY * unit } }));
-  }, []);
+  }, [stopFlight]);
 
   useEffect(() => {
     let frame = 0;
@@ -271,6 +288,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       if (message.generation !== runtimeRef.current[id].generation) return;
 
       if (browserLocked.current && ["selection", "selection-cancelled"].includes(message.kind)) return;
+
+      if (message.kind === "canvas-controls") {
+        if (message.enabled && !browserLocked.current) navigationRef.current.controlsReady(id);
+
+        return;
+      }
 
       if (message.kind === "canvas-shortcut" || message.kind === "canvas-zoom") {
         const nav = navigationRef.current;
@@ -431,6 +454,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
 
   function changeZoom(zoom: number) {
+    stopFlight();
     setLayout((current) => ({ ...current, camera: zoomAt(current.camera, zoom, { x: geometry.current.width / 2, y: geometry.current.height / 2 }) }));
   }
 
@@ -453,6 +477,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (browserLocked.current || (event.button !== 0 && event.button !== 1)) return;
     event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    stopFlight();
     dragMoved.current = false;
     drag.current = { id, x: event.clientX, y: event.clientY, state: layoutRef.current };
 
@@ -689,32 +714,40 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   // A single-route run (the user's or the agent's) forms the matrix on the canvas; a site batch reports in the panel only.
   const forming = auditRunning || hostAudit;
   const measuring = forming && auditProgress?.phase === "profiles" ? auditProgress.profile ?? null : null;
-  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, PREVIEW_IDS.map((id) => layout.boards[id])), [audit, forming, streamed, measuring, layout.boards]);
+  // While the sweep strip is dragged, the sheet keeps the layout it had when the drag began, so it holds still under the pointer.
+  const frozen = scrub?.frozen ?? null;
+  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, frozen ?? PREVIEW_IDS.map((id) => layout.boards[id]), expanded), [audit, forming, streamed, measuring, layout.boards, expanded, frozen]);
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
   /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
   function showReport(report: AuditReport, fit = true) {
     setAudit(report);
-    setSelectedFinding(null);
+    setSelectedFinding(null); setHoveredFinding(null); setExpanded(new Set()); setPeek(null); stopFlight();
 
     if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
 
-  /** Fits the live previews and the audit matrix in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
   function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean): Camera {
     const live = PREVIEW_IDS.map((id) => state.boards[id]);
-    const boards = [...live, ...auditMatrix(report, forming, live).boards];
+    const { boards, sheet } = auditMatrix(report, forming, live);
+
+    return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : []], panel, OVERVIEW_MIN_ZOOM);
+  }
+
+  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
+  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM): Camera {
     const element = canvas.current;
 
-    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, minZoom, maxZoom);
     const rect = element.getBoundingClientRect();
     const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
     const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
     const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
-    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, OVERVIEW_MIN_ZOOM);
+    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, minZoom, maxZoom);
 
     return { ...camera, y: camera.y + top };
   }
@@ -795,6 +828,142 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return () => window.clearTimeout(timer);
   }, [showing, runtimes, send]);
 
+  /** Opens a cropped sheet tile downward in place, or crops an open one keeping its bottom (where its button was) in place. */
+  function toggleTile(profileId: string) {
+    const next = new Set(expanded);
+
+    if (!next.delete(profileId)) { next.add(profileId); setExpanded(next);
+
+      return; }
+
+    const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
+    const open = matrix.boards.find((board) => board.id === profileId);
+    const cropped = auditMatrix(audit, null, live, next).boards.find((board) => board.id === profileId);
+    setExpanded(next);
+
+    if (peek?.profileId === profileId) setPeek({ ...peek, opened: false });
+
+    if (open && cropped) setLayout((current) => ({ ...current, camera: { ...current.camera, y: current.camera.y + (open.height - cropped.height) * current.camera.zoom } }));
+  }
+
+  /** Animates the camera to target (280 ms, easing out) through the canvas point at the screen centre; instant under reduced motion. */
+  function flyTo(target: Camera) {
+    stopFlight();
+
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setLayout((current) => ({ ...current, camera: target }));
+
+      return; }
+
+    const from = layoutRef.current.camera;
+    const { width, height } = geometry.current;
+    const centre = (camera: Camera) => ({ x: (width / 2 - camera.x) / camera.zoom, y: (height / 2 - camera.y) / camera.zoom });
+    const [a, b] = [centre(from), centre(target)];
+    const start = performance.now();
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 280);
+      const k = 1 - (1 - t) ** 5;
+      const zoom = from.zoom * (target.zoom / from.zoom) ** k;
+      const point = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+      setLayout((current) => ({ ...current, camera: t === 1 ? target : { x: width / 2 - point.x * zoom, y: height / 2 - point.y * zoom, zoom } }));
+      flight.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+
+    flight.current = requestAnimationFrame(step);
+  }
+
+  /**
+   * Peeks at one audit sheet tile: opens its full page and flies the camera to it, at most at the snapshot's own pixel
+   * size, showing its top with the caption or, for a finding (a Seen at chip), a screen around its marker. Esc or Back
+   * returns to the camera before the first peek and crops the tile again if the peek opened it.
+   */
+  function peekAt(profileId: string, finding?: AuditFinding) {
+    if (!audit || forming) return;
+    const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
+    // Switching tiles crops the one the last peek opened.
+    const base = new Set(expanded);
+
+    if (peek?.opened && peek.profileId !== profileId) base.delete(peek.profileId);
+    const tile = auditMatrix(audit, null, live, base).boards.find((board) => board.id === profileId);
+
+    if (!tile) return;
+    const opened = tile.cropped;
+    const open = opened ? new Set([...base, profileId]) : base;
+    const target = opened ? auditMatrix(audit, null, live, open).boards.find((board) => board.id === profileId)! : tile;
+    const marker = finding?.markers.find((item) => item.profileId === profileId);
+    const view = Math.min(target.height, Math.max(target.width * 1.6, 560));
+    const from = marker ? Math.max(0, Math.min(target.height - view, Math.max(0, marker.rect.y) * target.scale - view / 3)) : 0;
+    const caption = from === 0 ? CAPTION : 0;
+    const header = geometry.current.headerHeight;
+    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale));
+
+    setExpanded(open);
+    setPeek({ profileId, label: tile.label, camera: peek?.camera ?? layoutRef.current.camera, opened: opened || (!!peek?.opened && peek.profileId === profileId) });
+
+    if (finding) setSelectedFinding(finding.id);
+    setLayout((current) => unfocus(current));
+    flyTo({ ...camera, y: camera.y - (header + target.inset - caption) });
+  }
+
+  function endPeek() {
+    if (!peek) return;
+
+    if (peek.opened) setExpanded((current) => { const next = new Set(current); next.delete(peek.profileId);
+
+      return next; });
+
+    setPeek(null);
+    flyTo(peek.camera);
+  }
+
+  const endPeekRef = useRef(endPeek); endPeekRef.current = endPeek;
+  const peeking = !!peek;
+
+  // Esc ends a peek before the canvas handles it, anywhere but in a text field.
+  useEffect(() => {
+    if (!peeking) return;
+
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], dialog')) return;
+      event.preventDefault(); endPeekRef.current();
+    };
+
+    window.addEventListener("keydown", keydown, true);
+
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [peeking]);
+
+  /**
+   * Resizes a live preview to a width chosen on the sweep strip: Mobile up to 1024 px, Desktop above, keeping its height.
+   * A wider Desktop pushes a Mobile preview on its right along. Refused while the agent holds browser control.
+   */
+  function scrubTo(width: number, phase: "start" | "move" | "end") {
+    if (browserLocked.current) {
+      setScrub((current) => current && { ...current, frozen: null });
+      setNotice("Return browser control to resize the previews.");
+
+      return;
+    }
+
+    const id: PreviewId = width <= 1024 ? "mobile" : "desktop";
+    setScrub((current) => ({ width, frozen: phase === "end" ? null : current?.frozen ?? PREVIEW_IDS.map((preview) => layoutRef.current.boards[preview]) }));
+    setLayout((current) => {
+      const restored = unfocus(current);
+      const board = restored.boards[id];
+
+      if (board.width === width) return restored;
+      const boards = { ...restored.boards, [id]: { ...board, width } };
+      const mobile = restored.boards.mobile;
+
+      if (id === "desktop" && mobile.x >= board.x + board.width) boards.mobile = { ...mobile, x: mobile.x + width - board.width };
+
+      return { ...restored, boards };
+    });
+    setActivePreview(id);
+  }
+
   /** Opens the finding's route in the closest live preview, resizes it to the worst width and outlines the element there. */
   function showFinding(finding: AuditFinding) {
     setSelectedFinding(finding.id);
@@ -864,6 +1033,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       </button>}
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
     </header>
+    {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
@@ -874,8 +1044,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
-      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} ignored={ignoredFindings} onSelect={(finding) => setSelectedFinding(finding.id)} />
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); stopFlight(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
+      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
+        expanded={expanded} peek={peek?.profileId ?? null} scrub={scrub?.width ?? layout.boards.mobile.width} locked={browser.locked}
+        onSelect={(finding) => setSelectedFinding(finding.id)} onExpand={toggleTile} onPeek={(id) => peekAt(id)} onScrub={scrubTo} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -907,7 +1079,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
     {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
-      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored}
+      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)} onLocate={(finding, profileId) => peekAt(profileId, finding)}
       onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };

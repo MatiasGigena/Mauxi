@@ -72,7 +72,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     await expect(dialog.locator(".approval-warnings svg[aria-hidden=true]")).toHaveCount(3);
     await expect(dialog.getByRole("button", { name: "Deny", exact: true })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     const approve = dialog.getByRole("button", { name: "Approve once" });
-    await expect(approve).toHaveCSS("background-color", "rgb(24, 27, 34)");
+    await expect(approve).toHaveCSS("background-color", "rgb(35, 37, 45)");
     await expect(approve.locator("svg.lucide-arrow-up-right")).toHaveCount(1);
     expect(await dialog.evaluate(node => {
       const rect = node.getBoundingClientRect();
@@ -95,7 +95,7 @@ for (const action of ["Deny", "Deny and close", "Escape"]) {
     await expect(dialog.getByRole("button", { name: "Approve once" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(close).toBeFocused();
-    await expect(close).toHaveCSS("outline-color", "rgb(33, 143, 144)");
+    await expect(close).toHaveCSS("outline-color", "rgb(47, 168, 168)");
 
     if (action === "Escape") await page.keyboard.press("Escape");
     else await dialog.getByRole("button", { name: action, exact: true }).click();
@@ -142,7 +142,7 @@ test("browser approvals keep their nonblocking preview access while sharing the 
   const dialog = await requestApproval(page, "Approve browser action");
   await expect(dialog).toHaveAttribute("aria-modal", "false");
   await expect(dialog).toHaveCSS("border-radius", "20px");
-  await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(dialog).toHaveCSS("background-color", "rgb(25, 26, 31)");
   await expect(page.locator(".browser-approval")).toHaveCSS("pointer-events", "none");
   await expect(dialog).toHaveCSS("pointer-events", "auto");
   await page.getByRole("button", { name: "Desktop actions", exact: true }).click();

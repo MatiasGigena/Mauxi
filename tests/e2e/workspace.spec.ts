@@ -377,7 +377,7 @@ test("readable text, reduced motion, immediate feedback and minimal resting comp
   expect(await page.getByLabel("Message", { exact: true }).evaluate((node) => getComputedStyle(node).fontSize)).toBe("17.5px");
   const focus = button("Focus Desktop");
   await focus.hover();
-  await expect(focus).toHaveCSS("color", "rgb(185, 78, 56)");
+  await expect(focus).toHaveCSS("color", "rgb(240, 138, 114)");
   await page.mouse.down();
   await expect(focus).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   expect(await focus.evaluate(node => node.matches(":active"))).toBe(true);

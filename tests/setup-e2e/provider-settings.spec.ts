@@ -64,19 +64,19 @@ for (const width of [1280, 390]) {
 
     const login = settings.getByRole("button", { name: "Anthropic (Claude Pro/Max)", exact: true });
     await login.hover();
-    await expect(login).toHaveCSS("color", "rgb(20, 122, 122)");
+    await expect(login).toHaveCSS("color", "rgb(76, 196, 192)");
     await expect(login).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect.poll(() => login.locator("span").evaluate(node => getComputedStyle(node, "::after").transform)).toBe("matrix(1, 0, 0, 1, 0, 0)");
     const secondary = settings.getByRole("button", { name: "Anthropic API key", exact: true });
     await secondary.hover();
-    await expect(secondary).toHaveCSS("color", "rgb(185, 78, 56)");
+    await expect(secondary).toHaveCSS("color", "rgb(240, 138, 114)");
     await expect(secondary).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(secondary.locator("svg")).toHaveCSS("color", "rgb(185, 78, 56)");
+    await expect(secondary.locator("svg")).toHaveCSS("color", "rgb(240, 138, 114)");
     await secondary.focus();
-    await expect(secondary).toHaveCSS("outline-color", "rgb(185, 78, 56)");
-    await expect.poll(() => secondary.locator("span").evaluate(node => getComputedStyle(node, "::after").backgroundColor)).toBe("rgb(185, 78, 56)");
-    await expect(settings.getByRole("button", { name: "Re-authenticate", exact: true })).toHaveCSS("--settings-accent", "#b94e38");
-    await expect(settings.getByRole("button", { name: "Refresh catalog", exact: true })).toHaveCSS("--settings-accent", "#147a7a");
+    await expect(secondary).toHaveCSS("outline-color", "rgb(240, 138, 114)");
+    await expect.poll(() => secondary.locator("span").evaluate(node => getComputedStyle(node, "::after").backgroundColor)).toBe("rgb(240, 138, 114)");
+    await expect(settings.getByRole("button", { name: "Re-authenticate", exact: true })).toHaveCSS("--settings-accent", "#f08a72");
+    await expect(settings.getByRole("button", { name: "Refresh catalog", exact: true })).toHaveCSS("--settings-accent", "#4cc4c0");
     await page.screenshot({ path: testInfo.outputPath("provider-text-actions.png") });
     expect(await settings.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await login.click();

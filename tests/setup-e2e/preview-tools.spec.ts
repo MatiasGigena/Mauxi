@@ -13,8 +13,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
   test(`actions match the app theme without diagnostics at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const dialog = await openActions(page);
-    await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
-    await expect(dialog).toHaveCSS("border-top-color", "rgb(232, 229, 225)");
+    await expect(dialog).toHaveCSS("background-color", "rgb(25, 26, 31)");
+    await expect(dialog).toHaveCSS("border-top-color", "rgb(45, 46, 53)");
     await expect(dialog).toHaveCSS("border-radius", "20px");
     expect(await dialog.evaluate(node => getComputedStyle(node).fontFamily)).toContain("Poppins");
     await expect(dialog.locator("details, pre, dl, .current-route")).toHaveCount(0);
@@ -25,9 +25,9 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 800 
     const focus = dialog.getByRole("button", { name: "Focus Mobile", exact: true });
     await expect(focus).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await focus.hover();
-    await expect(focus).toHaveCSS("color", "rgb(185, 78, 56)");
+    await expect(focus).toHaveCSS("color", "rgb(240, 138, 114)");
     await expect(focus).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(dialog.getByRole("button", { name: "Apply viewport" })).toHaveCSS("background-color", "rgb(24, 27, 34)");
+    await expect(dialog.getByRole("button", { name: "Apply viewport" })).toHaveCSS("background-color", "rgb(35, 37, 45)");
     expect(await dialog.evaluate(node => {
       const rect = node.getBoundingClientRect();
 
@@ -78,7 +78,7 @@ test("modal traps keyboard focus, closes with Escape and returns to its opener",
   await expect(dialog.getByRole("spinbutton", { name: "Height", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(close).toBeFocused();
-  await expect(close).toHaveCSS("outline-color", "rgb(33, 143, 144)");
+  await expect(close).toHaveCSS("outline-color", "rgb(47, 168, 168)");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Mobile actions", exact: true })).toBeFocused();

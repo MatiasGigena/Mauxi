@@ -55,7 +55,7 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     else await first.click();
     await page.mouse.move(0, 0);
     await expect(first).toHaveAttribute("aria-pressed", "true");
-    await expect(first).toHaveCSS("color", "rgb(20, 122, 122)");
+    await expect(first).toHaveCSS("color", "rgb(76, 196, 192)");
     await expect(first.locator(".lucide-check")).toBeVisible();
     await expect(first.locator(".lucide-arrow-right")).toHaveCount(0);
     await expect.poll(() => first.locator("span").evaluate(node => getComputedStyle(node, "::after").transform)).toBe("matrix(1, 0, 0, 1, 0, 0)");
@@ -72,8 +72,8 @@ for (const mode of ["pointer", "keyboard", "reduced", "short"] as const) {
     await expect(second).toHaveAttribute("aria-pressed", "true");
     await expect(second).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(second).toHaveCSS("box-shadow", "none");
-    await expect(second).toHaveCSS("color", "rgb(185, 78, 56)");
-    await expect(second.locator("span")).toHaveCSS("color", "rgb(185, 78, 56)");
+    await expect(second).toHaveCSS("color", "rgb(240, 138, 114)");
+    await expect(second.locator("span")).toHaveCSS("color", "rgb(240, 138, 114)");
     await expect(second.locator(".lucide-check")).toBeVisible();
     await expect(second.locator(".lucide-arrow-right")).toHaveCount(0);
     await expect(second.locator("small")).toHaveText("Complete sign-in on a different device.");

@@ -18,13 +18,17 @@ export class BrowserControl implements BrowserPort {
   private captures = 0;
   private listeners = new Set<(state: BrowserState) => void>();
   constructor(readonly workspaceId: string, private adapter: VisibleBrowserAdapter, private approve: Approval) {
-    this.value = { workspaceId, owner: "human", generation: 0, releasing: false, activity: "You control the previews", remaining: 24, evidence: [] };
+    this.value = { workspaceId, owner: "human", generation: 0, revision: 0, releasing: false, activity: "You control the previews", remaining: 24, evidence: [] };
   }
   state(): BrowserState { return structuredClone(this.value); }
   subscribe(listener: (state: BrowserState) => void) { this.listeners.add(listener);
 
   return () => { this.listeners.delete(listener); }; }
-  private publish() { for (const listener of this.listeners) listener(this.state()); }
+  private publish() {
+    this.value.revision++;
+
+    for (const listener of this.listeners) listener(this.state());
+  }
   async targets() { return this.adapter.targets(); }
   grant() {
     if (this.value.releasing || this.value.owner === "agent") throw new Error("Browser control is busy");

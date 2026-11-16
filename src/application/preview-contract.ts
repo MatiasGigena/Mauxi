@@ -80,6 +80,7 @@ export interface SelectionCapture {
 export type BridgeToShellMessage =
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "canvas-shortcut"; session: string; generation: string; action: "exit" | "space" | "space-end" }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "canvas-zoom"; session: string; generation: string; deltaY: number; deltaMode: number; clientX: number; clientY: number }
+  | { protocol: typeof BRIDGE_PROTOCOL; kind: "canvas-controls"; session: string; generation: string; enabled: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "selection-cancelled" | "navigation-blocked"; session: string; generation: string }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "route"; session: string; generation: string; url: string; navigationId: string | null; safe: boolean }
   | { protocol: typeof BRIDGE_PROTOCOL; kind: "ready"; session: string; generation: string; url: string; viewport: { width: number; height: number }; reactGrab: boolean }
@@ -213,6 +214,7 @@ const bridgeMessageSchema = Type.Union([
     clientX: numberIn(0, 10_000),
     clientY: numberIn(0, 10_000),
   }),
+  Type.Object({ ...envelope, kind: Type.Literal("canvas-controls"), enabled: Type.Boolean() }),
   Type.Object({ ...envelope, kind: Type.Union([Type.Literal("selection-cancelled"), Type.Literal("navigation-blocked")]) }),
   Type.Object({ ...envelope, kind: Type.Literal("route"), url: boundedString(4096), navigationId: nullableString(128), safe: Type.Boolean() }),
   Type.Object({ ...envelope, kind: Type.Literal("ready"), url: boundedString(4_096), viewport: Type.Object({ width: Type.Number(), height: Type.Number() }), reactGrab: Type.Boolean() }),

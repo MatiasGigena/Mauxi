@@ -40,17 +40,17 @@ test("approved setup uses actual plans, commands, integration files and native I
   await page.keyboard.press("Escape");
   await page.locator(".review-trigger").click();
   await page.locator(".guided-file-trigger").first().click();
-  await expect(page.locator(".guided-diff .removed").first()).toHaveCSS("color", "rgb(180, 54, 54)");
-  await expect(page.locator(".guided-diff .added").first()).toHaveCSS("color", "rgb(24, 115, 64)");
+  await expect(page.locator(".guided-diff .removed").first()).toHaveCSS("color", "rgb(243, 164, 147)");
+  await expect(page.locator(".guided-diff .added").first()).toHaveCSS("color", "rgb(122, 214, 160)");
   await expect(page.locator(".guided-file-panel[aria-hidden=false] pre")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await settle(page);
   await expect(page.locator(".guided-file-trigger:visible")).toHaveCount(1);
   await page.locator(".guided-file-trigger").first().click();
   await settle(page);
   await page.locator(".guided-file-trigger[data-action=modify]").hover();
-  await expect(page.locator(".guided-file-trigger[data-action=modify]")).toHaveCSS("color", "rgb(146, 112, 0)");
+  await expect(page.locator(".guided-file-trigger[data-action=modify]")).toHaveCSS("color", "rgb(232, 192, 124)");
   await page.locator(".guided-file-trigger[data-action=create]").first().hover();
-  await expect(page.locator(".guided-file-trigger[data-action=create]").first()).toHaveCSS("color", "rgb(20, 122, 122)");
+  await expect(page.locator(".guided-file-trigger[data-action=create]").first()).toHaveCSS("color", "rgb(76, 196, 192)");
   await page.locator(".review-trigger").click();
 
   await page.locator(".configure-trigger").click();

@@ -26,6 +26,11 @@ const failure = /disconnect|fail|error|not saved|unavailable|could not|blocked/i
 // The hidden audit window loads the audited project itself; Electron's dev-binary check flags that page's own eval-friendly CSP (webpack/Next dev bundles).
 const projectCsp = /Electron Security Warning \(Insecure Content-Security-Policy\)/;
 
+// Chromium's GPU process logs this burst when a compositor frame names a shared image it already released. It comes at
+// random points (about 1 run in 30, in both renderers, before Mauxi's canvas changes too) and names no Mauxi code, so it
+// is kept as a notice rather than a failure. Any other main-process stderr line still fails the run.
+const gpuMailbox = /ERROR:gpu\/command_buffer\/service\/shared_image\/shared_image_manager\.cc:\d+\] SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox\.$/;
+
 const liveAuth = process.env.MAUXI_LIVE_AUTH;
 const model = liveAuth ? { provider: "openai-codex", id: "gpt-6-luna", name: "GPT-6 Luna" } : { provider: "console-local", id: "console", name: "Console local fake" };
 const STOP_PROMPT = "Count slowly from 1 to 300, one number per line, with no other text.";
@@ -164,7 +169,7 @@ async function collect(testInfo: TestInfo, renderer: Renderer, profile: (directo
   const { MAUXI_RENDERER_URL: _packaged, ...inherited } = process.env;
   const env = { ...inherited, MAUXI_STATE_DIR: path.join(state, "recovery"), XDG_CONFIG_HOME: path.join(state, "config") };
   const app = await electron.launch({ args: [path.resolve("dist-electron/main.js")], env: renderer === "dev" ? { ...env, MAUXI_RENDERER_URL: "http://127.0.0.1:44173" } : env });
-  app.process().stderr?.on("data", (data: Buffer) => String(data).split("\n").filter(line => line.trim() && !harness.test(line)).forEach(line => record(log, log.messages, { source: "main", type: "stderr", text: line })));
+  app.process().stderr?.on("data", (data: Buffer) => String(data).split("\n").filter(line => line.trim() && !harness.test(line)).forEach(line => record(log, gpuMailbox.test(line) ? log.notices : log.messages, { source: "main", type: "stderr", text: line })));
   app.on("window", page => watch(page, log));
   watch(await app.firstWindow(), log);
 

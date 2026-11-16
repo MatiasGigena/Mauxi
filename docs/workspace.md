@@ -34,6 +34,10 @@ Next-generated `next-env.d.ts` changes are reconciled against the pre-session co
 
 The preview bridge is development-only. Project pages receive no Node, Electron preload, filesystem, or provider-credential API. Only embedding response headers are adapted for the two authorized previews, as described below; other CSP restrictions, third-party cookies and external OAuth flows can still prevent integration. Desktop and mobile share browser storage within a workspace; separate workspaces have separate persistent partitions.
 
+## Appearance
+
+Mauxi opens in dark mode. Switch with the sun/moon button in the top-right corner of the launch screen, or **Light mode** / **Dark mode** in the repository-title menu. The choice is remembered across restarts. Previews always show the page as the project renders it; the theme only changes Mauxi's own chrome.
+
 ## Canvas and previews
 
 - **Move:** drag an artboard header, or use its keyboard move handle with arrows (Shift for larger steps).
@@ -48,7 +52,7 @@ Layout, viewport sizes, focus restore state, and route-link preference are saved
 
 ## Responsive audit panel
 
-The **Responsive audit** button at the top right opens the audit panel, docked on the right (it shows the bug count after a run). The panel also opens whenever an audit report arrives, including runs started by the agent. **Hide audit panel** collapses it, and it collapses automatically when the window becomes narrower than 1100 px; the topbar button opens it again. While open, the topbar and chat sit beside it. The canvas audits the Desktop preview's route as soon as it is ready, which opens the panel; while an audit runs, a board for every profile forms below the live previews and the canvas fits them all (see [the audit matrix](audit.md#the-audit-matrix-on-the-canvas)). The canvas zooms out as far as 5% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
+The **Responsive audit** button at the top right opens the audit panel, docked on the right (it shows the bug count after a run). The panel also opens whenever an audit report arrives, including runs started by the agent. **Hide audit panel** collapses it, and it collapses automatically when the window becomes narrower than 1100 px; the topbar button opens it again. While open, the topbar and chat sit beside it. The canvas audits the Desktop preview's route as soon as it is ready, which opens the panel; while an audit runs, an audit sheet with a tile for every profile forms below the live previews and the canvas fits them all (see [the audit matrix](audit.md#the-audit-matrix-on-the-canvas)). The canvas zooms out as far as 5% for this overview, while automatic fits of the live previews stop at 25%. See [responsive audit](audit.md) for what is measured.
 
 **Audit site** (the stacked-layers button beside **Re-run**) finds the pages linked from the Desktop preview's route, lists them with checkboxes, and audits the checked ones one after another; Stop ends the batch. The panel then shows an **All pages** summary with each page's counts and failing widths. Opening a page replaces the snapshot row with that page's snapshots and shows its findings; **All pages** returns to the summary, and **Re-run** re-audits the open page. Discovery follows the same route policy as [route linking](#routes): authentication, API, action and callback links are never opened. See [audit several pages](audit.md#audit-several-pages).
 
