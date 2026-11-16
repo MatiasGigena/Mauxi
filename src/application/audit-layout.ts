@@ -20,8 +20,8 @@ import type { Artboard, Point } from "./canvas-state";
  * 11. No items or no live boards yields a sheet anyway.
  */
 
-/** Screen-space bands (px) that keep their size at every zoom: the sheet heading, a lane label and a tile caption. */
-export const SHEET_HEAD = 76;
+/** Screen-space bands (px) that keep their size at every zoom: the sheet's top padding, a lane label and a tile caption. */
+export const SHEET_HEAD = 12;
 export const LANE_LABEL = 22;
 export const CAPTION = 26;
 
@@ -58,8 +58,8 @@ export interface SheetItem { id: string; width: number; height: number; content:
 /** scale: canvas units per CSS px of the snapshot; inset: screen px between the tile's canvas top and its body (Artboard.inset). */
 export interface SheetTile extends Artboard { id: string; lane: LaneId; scale: number; full: number; cropped: boolean; inset: number }
 
-/** A lane label above one line of tiles; continued lines carry no label. */
-export interface SheetLane { id: LaneId; label: string | null; x: number; y: number; width: number; inset: number }
+/** A lane label above one line of tiles (in stage mode's grid, beside it: gutter); continued lines carry no label. */
+export interface SheetLane { id: LaneId; label: string | null; x: number; y: number; width: number; inset: number; gutter?: boolean }
 
 /** frame: the sheet surface; its heading sits at frame.y, one live header band below the canvas position. */
 export interface Sheet { tiles: SheetTile[]; lanes: SheetLane[]; frame: Artboard & { inset: number } }
@@ -176,6 +176,121 @@ export function layoutSheet(items: SheetItem[], live: Artboard[], expanded: Read
   const width = Math.max(span, Math.max(...best.rows.map(rowWidth)) + 2 * PAD);
 
   return { tiles, lanes, frame: { x: left, y: sheetTop, width, height: y - ROW_GAP + PAD - sheetTop, inset } };
+}
+
+/*
+ * Stage mode, while a finding is selected: the same tiles move into a compact grid beside the live previews, one line per
+ * lane, and the snapshots the finding was seen on are laid out again below, large, on the stage.
+ *
+ * Ways it can fail, each checked by tests/browser-e2e/audit-canvas.spec.ts:
+ * 1. The grid or the stage overlaps the live previews or each other at some zoom (their screen bands are not counted).
+ * 2. A tile disappears from the grid while staged, so DOM order or a "Seen at" chip loses its target.
+ * 3. The stage shows a tile the finding was not seen on, or misses one it was.
+ * 4. A stage tile's markers use another scale than its image.
+ * 5. Many staged snapshots run the stage far wider than the screen; it wraps.
+ */
+
+/** Screen-space bands (px) of stage mode: the grid's title, the stage's header with the finding and its tools. */
+export const GRID_HEAD = 28;
+export const STAGE_HEAD = 52;
+
+/** Grid tiles are all one width and cropped short; stage tiles keep the sheet's three classes, about twice the size. */
+const GRID_TILE = { width: 300, crop: 190 };
+const STAGE_TILES = { S: { width: 520, crop: 800 }, M: { width: 680, crop: 680 }, L: { width: 960, crop: 560 } };
+const GRID_GAP = 160;
+const GRID_LINE = 5;
+
+/** Canvas units left of the grid's tiles for the lane names. */
+const GUTTER = 440;
+
+const STAGE_LINE = 5;
+
+/** The stage: its tiles in focus order, and its surface; frame.inset counts every screen band down to its bottom, top the ones above it. */
+export interface Stage { tiles: SheetTile[]; frame: Artboard & { inset: number; top: number } }
+
+/** grid: every tile in stage mode, in input order; lanes: the grid's line labels; head: where the grid's title sits. */
+export interface StageLayout { grid: Sheet; stage: Stage }
+
+/**
+ * Lays out stage mode in canvas coordinates. focus: the ids the selected finding was seen on, in input order; expanded:
+ * keys of tiles shown uncropped (a grid tile by its id, a stage tile as "stage:" + id).
+ */
+export function layoutStage(items: SheetItem[], live: Artboard[], focus: string[], expanded: ReadonlySet<string> = new Set()): StageLayout | null {
+  if (!items.length || !live.length) return null;
+  const left = Math.min(...live.map((board) => board.x));
+  const top = Math.min(...live.map((board) => board.y));
+  const right = Math.max(...live.map((board) => board.x + board.width));
+  const bottom = Math.max(...live.map((board) => board.y + board.height));
+
+  // The grid: one line per lane (long lanes wrap), tiles of one width, beside the previews, lane names in a gutter.
+  const gridLeft = right + GRID_GAP;
+  const tiles: SheetTile[] = [];
+  const lanes: SheetLane[] = [];
+  let y = top;
+  let line = 0;
+
+  for (const lane of LANES) {
+    const members = items.flatMap((item, index) => laneOf(item.id, item.width) === lane.id ? [{ item, index }] : []);
+
+    for (let start = 0; start < members.length; start += GRID_LINE) {
+      const inset = GRID_HEAD + (line + 1) * CAPTION;
+      let x = gridLeft + GUTTER;
+      let height = 0;
+      lanes.push({ id: lane.id, label: start === 0 ? lane.label : null, x: gridLeft, y, width: GUTTER - TILE_GAP, inset, gutter: true });
+
+      for (const { item, index } of members.slice(start, start + GRID_LINE)) {
+        const scale = GRID_TILE.width / item.width;
+        const full = item.content * scale;
+        const shown = expanded.has(item.id) ? full : Math.min(full, GRID_TILE.crop);
+        tiles[index] = { id: item.id, lane: lane.id, x, y, width: GRID_TILE.width, height: shown, scale, full, cropped: full > shown + 0.5, inset };
+        x += GRID_TILE.width + TILE_GAP;
+        height = Math.max(height, shown);
+      }
+
+      y += height + ROW_GAP;
+      line++;
+    }
+  }
+
+  const gridBottom = y - ROW_GAP;
+  const gridBands = GRID_HEAD + line * CAPTION;
+  const gridWidth = Math.max(...tiles.flatMap((tile) => tile ? [tile.x + tile.width] : [])) - gridLeft;
+  const grid: Sheet = { tiles, lanes, frame: { x: gridLeft, y: top, width: gridWidth, height: gridBottom - top, inset: gridBands } };
+
+  // The stage: the focused snapshots at stage size, below whichever of the previews and the grid reaches lower. The grid's
+  // screen bands count at every zoom, so the stage always clears them.
+  const base = gridBands;
+  const stageTop = Math.max(bottom, gridBottom) + STAGE_GAP;
+  const staged = focus.flatMap((id) => items.filter((item) => item.id === id));
+  const stageTiles: SheetTile[] = [];
+  let rowY = stageTop + PAD;
+  let rows = 0;
+  let widest = 0;
+
+  for (let start = 0; start < staged.length; start += STAGE_LINE) {
+    const inset = base + STAGE_HEAD + (rows + 1) * CAPTION;
+    let x = left + PAD;
+    let height = 0;
+
+    for (const item of staged.slice(start, start + STAGE_LINE)) {
+      const tile = STAGE_TILES[item.width <= 480 ? "S" : item.width <= 1024 ? "M" : "L"];
+      const scale = tile.width / item.width;
+      const full = item.content * scale;
+      const shown = expanded.has(`stage:${item.id}`) ? full : Math.min(full, tile.crop);
+      stageTiles.push({ id: item.id, lane: laneOf(item.id, item.width), x, y: rowY, width: tile.width, height: shown, scale, full, cropped: full > shown + 0.5, inset });
+      x += tile.width + TILE_GAP * 2;
+      height = Math.max(height, shown);
+    }
+
+    widest = Math.max(widest, x - TILE_GAP * 2 - left + PAD);
+    rowY += height + ROW_GAP;
+    rows++;
+  }
+
+  const width = Math.max(right - left, gridLeft + gridWidth - left, widest);
+  const stageHeight = (rows ? rowY - ROW_GAP : stageTop + PAD) + PAD - stageTop;
+
+  return { grid, stage: { tiles: stageTiles, frame: { x: left, y: stageTop, width, height: stageHeight, top: base, inset: base + STAGE_HEAD + rows * CAPTION } } };
 }
 
 /** Groups pins (screen px) that sit within radius of a group's first pin; members keep input order. */

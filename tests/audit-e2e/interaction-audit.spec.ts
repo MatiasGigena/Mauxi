@@ -111,6 +111,7 @@ test("audits keyboard focus, opened menus and hover content without activating n
   expect(await mobile.locator("body").evaluate(() => localStorage.getItem("mauxi-fixture:filters"))).toBe("closed");
 
   // The panel lists the interaction checks and the canvas shows the moment focus was hidden.
+  await panel.getByRole("button", { name: /Interaction checks/ }).click();
   await expect(panel.getByRole("region", { name: "Interaction checks" })).toContainText(`${interactions.focusStops} focus stops · 10 disclosures opened · 1 tooltip hovered · 400% zoom, Small phone`);
   await expect(page.locator('.snapshot-board[data-profile-id="focus-zoom-400"] .finding-marker')).toHaveCount(1);
   await expect(page.locator('.snapshot-board[data-profile-id="menu-zoom-400"] .finding-marker')).toHaveCount(1);
