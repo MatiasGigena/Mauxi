@@ -39,10 +39,14 @@
 .artboard[data-preview-id] { box-shadow: var(--live-shadow); }
 .artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .5rem; background: var(--surface); border: 1px solid var(--border); border-bottom: 0; border-radius: 1.25rem 1.25rem 0 0; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
-.board-grip strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: .75rem; font-weight: 500; line-height: 1.5; }.board-grip span { font-size: .6875rem; font-weight: 400; white-space: nowrap; color: var(--text-muted); }
-.board-grip .bridge-ready::before { content: ""; display: inline-block; width: .35rem; height: .35rem; border-radius: 50%; background: var(--ok); margin-right: .3rem; vertical-align: middle; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation: live-pulse 2.4s ease-out infinite; }
+.board-grip strong { display: flex; align-items: center; gap: .5rem; max-width: 100%; overflow: hidden; white-space: nowrap; color: var(--text); font-size: .78125rem; font-weight: 600; line-height: 1.5; }.board-grip > span { font-size: .6875rem; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
+/* What sets a live preview apart from a snapshot: it says so, with the only pulse on the canvas. */
+.live-chip { display: inline-flex; flex: none; align-items: center; gap: .3rem; height: 1.125rem; padding: 0 .4375rem; border-radius: 999px; background: var(--surface-3); color: var(--text-muted); font-size: .625rem; font-weight: 500; line-height: 1; }
+.live-chip::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--text-faint); }
+.live-chip[data-ready] { background: var(--ok-bg); color: var(--ok-text); }
+.live-chip[data-ready]::before { background: var(--ok); animation: live-pulse 2.4s ease-out infinite; }
 @keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 .3rem transparent; } }
-@media (prefers-reduced-motion: reduce) { .board-grip .bridge-ready::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .live-chip[data-ready]::before { animation: none; } }
 .artboard-actions { display: flex; flex: none; gap: .2rem; }
 .artboard-actions button { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; padding: .25rem; }
 .workspace .artboard-header button { --board-action-accent: var(--accent-text); background: transparent; color: var(--text-muted); box-shadow: none; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
@@ -60,7 +64,9 @@
   .workspace .artboard-actions button:active:not(:disabled):not(:focus-visible) { transform: none; }
 }
 @container artboard (width < 17rem) {
-  .board-grip > span, .board-grip .preview-interaction-label { display: none; }
+  .board-grip > span, .board-grip .preview-interaction-label, .live-chip > span { display: none; }
+  .live-chip { height: auto; padding: 0; background: transparent; }
+  .live-chip[data-ready] { background: transparent; }
 }
 @container artboard (width < 14rem) {
   .artboard-actions .board-select { display: none; }
@@ -90,7 +96,7 @@
 .workspace .preview-activate, .workspace .preview-activate:hover:not(:disabled), .workspace .preview-activate:active:not(:disabled) { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .preview-activate:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
 .artboard[data-interacting=true] .preview-surface { outline: 2px solid var(--focus); outline-offset: 1px; }
-.board-grip .preview-interaction-label { color: var(--accent-text); font-size: .6875rem; }
+.board-grip .preview-interaction-label { color: var(--accent-text); font-size: .6875rem; font-weight: 500; }
 .workspace .take-back { background: transparent; color: var(--accent-text); }
 .workspace .browser-control-action { display: grid; place-items: center; width: 36px; min-height: 36px; padding: 8px; background: transparent; color: var(--text-muted); box-shadow: none; }
 .workspace .browser-control-action:is(:hover, :active):not(:disabled) { background: transparent; color: var(--accent-text); box-shadow: none; }

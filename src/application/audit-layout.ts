@@ -20,8 +20,8 @@ import type { Artboard, Point } from "./canvas-state";
  * 11. No items or no live boards yields a sheet anyway.
  */
 
-/** Screen-space bands (px) that keep their size at every zoom: the sheet's top padding, a lane label and a tile caption. */
-export const SHEET_HEAD = 12;
+/** Screen-space bands (px) that keep their size at every zoom: the sheet's heading, a lane label and a tile caption. */
+export const SHEET_HEAD = 40;
 export const LANE_LABEL = 22;
 export const CAPTION = 26;
 
@@ -44,7 +44,10 @@ const TILES = { S: { width: 260, crop: 540 }, M: { width: 360, crop: 480 }, L: {
 const TILE_GAP = 28;
 const LANE_GAP = 72;
 const ROW_GAP = 40;
-const PAD = 48;
+
+/** Canvas units between the sheet's edge and its tiles. */
+export const PAD = 48;
+
 const STAGE_GAP = 140;
 const LINE_MAX = 2400;
 

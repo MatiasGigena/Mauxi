@@ -79,6 +79,8 @@ export function WidthScope({ findings, lit, value, locked, active, onScrub }: {
     onPointerUp={(event) => { if (drag.current !== null) move(event.clientX, "end"); }}
     onPointerCancel={() => { if (drag.current !== null) { onScrub(drag.current, "end"); drag.current = null; } }}
     onKeyDown={keydown}>
+    <div className="scope-readout" aria-hidden="true"><strong>{value}<small>px</small></strong><span>{preview} · {here} {here === 1 ? "finding" : "findings"}</span></div>
+    <div className="scope-track">
     <div className="scope-plot" ref={plot} aria-hidden="true">
       <svg viewBox="0 0 1000 100" preserveAspectRatio="none">
         {widths.map((width, at) => {
@@ -91,12 +93,11 @@ export function WidthScope({ findings, lit, value, locked, active, onScrub }: {
       <span className="scope-axis" />
       {lit?.ranges.map(([from, to]) => <span key={`${from}-${to}`} className="scope-span" data-severity={lit.severity}
         style={{ left: `${scopePosition(from) * 100}%`, width: `max(3px, ${(scopePosition(to) - scopePosition(from)) * 100}%)` }} />)}
-      <span className="scope-cursor" style={{ left: `${scopePosition(value) * 100}%` }}>
-        <span className="scope-readout"><strong>{value}</strong><span>{preview}</span><span>{here} {here === 1 ? "finding" : "findings"}</span></span>
-      </span>
+      <span className="scope-cursor" style={{ left: `${scopePosition(value) * 100}%` }} />
     </div>
     <div className="scope-ticks" aria-hidden="true">
       {MAJORS.map((width, at) => <span key={width} data-edge={at === 0 ? "first" : at === MAJORS.length - 1 ? "last" : undefined} style={{ left: `${scopePosition(width) * 100}%` }}>{width}</span>)}
+    </div>
     </div>
   </div>;
 }

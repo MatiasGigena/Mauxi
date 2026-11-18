@@ -10,7 +10,7 @@
   color-scheme: dark;
   --bg-app: #0e0f12;
   --canvas-bg: #111216;
-  --canvas-grid-opacity: .22;
+  --canvas-grid-opacity: .15;
   --surface: #191a1f;
   --surface-raised: #1e1f25;
   --surface-2: #212228;
@@ -69,7 +69,10 @@
   --dialog-shadow: 0 24px 80px rgba(0,0,0,.6);
   --popup-shadow: 0 6px 24px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3);
   --sheet-border: #262830;
-  --sheet-bg: #15171c;
+  --sheet-bg: #16171c;
+  --tile-edge: rgba(255,255,255,.14);
+  --pin-bg: #d6d4dc;
+  --pin-fg: #15161a;
   --live-ring: #3cc2bd66;
   --live-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px #3cc2bd66;
   /* Monochrome at rest: neutral ink for marks that are not in focus; colour is kept for the finding being looked at. */
@@ -89,7 +92,7 @@
   color-scheme: light;
   --bg-app: #e9e8e5;
   --canvas-bg: #fff;
-  --canvas-grid-opacity: .16;
+  --canvas-grid-opacity: .12;
   --surface: #fff;
   --surface-raised: #fafaf9;
   --surface-2: #f6f5f3;
@@ -149,6 +152,9 @@
   --popup-shadow: 0 6px 24px #24242a14, 0 2px 6px #24242a0a;
   --sheet-border: #e8e5e1;
   --sheet-bg: #f6f5f2;
+  --tile-edge: rgba(24,27,34,.16);
+  --pin-bg: #3a3940;
+  --pin-fg: #fff;
   --live-ring: #147a7a55;
   --live-shadow: 0 12px 32px #181b221f, 0 0 0 1px #147a7a55;
   --ink-soft: rgba(33,33,38,.14);

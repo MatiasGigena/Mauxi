@@ -132,20 +132,32 @@
 
 /* Snapshot boards and markers */
 /* The audit sheet: one surface under the live previews; its heading, lane labels and tile captions keep their size at every zoom. */
-.audit-sheet { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--sheet-border); border-radius: 1rem; background: var(--sheet-bg); pointer-events: none; }
-.sheet-lane-label { position: absolute; display: flex; align-items: flex-end; padding: 0 2px 6px; overflow: hidden; color: var(--text-3); font-size: 11px; font-weight: 500; line-height: 1; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.audit-sheet { position: absolute; container: sheet / inline-size; border: 1px solid var(--sheet-border); border-radius: 1.25rem; background: var(--sheet-bg); box-shadow: inset 0 1px 0 var(--edge); pointer-events: none; }
+/* The sheet's heading says what the tiles are; it sits in the band above the first lane. */
+.sheet-head { display: flex; align-items: center; gap: .625rem; min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; line-height: 1; white-space: nowrap; }
+.sheet-head strong { flex: none; color: var(--text); font-size: 13px; font-weight: 600; letter-spacing: -.005em; }
+.sheet-head-count { flex: none; padding: 4px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.sheet-head-hint { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+@container sheet (width < 26rem) { .sheet-head-hint { display: none; } }
+@container sheet (width < 12rem) { .sheet-head-count { display: none; } }
+/* A lane is a stretch of the width axis: its name, its range and a rule as long as its tiles. */
+.sheet-lane-label { position: absolute; display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 11px; line-height: 1; white-space: nowrap; pointer-events: none; }
+.sheet-lane-label [data-part=name] { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-2); font-weight: 600; text-overflow: ellipsis; }
+.sheet-lane-label [data-part=range] { flex: 0 1000 auto; min-width: 0; overflow: hidden; color: var(--text-muted); font-variant-numeric: tabular-nums; text-overflow: clip; }
+.lane-rule { flex: 1 0 0; height: 1px; margin-left: 2px; background: linear-gradient(90deg, var(--border-strong), var(--border) 3rem); }
 
 :is(.snapshot-board, .stage-tile) { border-radius: 0; box-shadow: none; transition: opacity 160ms ease-out; }
-.workspace :is(.snapshot-board, .stage-tile) .snapshot-header { align-items: center; gap: .35rem; padding: 0 1px 4px; border: 0; border-radius: 0; background: transparent; cursor: default; }
-.snapshot-surface { border-radius: 6px; }
-.snapshot-surface::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--sheet-border); border-radius: inherit; pointer-events: none; }
+.workspace :is(.snapshot-board, .stage-tile) .snapshot-header { align-items: center; gap: .375rem; padding: 0 1px 6px; border: 0; border-radius: 0; background: transparent; cursor: default; }
+.snapshot-surface { border-radius: 8px; }
+.snapshot-surface::after { content: ""; position: absolute; inset: 0; z-index: 3; border: 1px solid var(--tile-edge); border-radius: inherit; pointer-events: none; transition: border-color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { :is(.snapshot-board, .stage-tile):not([data-state]):hover .snapshot-surface::after { border-color: var(--text-muted); } }
 .snapshot-title { display: flex; align-items: baseline; gap: .35rem; min-width: 0; overflow: hidden; }
 /* A tile's caption and page open a peek. */
 .workspace button.snapshot-title { padding: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; box-shadow: none; cursor: zoom-in; }
 .workspace button.snapshot-title:hover:not(:disabled), .workspace button.snapshot-title:active:not(:disabled) { background: transparent; box-shadow: none; }
 .workspace button.snapshot-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 :is(.snapshot-board, .stage-tile):not([data-state]) .snapshot-surface { cursor: zoom-in; }
-:is(.snapshot-board, .stage-tile)[data-peek] .snapshot-surface { box-shadow: 0 0 0 2px var(--text-muted); }
+:is(.snapshot-board, .stage-tile)[data-peek] .snapshot-surface { box-shadow: 0 0 0 2px var(--text-2); }
 /* Findings resolved since the last run stay on their tiles as dashed ghosts. */
 .resolved-marker { position: absolute; border: 1.5px dashed color-mix(in srgb, var(--audit-resolved) 80%, transparent); border-radius: 4px; pointer-events: none; transition: opacity 160ms ease-out; }
 .resolved-marker::before { content: "✓"; position: absolute; top: -2px; left: -2px; display: grid; place-items: center; width: 1rem; height: 1rem; border-radius: 4px 0 4px 0; background: var(--audit-resolved); color: var(--on-severity); box-shadow: 0 0 0 1.5px rgb(14 15 18 / .85); font-size: .625rem; font-weight: 700; }
@@ -154,32 +166,35 @@
 .resolved-group li { cursor: default; }
 /* The peek bar: what the camera shows and the way back. */
 /* Below the top bar, which the width scope fills. */
-.peek-bar { position: absolute; z-index: 20; top: 5rem; left: 50%; display: flex; align-items: center; gap: .6rem; height: 3rem; padding: 0 .5rem 0 1rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; white-space: nowrap; transform: translateX(-50%); }
+.peek-bar { position: absolute; z-index: 20; top: 4.5rem; left: 50%; display: flex; align-items: center; gap: .75rem; height: 2.75rem; padding: 0 .375rem 0 1rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: inset 0 1px 0 var(--edge), var(--floating-shadow); color: var(--text-2); font-size: .75rem; white-space: nowrap; transform: translateX(-50%); animation: peek-in 180ms cubic-bezier(.2,.8,.2,1); }
+@keyframes peek-in { from { opacity: 0; transform: translate(-50%, -6px); } }
 .workspace[data-audit-panel] .peek-bar { left: calc((100% - var(--audit-panel-width) - 1.5rem) / 2); }
 .peek-bar strong { color: var(--text); font-weight: 600; }
 .workspace .peek-bar button { display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; padding: .25rem .7rem; border-radius: 999px; background: var(--inverse-bg); color: var(--inverse-fg); font-size: .75rem; }
 .workspace .peek-bar button:hover:not(:disabled) { background: var(--inverse-hover); }
 .workspace .peek-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .peek-bar kbd { padding: 0 .3rem; border-radius: .3rem; background: color-mix(in srgb, var(--inverse-fg) 12%, transparent); font: 600 .625rem/1.4 ui-monospace, "SFMono-Regular", Menlo, monospace; }
-.snapshot-title strong { display: flex; flex: none; align-items: baseline; gap: .35rem; min-width: 0; max-width: 100%; overflow: hidden; color: var(--text); font-size: 11px; font-weight: 500; white-space: nowrap; }
-.snapshot-width { flex: none; font: 600 .6875rem/1.5 ui-monospace, "SFMono-Regular", Menlo, monospace; font-variant-numeric: tabular-nums; color: var(--text); }
+.snapshot-title strong { display: flex; flex: none; align-items: baseline; gap: .375rem; min-width: 0; max-width: 100%; overflow: hidden; color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.snapshot-width { flex: none; font: inherit; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--text); }
 .snapshot-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .snapshot-tag { display: none; flex: none; padding: 0 .3rem; border-radius: .3rem; background: var(--surface-3); color: var(--text-2); font-size: .625rem; font-weight: 600; }
 .snapshot-detail { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-:is(.snapshot-board, .stage-tile) .snapshot-count { flex: none; margin-left: auto; padding: 0; font-size: 10px; line-height: 16px; }
-.snapshot-count { display: inline-flex; flex: none; align-items: center; gap: .3rem; color: var(--text-muted); font-size: .6875rem; font-weight: 500; font-variant-numeric: tabular-nums; }
-.snapshot-count::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
-.snapshot-count[data-clean]::before { background: var(--audit-resolved); }
+:is(.snapshot-board, .stage-tile) .snapshot-count { flex: none; margin-left: auto; }
+/* How many findings a viewport has: a neutral count, or a green check when it is clean. */
+.snapshot-count { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: .25rem; min-width: 18px; height: 18px; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--text); font-size: 10px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.snapshot-count-unit { color: var(--text-muted); font-weight: 500; }
+.snapshot-count[data-clean] { padding: 0 6px 0 4px; background: var(--ok-bg); color: var(--audit-resolved); }
+.snapshot-count[data-clean] .snapshot-count-unit { color: inherit; }
 .snapshot-surface { position: relative; overflow: hidden; background: var(--surface-2); }
 .snapshot-surface img { display: block; user-select: none; }
-.snapshot-fold { position: absolute; left: 0; right: 0; border-top: 1px dashed rgb(24 27 34 / .45); pointer-events: none; }
-.snapshot-fold span { position: absolute; right: 4px; top: 2px; padding: 0 4px; border-radius: 4px; background: rgb(24 27 34 / .6); color: #fff; font-size: 9px; }
-:is(.snapshot-board, .stage-tile) .snapshot-state { margin-left: auto; padding: 0 .4rem; font-size: 10px; line-height: 16px; }
-.snapshot-state { display: inline-flex; flex: none; align-items: center; gap: .3rem; padding: .1rem .5rem; border-radius: 999px; background: var(--surface-3); color: var(--text-faint); font-size: .6875rem; font-weight: 500; }
+.snapshot-fold { position: absolute; left: 0; right: 0; border-top: 1px dashed rgb(24 27 34 / .5); box-shadow: 0 -1px 0 rgb(255 255 255 / .35); pointer-events: none; }
+.snapshot-fold span { position: absolute; right: 6px; top: 4px; padding: 1px 5px; border-radius: 4px; background: rgb(24 27 34 / .72); color: #fff; font-size: 9px; font-weight: 500; line-height: 1.4; }
+:is(.snapshot-board, .stage-tile) .snapshot-state { margin-left: auto; }
+.snapshot-state { display: inline-flex; flex: none; align-items: center; gap: .3rem; height: 18px; padding: 0 7px; border-radius: 999px; background: transparent; color: var(--text-faint); font-size: 10px; font-weight: 500; line-height: 1; }
 .snapshot-state[data-state=measuring] { background: color-mix(in srgb, var(--audit-teal) 12%, var(--surface)); color: var(--audit-teal); }
-.snapshot-state[data-state=captured] { background: var(--ok-bg); color: var(--audit-resolved); }
-.snapshot-placeholder { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; background-color: var(--surface-2); background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 1.5rem 1.5rem; background-position: -1px -1px; }
-.snapshot-placeholder span { color: var(--text-faint); font-size: .75rem; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.snapshot-state[data-state=captured] { padding: 0 2px; color: var(--audit-resolved); }
+.snapshot-placeholder { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; background-color: var(--surface); background-image: radial-gradient(var(--border-strong) 1px, transparent 1px); background-size: 14px 14px; background-position: 6px 6px; }
+.snapshot-placeholder span { padding: 2px 8px; border-radius: 999px; background: var(--surface); color: var(--text-muted); font-size: .6875rem; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 :is(.snapshot-board, .stage-tile)[data-state=queued] { box-shadow: none; }
 :is(.snapshot-board, .stage-tile)[data-state=measuring] .snapshot-surface { box-shadow: 0 0 0 2px color-mix(in srgb, var(--audit-teal) 55%, transparent); }
 :is(.snapshot-board, .stage-tile)[data-state=measuring] .snapshot-placeholder { background-color: color-mix(in srgb, var(--audit-teal) 5%, var(--surface-2)); }
@@ -187,12 +202,12 @@
 :is(.snapshot-board, .stage-tile)[data-state=captured] img { animation: snapshot-in 420ms cubic-bezier(.23,1,.32,1); }
 @keyframes matrix-scan { from { transform: translateY(-100%); } to { transform: translateY(334%); } }
 @keyframes snapshot-in { from { opacity: 0; filter: saturate(0); } }
-.workspace .finding-marker { --severity: var(--severity-serious); position: absolute; padding: 0; border: 1.5px solid var(--ink-mid); border-radius: 4px; background: transparent; box-shadow: none; transition: opacity 160ms ease-out, border-color 160ms ease-out; }
+.workspace .finding-marker { --severity: var(--severity-serious); position: absolute; padding: 0; border: 1.5px solid var(--ink-mid); border-radius: 5px; background: transparent; box-shadow: none; transition: opacity 160ms ease-out, border-color 160ms ease-out; }
 .workspace .finding-marker[data-severity=moderate] { --severity: var(--severity-moderate); }
 .workspace .finding-marker[data-severity=minor] { --severity: var(--severity-minor); }
 .workspace .finding-marker[data-classification=intentional] { border-style: dashed; }
 .workspace .finding-marker:is([data-selected], [data-spotlit]) { border: 2px solid var(--severity); background: color-mix(in srgb, var(--severity) 18%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--severity) 25%, transparent); z-index: 1; }
-.workspace .finding-marker span { position: absolute; top: -2px; left: -2px; display: grid; place-items: center; min-width: 1.1rem; height: 1.1rem; padding: 0 .2rem; border-radius: 4px 0 4px 0; background: var(--text-3); color: var(--inverse-fg); box-shadow: 0 0 0 1.5px rgb(14 15 18 / .85); font-size: .625rem; font-weight: 600; transition: background-color 160ms ease-out; }
+.workspace .finding-marker span { position: absolute; top: -2px; left: -2px; display: grid; place-items: center; min-width: 1.125rem; height: 1.125rem; padding: 0 .25rem; border-radius: 5px 0 5px 0; background: var(--pin-bg); color: var(--pin-fg); box-shadow: 0 0 0 1.5px rgb(14 15 18 / .85); font-size: .625rem; font-weight: 600; font-variant-numeric: tabular-nums; transition: background-color 160ms ease-out; }
 .workspace .finding-marker:is([data-selected], [data-spotlit]) span { background: var(--severity); color: var(--on-severity); }
 .workspace .finding-marker[data-classification=review] span { background: var(--surface); color: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--text-3), 0 0 0 1.5px rgb(14 15 18 / .85); }
 .workspace .finding-marker[data-classification=review]:is([data-selected], [data-spotlit]) span { color: var(--severity); box-shadow: inset 0 0 0 1.5px var(--severity), 0 0 0 1.5px rgb(14 15 18 / .85); }
@@ -207,13 +222,17 @@
 .snapshot-rail span[data-spotlit] { width: 8px; height: 5px; margin-top: -2px; box-shadow: 0 0 0 1px rgb(14 15 18 / .85); }
 :is(.snapshot-board, .stage-tile)[data-spotlight] .snapshot-rail span:not([data-spotlit]) { opacity: .3; }
 .workspace .finding-marker[data-grouped] span { opacity: 0; }
-.workspace .finding-marker[data-group] span { border-radius: 4px 0 4px 0; white-space: nowrap; }
+.workspace .finding-marker[data-group] span { white-space: nowrap; }
 /* A cropped tile fades out at the bottom and says how many markers it hides; open tiles can be cropped again. */
-.snapshot-crop { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: center; height: 56px; padding-bottom: 6px; background: linear-gradient(transparent, rgb(14 15 18 / .78)); pointer-events: none; }
-.snapshot-crop[data-open] { height: auto; background: none; }
-.workspace .snapshot-crop button { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.5rem; padding: .15rem .55rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: 10px; font-weight: 500; white-space: nowrap; box-shadow: none; pointer-events: auto; }
+.snapshot-crop { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; pointer-events: none; }
+/* A short fade into the sheet says the page goes on, without dimming what the tile shows. */
+.snapshot-crop:not([data-open])::before { content: ""; position: absolute; inset: auto 0 0; height: 22px; background: linear-gradient(transparent, color-mix(in srgb, var(--sheet-bg) 88%, transparent)); }
+.snapshot-crop button { position: relative; }
+.workspace .snapshot-crop button { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.5rem; padding: .15rem .6rem .15rem .45rem; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 500; white-space: nowrap; box-shadow: var(--shadow-1); pointer-events: auto; transition: opacity 120ms ease, border-color 120ms ease; }
+/* "Full page" waits for the pointer; a count of markers hidden below the crop is always shown. */
+@media (hover: hover) and (pointer: fine) { :is(.snapshot-board, .stage-tile):not(:hover):not(:focus-within) .snapshot-crop:not([data-below], [data-open]) button { opacity: 0; } }
 .workspace .snapshot-crop button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (hover: hover) and (pointer: fine) { .workspace .snapshot-crop button:hover { border-color: var(--border-strong); color: var(--text); } }
+@media (hover: hover) and (pointer: fine) { .workspace .snapshot-crop button:hover { border-color: var(--text-muted); } }
 .finding-seen { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0 0 .25rem; }
 .finding-seen > span { margin-right: .25rem; color: var(--text-muted); font-size: .6875rem; }
 .workspace .finding-seen button { display: inline-flex; align-items: baseline; gap: .25rem; min-height: 1.625rem; padding: .15rem .5rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--surface); color: var(--text-2); font-size: .625rem; }
@@ -298,6 +317,7 @@
 /* Density follows the tile's on-screen width: full pins from 17.5rem, hairlines with small pins below, a page rail under 7.5rem. */
 @container artboard (width < 17.5rem) {
   .snapshot-detail, .snapshot-count-unit { display: none; }
+  .snapshot-count[data-clean] { padding: 0 4px; }
   .workspace .finding-marker:not([data-selected], [data-spotlit]) { border-width: 1px; }
   .workspace .finding-marker span { min-width: .85rem; height: .85rem; padding: 0 .1rem; font-size: .5rem; }
 }
@@ -305,36 +325,37 @@
 @container artboard (width < 7.5rem) {
   .workspace :is(.snapshot-board, .stage-tile) .snapshot-header { justify-content: flex-start; align-items: flex-end; gap: 3px; padding-bottom: 3px; }
   .snapshot-name { display: none; }
-  /* Width first, then the tag on a second line when both do not fit. */
+  /* Width and tag share the caption's one line; the count moves onto the tile's corner, like a badge. */
   .snapshot-title { flex: 1; }
-  .snapshot-title strong { flex: 1; flex-wrap: wrap; align-items: center; column-gap: .25rem; line-height: 11px; }
-  .snapshot-width { line-height: 11px; }
-  .snapshot-tag { display: inline; padding: 0 .15rem; line-height: 10px; }
-  /* The issue count shrinks to a severity dot ahead of the width; the state of a forming tile likewise. */
-  :is(.snapshot-board, .stage-tile) .snapshot-count, :is(.snapshot-board, .stage-tile) .snapshot-state { order: -1; align-self: flex-end; width: 6px; height: 6px; margin: 0 0 2.5px; padding: 0; font-size: 0; }
-  :is(.snapshot-board, .stage-tile) .snapshot-count { gap: 0; background: var(--text-3); border-radius: 50%; }
-  :is(.snapshot-board, .stage-tile) .snapshot-count::before { display: none; }
-  :is(.snapshot-board, .stage-tile) .snapshot-count[data-clean] { background: var(--audit-resolved); }
+  .snapshot-title strong { flex: 1; align-items: baseline; column-gap: .25rem; }
+  .snapshot-width { font-size: 11px; }
+  .snapshot-tag { display: inline; padding: 0; background: none; color: var(--text-muted); font-size: 9px; font-weight: 500; }
+  /* The issue count keeps its number, smaller; the state of a forming tile shrinks to a dot ahead of the width. */
+  :is(.snapshot-board, .stage-tile) .snapshot-count { position: absolute; z-index: 4; top: 18px; right: -5px; min-width: 15px; height: 15px; margin: 0; padding: 0 3px; box-shadow: 0 0 0 1.5px var(--sheet-bg); font-size: 9px; }
+  :is(.snapshot-board, .stage-tile) .snapshot-count:not([data-clean]) { background: var(--pin-bg); color: var(--pin-fg); }
+  :is(.snapshot-board, .stage-tile) .snapshot-count[data-clean] { padding: 0 2px; }
+  :is(.snapshot-board, .stage-tile) .snapshot-state { order: -1; align-self: flex-end; width: 6px; height: 6px; margin: 0 0 4px; padding: 0; border-radius: 50%; font-size: 0; }
   :is(.snapshot-board, .stage-tile) .snapshot-state { background: var(--text-faint); }
   :is(.snapshot-board, .stage-tile) .snapshot-state[data-state=measuring] { background: var(--audit-teal); }
   :is(.snapshot-board, .stage-tile) .snapshot-state svg { display: none; }
   .snapshot-rail { display: block; }
-  .snapshot-crop { height: 32px; }
+  .snapshot-crop:not([data-open])::before { height: 12px; }
   .workspace .snapshot-crop button { display: none; }
   .workspace .finding-marker:not([data-selected], [data-spotlit], :focus-visible) { opacity: 0; }
   .resolved-marker:not([data-spotlit]) { opacity: 0; }
   .workspace .finding-marker:is([data-selected], [data-spotlit]) span { min-width: .85rem; height: .85rem; font-size: .5rem; }
 }
 @container artboard (width < 4.5rem) {
-  .snapshot-tag { padding: 0 .1rem; font-size: .5rem; letter-spacing: -.02em; }
+  .snapshot-tag { font-size: .5rem; letter-spacing: -.02em; }
 }
 
 /* Width scope: the 320 to 1920 px ruler in the top bar, neutral at rest; it is also the slider that resizes a live preview. */
-.width-scope { position: relative; flex: 0 1 35rem; margin-right: auto; min-width: 15rem; height: 3.625rem; padding: 1.875rem 1.125rem 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: inset 0 1px 0 var(--edge), var(--floating-shadow); cursor: ew-resize; pointer-events: auto; touch-action: none; }
+.width-scope { position: relative; display: flex; flex: 0 1 38rem; align-items: center; gap: 1rem; margin-right: auto; min-width: 15rem; height: 3rem; padding: 0 1.25rem 0 1.125rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--floating-shadow); cursor: ew-resize; pointer-events: auto; touch-action: none; }
 .width-scope:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .width-scope[aria-disabled=true] { cursor: not-allowed; }
-.width-scope[data-inert] { display: flex; align-items: center; justify-content: center; height: 3rem; padding: 0 1.25rem; cursor: default; }
+.width-scope[data-inert] { justify-content: center; flex-basis: auto; min-width: 0; padding: 0 1.25rem; cursor: default; }
 .scope-empty { color: var(--text-faint); font-size: .71875rem; }
+.scope-track { flex: 1; min-width: 0; padding-top: .3125rem; }
 .scope-plot { position: relative; height: 1rem; }
 .scope-plot svg { position: absolute; inset: 0 0 1px; width: 100%; height: calc(100% - 1px); overflow: visible; }
 .scope-bar { fill: var(--ink-soft); transition: fill 160ms ease-out, opacity 160ms ease-out; }
@@ -344,23 +365,25 @@
 .scope-span { --severity: var(--severity-serious); position: absolute; bottom: -1px; height: 3px; border-radius: 2px; background: var(--severity); box-shadow: 0 0 0 3px color-mix(in srgb, var(--severity) 20%, transparent); }
 .scope-span[data-severity=moderate] { --severity: var(--severity-moderate); }
 .scope-span[data-severity=minor] { --severity: var(--severity-minor); }
-.scope-cursor { position: absolute; top: -.125rem; bottom: -.375rem; width: 1px; margin-left: -.5px; background: var(--cursor); pointer-events: none; transition: left 120ms cubic-bezier(.2,.8,.2,1); }
-.scope-cursor::after { content: ""; position: absolute; left: 50%; bottom: .3125rem; width: 7px; height: 7px; border-radius: 50%; background: var(--cursor); box-shadow: 0 0 0 2px var(--surface); transform: translate(-50%, 50%); }
-.scope-readout { position: absolute; bottom: calc(100% + .25rem); left: 50%; display: flex; align-items: baseline; gap: .375rem; height: 1.25rem; padding: 0 .5rem; border-radius: .375rem; background: var(--inverse-bg); color: var(--inverse-fg); font-size: .6875rem; line-height: 1.25rem; white-space: nowrap; box-shadow: var(--shadow-1); transform: translateX(-50%); }
-.scope-readout strong { font-weight: 600; font-variant-numeric: tabular-nums; }
-.scope-readout span { opacity: .65; font-size: .625rem; }
-.scope-ticks { position: relative; height: .875rem; margin-top: .3rem; color: var(--text-faint); font-size: .5625rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.scope-cursor { position: absolute; top: -.25rem; bottom: -.25rem; width: 1.5px; margin-left: -.75px; border-radius: 1px; background: var(--cursor); pointer-events: none; transition: left 120ms cubic-bezier(.2,.8,.2,1); }
+.scope-cursor::after { content: ""; position: absolute; left: 50%; bottom: .25rem; width: 7px; height: 7px; border-radius: 50%; background: var(--cursor); box-shadow: 0 0 0 2px var(--surface); transform: translate(-50%, 50%); }
+/* The chosen width, read in place: it never moves, so the plot holds still. */
+.scope-readout { display: flex; flex: none; flex-direction: column; justify-content: center; gap: .125rem; width: 7.75rem; overflow: hidden; white-space: nowrap; }
+.scope-readout strong { color: var(--text); font-size: .9375rem; font-weight: 600; line-height: 1.1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.scope-readout small { margin-left: .2rem; color: var(--text-muted); font-size: .625rem; font-weight: 500; letter-spacing: 0; }
+.scope-readout span { overflow: hidden; color: var(--text-muted); font-size: .625rem; line-height: 1.2; text-overflow: ellipsis; }
+.scope-ticks { position: relative; height: .75rem; margin-top: .25rem; color: var(--text-faint); font-size: .5625rem; font-weight: 500; line-height: .75rem; font-variant-numeric: tabular-nums; }
 .scope-ticks span { position: absolute; transform: translateX(-50%); }
 .scope-ticks span[data-edge=first] { transform: none; }
 .scope-ticks span[data-edge=last] { transform: translateX(-100%); }
-@media (max-width: 900px) { .scope-readout span:last-child { display: none; } }
+@media (max-width: 900px) { .scope-readout { width: 3rem; } .scope-readout span { display: none; } }
 @media (max-width: 720px) { .width-scope { display: none; } }
 
 /* Stage mode: the grid of every snapshot beside the previews, and the selected finding's snapshots, large, on the stage. */
-.stage-grid-title { position: absolute; display: flex; align-items: center; gap: .5rem; overflow: hidden; color: var(--text-3); font-size: 11px; font-weight: 500; white-space: nowrap; pointer-events: none; }
-.stage-grid-title strong { color: var(--text-2); font-weight: 600; }
-.stage-grid-title span { overflow: hidden; color: var(--text-faint); text-overflow: ellipsis; }
-.audit-stage { --severity: var(--severity-serious); position: absolute; border: 1px solid var(--sheet-border); border-radius: 1.125rem; background: var(--sheet-bg); box-shadow: inset 0 1px 0 var(--edge); animation: stage-in 260ms cubic-bezier(.2,.8,.2,1); }
+.stage-grid-title { position: absolute; display: flex; align-items: center; gap: .5rem; overflow: hidden; color: var(--text-muted); font-size: 11px; font-weight: 500; white-space: nowrap; pointer-events: none; }
+.stage-grid-title strong { color: var(--text); font-size: 13px; font-weight: 600; }
+.stage-grid-title span { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; }
+.audit-stage { --severity: var(--severity-serious); position: absolute; border: 1px solid var(--sheet-border); border-radius: 1.25rem; background: var(--sheet-bg); box-shadow: inset 0 1px 0 var(--edge); animation: stage-in 260ms cubic-bezier(.2,.8,.2,1); }
 .audit-stage[data-severity=moderate] { --severity: var(--severity-moderate); }
 .audit-stage[data-severity=minor] { --severity: var(--severity-minor); }
 @keyframes stage-in { from { opacity: 0; } }
@@ -383,6 +406,6 @@
 .workspace .stage-tile .finding-marker:not([data-spotlit], [data-selected], :focus-visible) { opacity: .28; }
 @media (max-width: 1100px) { .stage-meta { display: none; } }
 @media (prefers-reduced-motion: reduce) { .audit-stage { animation: none; } }
-.sheet-lane-label[data-gutter] { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 3px; padding: 6px 0 0; line-height: 1.2; white-space: normal; }
-.sheet-lane-label[data-gutter] [data-part=name] { color: var(--text-2); }
-.sheet-lane-label[data-gutter] [data-part=range] { color: var(--text-faint); font-size: 10px; font-weight: 400; }
+.sheet-lane-label[data-gutter] { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; padding: 6px 0 0; line-height: 1.2; white-space: normal; }
+.sheet-lane-label[data-gutter] [data-part] { flex: none; max-width: 100%; }
+.sheet-lane-label[data-gutter] [data-part=range] { font-size: 10px; }

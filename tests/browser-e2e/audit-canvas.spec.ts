@@ -247,6 +247,17 @@ test("audit sheet and stage: lanes, tile sizes, crops, finding spotlight, stagin
     expect(unstaged.lanes.some((lane) => lane.gutter)).toBe(false);
     expect(unstaged.tiles.map((item) => item.id)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
     await page.screenshot({ path: testInfo.outputPath("07-unstaged.png") });
+
+    // The sheet says what it holds. After the camera wanders off, Fit brings the previews and the sheet back into the free canvas.
+    await expect(page.locator(".sheet-head")).toContainText(`Snapshots${unstaged.tiles.length} captures`);
+    await page.getByLabel("Camera zoom").fill("1");
+    await page.getByRole("button", { name: "Fit everything in view" }).click();
+    await still(page.locator(".audit-sheet"));
+    const fitted = await snap("fitted");
+    expect(inside(fitted.sheet!, fitted.free)).toBe(true);
+    expect(fitted.live.filter((box) => !inside(box, fitted.free))).toEqual([]);
+    expect(fitted.zoom).toBeCloseTo(unstaged.zoom, 2);
+    await page.screenshot({ path: testInfo.outputPath("08-fitted.png") });
   } finally {
     await close();
     await rm(state, { recursive: true, force: true });

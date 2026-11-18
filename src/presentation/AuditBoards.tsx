@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { ArrowLeft, ChevronsDown, ChevronsUp, Eye, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Check, ChevronsDown, ChevronsUp, Eye, LoaderCircle } from "lucide-react";
 import type { Artboard, Camera } from "../application/canvas-state";
 import { AUDIT_PROFILES, type AuditFinding, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
-import { CAPTION, clusterPins, CROP_FADE, GRID_HEAD, LANE_LABEL, layoutSheet, layoutStage, profileTag, seenOn, STAGE_HEAD, type Sheet, type SheetTile, type Stage } from "../application/audit-layout";
+import { CAPTION, clusterPins, CROP_FADE, GRID_HEAD, LANE_LABEL, layoutSheet, layoutStage, PAD, profileTag, seenOn, SHEET_HEAD, STAGE_HEAD, type Sheet, type SheetTile, type Stage } from "../application/audit-layout";
 
 /** queued: not measured yet; measuring: being measured now; captured: its snapshot arrived. */
 export type BoardState = "queued" | "measuring" | "captured";
@@ -135,8 +135,8 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
           ? <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>{caption}</div>
           : <button type="button" className="snapshot-title" title={`Peek at ${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`} aria-label={onStage ? `Peek at ${label} on the stage` : `Peek at the ${label} snapshot`} onClick={() => onPeek(key)}>{caption}</button>}
         {forming
-          ? <span className="snapshot-state" data-state={state}>{state === "measuring" && <LoaderCircle size={12} className="spin" aria-hidden="true" />}{status}</span>
-          : <span className="snapshot-count" data-clean={issues === 0 || undefined}>{issues === 0 ? "Clean" : <>{issues}<span className="snapshot-count-unit"> {issues === 1 ? "issue" : "issues"}</span></>}</span>}
+          ? <span className="snapshot-state" data-state={state}>{state === "measuring" && <LoaderCircle size={12} className="spin" aria-hidden="true" />}{state === "captured" ? <Check size={12} aria-label="Captured" /> : status}</span>
+          : <span className="snapshot-count" data-clean={issues === 0 || undefined} title={issues === 0 ? "No findings at this viewport" : `${issues} ${issues === 1 ? "finding" : "findings"} at this viewport`}>{issues === 0 ? <><Check size={11} aria-hidden="true" /><span className="snapshot-count-unit">Clean</span></> : <>{issues}<span className="snapshot-count-unit"> {issues === 1 ? "issue" : "issues"}</span></>}</span>}
       </header>
       <div className="snapshot-surface" style={{ width: width * zoom, height: height * zoom }} onClick={forming ? undefined : () => onPeek(key)}>
         {snapshot
@@ -153,8 +153,8 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
         {markers.length > 0 && <div className="snapshot-rail" aria-hidden="true">
           {markers.map(({ finding, marker }) => <span key={finding.id} data-severity={finding.severity} data-spotlit={lit?.id === finding.id || undefined} style={{ top: `${Math.min(100, Math.max(0, marker.rect.y) / imageHeight * 100)}%` }} />)}
         </div>}
-        {(cropped || open) && <div className="snapshot-crop" data-open={open || undefined}>
-          <button type="button" aria-expanded={open} aria-label={open ? `Crop ${label} to the first screen` : `Show the full ${label} page${below ? `, ${below} more ${below === 1 ? "marker" : "markers"} below` : ""}`} onClick={(event) => { event.stopPropagation(); onExpand(key); }}>
+        {(cropped || open) && <div className="snapshot-crop" data-open={open || undefined} data-below={below > 0 || undefined}>
+          <button type="button" aria-expanded={open} title={open ? "Crop to the first screen" : below ? `Show the full page: ${below} more ${below === 1 ? "marker" : "markers"} below` : "Show the full page"} aria-label={open ? `Crop ${label} to the first screen` : `Show the full ${label} page${below ? `, ${below} more ${below === 1 ? "marker" : "markers"} below` : ""}`} onClick={(event) => { event.stopPropagation(); onExpand(key); }}>
             {open ? <ChevronsUp size={12} aria-hidden="true" /> : <ChevronsDown size={12} aria-hidden="true" />}
             <span>{open ? "Crop" : below ? `+${below}` : "Full page"}</span>
           </button>
@@ -164,13 +164,19 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
   };
 
   return <>
-    {sheet && !stage && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: sheet.frame.height * zoom + sheet.frame.inset }} />}
+    {sheet && !stage && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: sheet.frame.height * zoom + sheet.frame.inset }}>
+      <div className="sheet-head" aria-hidden="true" style={{ height: SHEET_HEAD + PAD * zoom, paddingInline: Math.max(12, PAD * zoom) }}>
+        <strong>Snapshots</strong><span className="sheet-head-count">{matrix.boards.length} captures</span>
+        {!forming && <span className="sheet-head-hint">Click a snapshot to look closer</span>}
+      </div>
+    </div>}
     {sheet && stage && <div className="stage-grid-title" aria-hidden="true" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: GRID_HEAD }}>
       <strong>All snapshots</strong><span>{matrix.boards.length}{staged ? ` · ringed where finding ${findings.indexOf(staged) + 1} was seen` : ""}</span>
     </div>}
     {sheet?.lanes.map((lane) => lane.label && <div key={`${lane.id}-${lane.y}`} className="sheet-lane-label" data-lane={lane.id} data-gutter={lane.gutter || undefined} aria-hidden="true"
       style={{ left: camera.x + lane.x * zoom, top: top(lane.y, lane.inset - CAPTION - (lane.gutter ? 0 : LANE_LABEL)), width: lane.width * zoom, height: lane.gutter ? CAPTION + 18 : LANE_LABEL }}>
-      {lane.gutter ? lane.label.split(" · ").map((part, at) => <span key={part} data-part={at ? "range" : "name"}>{part}</span>) : lane.label}
+      {lane.label.split(" · ").map((part, at) => <span key={part} data-part={at ? "range" : "name"}>{part}</span>)}
+      {!lane.gutter && <span className="lane-rule" />}
     </div>)}
     {stage && staged && <section className="audit-stage" role="region" aria-label={`Stage: finding ${findings.indexOf(staged) + 1}`} data-severity={staged.severity}
       style={{ left: camera.x + stage.frame.x * zoom, top: top(stage.frame.y, stage.frame.top), width: stage.frame.width * zoom, height: stage.frame.height * zoom + stage.frame.inset - stage.frame.top }}>
