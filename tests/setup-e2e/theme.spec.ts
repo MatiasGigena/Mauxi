@@ -89,7 +89,7 @@ test("dark mode is the default and the choice to switch persists on the launch s
   await expect(panel.getByRole("button", { name: /Horizontal scroll/ })).toBeVisible();
   await panel.getByRole("button", { name: /Horizontal scroll/ }).click();
 
-  const island = page.locator(".topbar .brand");
+  const island = page.locator(".topbar .zoom");
   await expect(island).toHaveCSS("background-color", DARK_SURFACE);
   await expect(page.locator(".canvas-background")).toHaveCSS("background-color", DARK_CANVAS);
   await expect(page.locator(".audit-panel")).toHaveCSS("color", "rgb(236, 236, 240)");

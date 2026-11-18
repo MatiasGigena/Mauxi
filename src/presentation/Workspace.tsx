@@ -13,7 +13,7 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
-import { ArrowLeft, ScanSearch } from "lucide-react";
+import { ArrowLeft, Maximize, ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
 import { auditMatrix, AuditBoards, matrixTile, type FormingAudit } from "./AuditBoards";
 import { WidthScope } from "./WidthScope";
@@ -45,6 +45,9 @@ function releaseDraftCaptures(files: string[]): void {
 
 /** Horizontal space the audit panel covers on the right of the canvas. */
 const AUDIT_PANEL_SPACE = 400;
+
+/** Vertical space the peek bar takes under the top bar, kept clear so it never covers the tile it names. */
+const PEEK_BAR_SPACE = 52;
 
 const sameCamera = (a: Camera, b: Camera | null) => !!b && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
@@ -771,15 +774,15 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     });
   }
 
-  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
-  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM): Camera {
+  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free; reserve: more px kept clear under the top bar. */
+  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM, reserve = 0): Camera {
     const element = canvas.current;
 
     if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, minZoom, maxZoom);
     const rect = element.getBoundingClientRect();
     const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
     const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
-    const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
+    const top = (bar ? Math.max(0, bar.bottom - rect.top) : 0) + reserve;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
     const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, minZoom, maxZoom);
@@ -931,7 +934,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const from = marker ? Math.max(0, Math.min(target.height - view, Math.max(0, marker.rect.y) * target.scale - view / 3)) : 0;
     const caption = from === 0 ? CAPTION : 0;
     const header = geometry.current.headerHeight;
-    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale));
+    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale), PEEK_BAR_SPACE);
 
     setExpanded(open);
     setPeek({ profileId: key, label: tile.label, camera: peek?.camera ?? layoutRef.current.camera, opened: opened || (!!peek?.opened && peek.profileId === key) });
@@ -950,6 +953,19 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
     setPeek(null);
     flyTo(peek.camera);
+  }
+
+  /** Brings everything on the canvas back into view: the live previews and, when there is one, the audit sheet or stage. */
+  function fitAll() {
+    if (browserLocked.current) return;
+
+    if (peek?.opened) setExpanded((current) => { const next = new Set(current); next.delete(peek.profileId);
+
+      return next; });
+    setPeek(null);
+    const base = unfocus(layoutRef.current);
+    setLayout((current) => unfocus(current));
+    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current));
   }
 
   const endPeekRef = useRef(endPeek); endPeekRef.current = endPeek;
@@ -1066,13 +1082,14 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         flushSync(() => setClosing(true));
 
         try { await onClose(); } catch (error) { setClosing(false); throw error; }
-      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="Mauxi" /></div>}
       <WidthScope findings={scopeFindings} lit={scopeFindings.find((finding) => finding.id === (panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding)) ?? null}
         value={scrub?.width ?? layout.boards.mobile.width} locked={browser.locked} active={!!audit || forming} onScrub={scrubTo} />
       {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
         <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
       </button>}
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      <button type="button" className="canvas-fit" aria-label="Fit everything in view" title="Fit everything in view" disabled={browser.locked} onClick={fitAll}><Maximize size={16} aria-hidden="true" /></button>
     </header>
     {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}

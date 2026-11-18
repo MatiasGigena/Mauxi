@@ -4,23 +4,33 @@
 .workspace button:active:not(:disabled), .preview-tools button:active:not(:disabled) { background: var(--btn-active); box-shadow: inset 0 0 0 1px var(--btn-active-ring); }
 .workspace button[aria-pressed=true] { background: var(--pressed-bg); color: var(--pressed-fg); box-shadow: inset 0 0 0 1px var(--pressed-ring); }
 .topbar { position: absolute; z-index: 20; inset: .75rem .75rem auto; display: flex; align-items: center; justify-content: space-between; gap: .75rem; pointer-events: none; }
-.topbar > .brand, .repository-trigger.brand, .topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
-.brand { display: flex; flex: 0 1 auto; align-items: center; gap: .5rem; min-width: 0; max-width: 28rem; }
-.repository-menu { position: relative; min-width: 0; pointer-events: auto; }
-.workspace .repository-trigger.brand { display: flex; width: 100%; text-align: left; max-width: min(28rem, 50vw); color: var(--text); }
-.workspace .repository-trigger.brand:is(:hover, :active) { background: var(--surface); box-shadow: var(--floating-shadow); }
-.repository-trigger svg { flex: none; color: var(--text-muted); }
+.topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
+.topbar > .zoom { padding-inline: .875rem 1rem; }
+/* The brand is the logo alone, small; in a project it opens the project menu. */
+.brand { display: flex; flex: none; align-items: center; height: 3rem; padding: 0 .25rem; pointer-events: auto; }
+.topbar .brand-mark { width: 1.75rem; }
+.repository-menu { position: relative; flex: none; pointer-events: auto; }
+.workspace .repository-trigger.brand { padding: 0 .25rem; border-radius: .75rem; background: transparent; transition: opacity 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+.workspace .repository-trigger.brand:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
+@media (hover: hover) and (pointer: fine) { .workspace .repository-trigger.brand:hover:not(:disabled) { opacity: .8; } }
+.workspace .repository-trigger.brand:active:not(:disabled) { transform: scale(.94); }
 .repository-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .repository-popover.action-modal { position: absolute; top: calc(100% + 8px); left: 0; width: min(17rem, calc(100vw - 24px)); padding: 10px 14px; }
 .repository-popover button { width: 100%; }
 .repository-popover p { overflow-wrap: anywhere; }
-.brand strong { min-width: 0; font-size: .8125rem; font-weight: 500; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.repository-name { margin: 2px 0 8px; padding: 0 4px 8px; border-bottom: 1px solid var(--border-subtle); color: var(--text); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .zoom { display: flex; flex: none; align-items: center; gap: .5rem; color: var(--text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
-.zoom span { width: 2.5rem; text-align: right; }
+.zoom span { width: 2.5rem; color: var(--text-2); font-weight: 500; text-align: right; }
 .zoom input { width: 5rem; height: 2rem; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .zoom input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .25rem; }
 .zoom input:disabled { opacity: .48; cursor: default; }
-.workspace-notice { position: absolute; z-index: 10; top: 4.5rem; left: .75rem; max-width: min(30rem, calc(100% - 1.5rem)); padding: .5rem .75rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface); color: var(--text-3); font-size: .75rem; overflow-wrap: anywhere; }
+.workspace .canvas-fit { display: grid; flex: none; place-items: center; width: 3rem; height: 3rem; margin-left: -.25rem; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); box-shadow: var(--floating-shadow); pointer-events: auto; transition: color 120ms ease; }
+.workspace .canvas-fit:is(:hover, :active):not(:disabled) { background: var(--surface); box-shadow: var(--floating-shadow); }
+.workspace .canvas-fit:active:not(:disabled) svg { transform: scale(.9); }
+.workspace .canvas-fit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .workspace .canvas-fit:hover:not(:disabled) { color: var(--text); } }
+@media (max-width: 640px) { .workspace .canvas-fit { display: none; } }
+.workspace-notice { position: absolute; z-index: 10; top: 4.5rem; left: .75rem; max-width: min(30rem, calc(100% - 1.5rem)); padding: .5rem .875rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; }
 .canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: var(--surface); }
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
@@ -322,5 +332,5 @@
   .provider-list article { align-items: flex-start; flex-direction: column; min-height: 78px; gap: 0; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
-@media (prefers-contrast: more) { .workspace, .action-modal { color: var(--text-strong); }.topbar > .brand, .repository-trigger.brand, .topbar > .zoom, .chat-surface, .selection-chip, .artboard-header, .action-modal { border-color: var(--border-contrast); }.workspace button, .action-modal button { outline: 1px solid var(--border-contrast); } }
+@media (prefers-contrast: more) { .workspace, .action-modal { color: var(--text-strong); }.topbar > .zoom, .chat-surface, .selection-chip, .artboard-header, .action-modal { border-color: var(--border-contrast); }.workspace button, .action-modal button { outline: 1px solid var(--border-contrast); } }
 @media (prefers-reduced-transparency: reduce) { .action-modal::backdrop, .agent-dialog-backdrop:not(.browser-approval) { background: var(--surface-3); } }

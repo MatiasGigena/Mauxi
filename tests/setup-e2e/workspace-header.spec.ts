@@ -26,13 +26,18 @@ async function openWorkspace(page: Page) {
 }
 
 for (const width of [320, 768, 1440]) {
-  test(`workspace header contains only logo, repository title, audit and zoom at ${width}px`, async ({ page }, testInfo) => {
+  test(`workspace header contains only the logo, audit, zoom and fit at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await openWorkspace(page);
     const header = page.locator(".topbar");
     await expect(header.locator("img")).toBeVisible();
-    await expect(header.locator("strong")).toHaveText("rondo");
-    await expect(header.locator("button, a, select, input")).toHaveCount(3);
+    // The brand is the logo alone: no project name, no pill.
+    await expect(header.locator("strong")).toHaveCount(0);
+    await expect(header.locator(".brand")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect((await header.locator(".brand img").boundingBox())!.width).toBeLessThanOrEqual(28);
+    await expect(header.locator("button, a, select, input")).toHaveCount(4);
+    // The fit button leaves the bar on narrow windows, where the zoom slider needs the room.
+    await expect(header.locator(".canvas-fit"))[width > 640 ? "toBeVisible" : "toBeHidden"]();
     await expect(header.getByRole("button", { name: "Responsive audit", exact: true })).toBeVisible();
     await expect(header.getByRole("button", { name: "Project menu" })).toHaveAttribute("aria-expanded", "false");
     await expect(header.getByRole("slider", { name: "Camera zoom" })).toBeVisible();
@@ -40,7 +45,7 @@ for (const width of [320, 768, 1440]) {
     await expect(header).toHaveCSS("border-width", "0px");
     await expect(header).toHaveCSS("box-shadow", "none");
 
-    for (const island of [header.locator(".brand"), header.locator(".zoom")]) {
+    for (const island of [header.locator(".zoom")]) {
       await expect(island).toHaveCSS("background-color", "rgb(25, 26, 31)");
       await expect(island).toHaveCSS("border-color", "rgb(45, 46, 53)");
       await expect(island).toHaveCSS("border-radius", "999px");
@@ -57,9 +62,8 @@ for (const width of [320, 768, 1440]) {
     const zoomBounds = (await header.locator(".zoom").boundingBox())!;
     expect(zoomBounds.x - brandBounds.x - brandBounds.width).toBeGreaterThanOrEqual(12);
 
-    if (width >= 768) expect(brandBounds.width).toBeLessThan(200);
+    expect(brandBounds.width).toBeLessThan(48);
     await expect(header.locator(".connection, .browser-control, .fixture-switch")).toHaveCount(0);
-    await header.locator("strong").evaluate(node => { node.textContent = "a-very-long-repository-name-that-must-not-displace-the-zoom-control"; });
     expect(await header.evaluate(node => {
       const rect = node.getBoundingClientRect();
 
@@ -75,10 +79,10 @@ for (const width of [320, 768, 1440]) {
 
 test("pills and chat share the same subtle shadow; live previews carry a deeper one with a teal ring", async ({ page }) => {
   await openWorkspace(page);
-  const shadow = await page.locator(".brand").evaluate(node => getComputedStyle(node).boxShadow);
+  const shadow = await page.locator(".zoom").evaluate(node => getComputedStyle(node).boxShadow);
   expect(shadow).not.toBe("none");
 
-  for (const selector of [".zoom", ".chat-surface"]) {
+  for (const selector of [".chat-surface"]) {
     await expect(page.locator(selector)).toHaveCSS("box-shadow", shadow);
   }
 
@@ -146,7 +150,8 @@ test("agent lock disables zoom without adding header actions; emergency return s
   await openWorkspace(page);
   await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "agent", generation: 1, revision: 1, releasing: false, activity: "Checking previews", remaining: 60, evidence: [] }));
   await expect(page.getByRole("slider", { name: "Camera zoom" })).toBeDisabled();
-  await expect(page.locator(".topbar button")).toHaveCount(2);
+  await expect(page.locator(".topbar button")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Fit everything in view" })).toBeDisabled();
   await expect(page.locator(".topbar").getByRole("button", { name: "Responsive audit", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Emergency take back control", exact: true }).click();
   await page.evaluate(() => window.workspaceHeaderBrowserState!({ workspaceId: "test-workspace", owner: "human", generation: 2, revision: 2, releasing: false, activity: "", remaining: 0, evidence: [] }));
