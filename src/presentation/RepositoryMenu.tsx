@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, Moon, Sun } from "lucide-react";
+import { LogOut, Moon, Sun } from "lucide-react";
 import logo from "./assets/logo-mauxi.png";
 import { errorText } from "./error-text";
 import { setTheme, useTheme } from "./theme";
@@ -35,9 +35,10 @@ export function RepositoryMenu({ root, onClose }: { root: string; onClose: () =>
     if (event.key === "Escape" && open && !pending) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
   }} onBlur={event => { if (!pending && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <button ref={trigger} type="button" className="brand repository-trigger" aria-label="Project menu" aria-expanded={open} aria-controls="repository-actions" title={root} onClick={() => setOpen(value => !value)} disabled={pending} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); } }}>
-      <img className="brand-mark" src={logo} alt="" /><strong>{root.split("/").pop()}</strong><ChevronDown size={13} aria-hidden="true" />
+      <img className="brand-mark" src={logo} alt="" />
     </button>
     {open && <section id="repository-actions" className="repository-popover action-modal" aria-label="Project actions">
+      <p className="repository-name" title={root}>{root.split("/").pop()}</p>
       <button ref={close} type="button" className="action-modal-secondary" disabled={pending} onClick={() => void closeProject()}><LogOut size={16} aria-hidden="true" /><span>{pending ? "Closing project…" : "Close project"}</span></button>
       <button type="button" className="preview-tool-action theme-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}<span>{theme === "dark" ? "Light mode" : "Dark mode"}</span></button>
       {error && <p className="send-error" role="alert">{error}</p>}

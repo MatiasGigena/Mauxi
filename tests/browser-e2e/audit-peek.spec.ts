@@ -49,9 +49,9 @@ async function settled(page: Page, profileId = "phone-sm") {
 
 const previewWidth = (page: Page, id: "desktop" | "mobile") => page.locator(`[data-testid="${id}-preview"]`).evaluate((frame) => Number(frame.getAttribute("width")));
 
-// Tier 3 of the audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes, the sweep strip as a
+// Tier 3 of the audit sheet on the Vite audit lab: peeks with an animated camera that Esc undoes, the width scope as a
 // slider that resizes the live previews, and ghosts of findings a re-run no longer reports.
-test("audit sheet: peek and return, sweep scrubbing and resolved ghosts", async ({}, testInfo) => {
+test("audit sheet: peek and return, width scope scrubbing and resolved ghosts", async ({}, testInfo) => {
   const original = await readFile(LAB_CSS, "utf8");
   expect(original).toContain(PLANTED);
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-peek-"));
@@ -100,18 +100,23 @@ test("audit sheet: peek and return, sweep scrubbing and resolved ghosts", async 
     expect(await settled(page)).toEqual(overview);
     await page.emulateMedia({ reducedMotion: "no-preference" });
 
-    // The sweep strip is a slider: a drag resizes the Mobile preview to the width under the pointer, and the sheet
-    // holds still under the pointer until the drag ends.
+    // The width scope in the top bar is a slider with a mark per measured width: a drag resizes the Mobile preview to the
+    // width under the pointer, and the scope holds still under the pointer while the previews change.
     const strip = page.getByRole("slider", { name: "Resize a live preview to a measured width" });
-    const widths = sweepWidths();
-    const cells = (await strip.locator(".sweep-cells").boundingBox())!;
-    const at = (width: number) => cells.x + (widths.indexOf(width) + .5) / widths.length * cells.width;
-    await page.mouse.move(at(320), cells.y + cells.height / 2);
+    expect(await strip.locator(".scope-bar").count()).toBe(sweepWidths().length);
+    const plot = (await strip.locator(".scope-plot").boundingBox())!;
+    const y = plot.y + plot.height / 2;
+
+    const at = async (width: number) => { const bar = (await strip.locator(`.scope-bar[data-width="${width}"]`).boundingBox())!;
+
+      return bar.x + bar.width / 2; };
+
+    await page.mouse.move(await at(320), y);
     await page.mouse.down();
-    await page.mouse.move(at(560), cells.y + cells.height / 2, { steps: 6 });
+    await page.mouse.move(await at(560), y, { steps: 6 });
     await expect.poll(() => previewWidth(page, "mobile")).toBe(560);
-    expect((await strip.locator(".sweep-cells").boundingBox())!.x).toBeCloseTo(cells.x, 0);
-    await page.mouse.move(at(768), cells.y + cells.height / 2, { steps: 6 });
+    expect((await strip.locator(".scope-plot").boundingBox())!.x).toBeCloseTo(plot.x, 0);
+    await page.mouse.move(await at(768), y, { steps: 6 });
     await page.mouse.up();
     await expect.poll(() => previewWidth(page, "mobile")).toBe(768);
     await expect(strip).toHaveAttribute("aria-valuenow", "768");

@@ -12,7 +12,7 @@ This is the active release checklist, not a historical test receipt. Passing uni
 - That earlier live run predates the audit. Its lifecycle, packaging and live-authentication evidence counts toward AC-11 and AC-20, but it **does not satisfy AC-19**; the [real-project audit run](real-project-acceptance.md) with maintainer sign-off is still required.
 - Live runs spend the maintainer's provider credits. Turn/time limits are not dollar caps; each run needs its own provider and budget approval.
 - The Next source-picking gate passes with exact provenance assertions (`npm run test:e2e`).
-- Package tests validate the current minimal UI: preview activation before page clicks, the current model picker, browser handoff beside Send and project close in the repository-title menu. Trusted-host tests still exercise checkpoint/undo safeguards. They do not run an audit: the packaged audit (axe-core is bundled into the host) is exercised only by the live run.
+- Package tests validate the current minimal UI: preview activation before page clicks, the current model picker, browser handoff beside Send and project close in the logo menu. Trusted-host tests still exercise checkpoint/undo safeguards. They do not run an audit: the packaged audit (axe-core is bundled into the host) is exercised only by the live run.
 
 ## Required checks
 
