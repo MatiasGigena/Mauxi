@@ -258,6 +258,17 @@ test("audit sheet and stage: lanes, tile sizes, crops, finding spotlight, stagin
     expect(fitted.live.filter((box) => !inside(box, fitted.free))).toEqual([]);
     expect(fitted.zoom).toBeCloseTo(unstaged.zoom, 2);
     await page.screenshot({ path: testInfo.outputPath("08-fitted.png") });
+
+    // A full page opened on the sheet counts too: Fit zooms out to keep it in view.
+    // At this zoom the tile is too narrow to show its own crop button, so the click goes to it directly.
+    await page.locator('.snapshot-board[data-profile-id="phone-sm"] .snapshot-crop button').dispatchEvent("click");
+    await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"]')).not.toHaveAttribute("data-cropped");
+    await page.getByRole("button", { name: "Fit everything in view" }).click();
+    await still(page.locator(".audit-sheet"));
+    const refitted = await snap("refitted");
+    expect(inside(refitted.sheet!, refitted.free)).toBe(true);
+    expect(refitted.zoom).toBeLessThan(fitted.zoom);
+    await page.screenshot({ path: testInfo.outputPath("09-refitted-full-page.png") });
   } finally {
     await close();
     await rm(state, { recursive: true, force: true });

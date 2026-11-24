@@ -739,10 +739,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
 
-  /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
-  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean, focus: string[] | null = null): Camera {
+  /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free; open: keys of tiles shown uncropped. */
+  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean, focus: string[] | null = null, open: ReadonlySet<string> = new Set()): Camera {
     const live = PREVIEW_IDS.map((id) => state.boards[id]);
-    const { boards, sheet, stage } = auditMatrix(report, forming, live, new Set(), focus);
+    const { boards, sheet, stage } = auditMatrix(report, forming, live, open, focus);
 
     return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : [], ...stage ? [stage.frame, ...stage.boards] : []], panel, OVERVIEW_MIN_ZOOM);
   }
@@ -754,11 +754,15 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   useEffect(() => {
     if (lastStaged.current === stagedId) return;
     lastStaged.current = stagedId;
+    // The stage's tiles crop again, and a tile a peek opened closes with the peek.
+    const open = new Set([...expanded].filter((key) => !key.startsWith("stage:") && !(peek?.opened && key === peek.profileId)));
+
     setPeek(null);
-    setExpanded((current) => [...current].some((key) => key.startsWith("stage:")) ? new Set([...current].filter((key) => !key.startsWith("stage:"))) : current);
+    setExpanded((current) => current.size === open.size ? current : open);
 
     if (!audit || forming) return;
-    flyTo(matrixCamera(unfocus(layoutRef.current), audit, null, panelOpenRef.current, stageFocusRef.current));
+    setLayout((current) => unfocus(current));
+    flyTo(matrixCamera(unfocus(layoutRef.current), audit, null, panelOpenRef.current, stageFocusRef.current, open));
   // flyTo and matrixCamera read refs; the stage changing is the only trigger.
   }, [stagedId]);
 
@@ -959,13 +963,14 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   function fitAll() {
     if (browserLocked.current) return;
 
-    if (peek?.opened) setExpanded((current) => { const next = new Set(current); next.delete(peek.profileId);
+    const open = new Set(expanded);
 
-      return next; });
+    if (peek?.opened) { open.delete(peek.profileId); setExpanded(open); }
+
     setPeek(null);
     const base = unfocus(layoutRef.current);
     setLayout((current) => unfocus(current));
-    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current));
+    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current, open));
   }
 
   const endPeekRef = useRef(endPeek); endPeekRef.current = endPeek;
