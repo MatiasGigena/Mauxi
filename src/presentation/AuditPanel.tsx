@@ -92,7 +92,7 @@ function FindingCard({ finding, index, selected, attached, ignored, seen, onSele
     </button>
     {selected && <div className="finding-body">
       <p>{finding.detail}</p>
-      <div className="finding-fix"><Compass size={15} aria-hidden="true" /><p><strong>Direction</strong>{finding.fixHint}</p></div>
+      <div className="finding-fix"><Compass size={15} aria-hidden="true" /><p><strong>How to fix</strong>{finding.fixHint}</p></div>
       {(finding.element || finding.rule) && <div className="finding-facts">
         {finding.element && <p className="finding-element"><code>{finding.element.selector}</code>{source && <span title={finding.element.source?.verified ? "Host-verified source file" : "Unverified hint from the React development build"}>{source}{finding.element.source?.verified && <Check size={12} aria-label="verified" />}</span>}</p>}
         {finding.rule && <span className="finding-rule" title={finding.rule.help}>axe · {finding.rule.id}</span>}
