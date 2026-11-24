@@ -82,7 +82,7 @@ function overflowFix(detail: string | undefined): string {
 
   if (detail?.includes("unbreakable") || detail?.includes("Text overflows")) return "Let long strings wrap: overflow-wrap: anywhere, plus min-width: 0 on a flex or grid parent.";
 
-  return "Make the width fluid: max-width: 100% or width: min(100%, <size>).";
+  return "Make the width fluid: max-width: 100%, width: min(100%, <size>), or minmax(0, 1fr) tracks.";
 }
 
 function worstOf({ sample, issue }: Occurrence): AuditFinding["worst"] {
@@ -141,7 +141,7 @@ export function buildReport(input: {
       add(kind, items, {
         worst,
         title: kind === "page-overflow" ? `Horizontal scroll at ${where}` : `Content cut off by overflow-x: hidden at ${where}`,
-        detail: `${worst.issue.detail ?? ""} Worst at ${worst.sample.width}px.${atReflowWidth ? "" : " Fine at 320px, so it is a breakpoint gap, not a WCAG failure."}`.trim(),
+        detail: `${worst.issue.detail ?? ""} Worst at ${worst.sample.width}px.${atReflowWidth ? "" : " Not seen at 320px, so it is a breakpoint gap, not a 1.4.10 failure."}`.trim(),
         fixHint: overflowFix(worst.issue.detail),
         criterion: atReflowWidth ? REFLOW : null,
         severity: atReflowWidth || amount >= 40 || kind === "clipped-by-page" ? "serious" : "moderate",
@@ -178,7 +178,7 @@ export function buildReport(input: {
     } else add("scroller-review", items, {
       title: `Container scrolls horizontally at ${formatRanges(ranges)}`,
       detail: `Only scrolls at narrow widths and does not look like a carousel, table or code block, so it is probably accidental.${signals.length ? ` Weak signals: ${signals.join(", ")}.` : ""}`,
-      fixHint: "Let its content wrap or shrink (flex-wrap, min-width: 0). If it is a carousel, mark it intentional and make it keyboard reachable.",
+      fixHint: "Let its content wrap or shrink (flex-wrap, minmax(0, 1fr), min-width: 0). If it is a carousel, mark it intentional and make it keyboard reachable.",
       criterion: Math.min(...widths) <= 320 ? REFLOW : null, severity: "moderate", classification: "review",
     });
   }
