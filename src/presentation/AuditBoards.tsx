@@ -166,7 +166,7 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
   return <>
     {sheet && !stage && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: sheet.frame.height * zoom + sheet.frame.inset }}>
       <div className="sheet-head" aria-hidden="true" style={{ height: SHEET_HEAD + PAD * zoom, paddingInline: Math.max(12, PAD * zoom) }}>
-        <strong>Snapshots</strong><span className="sheet-head-count">{matrix.boards.length} captures</span>
+        <strong>Snapshots</strong><span className="sheet-head-count">{forming ? `${matrix.boards.filter((board) => board.state === "captured").length} of ${matrix.boards.length} captured` : `${matrix.boards.length} captures`}</span>
         {!forming && <span className="sheet-head-hint">Click a snapshot to look closer</span>}
       </div>
     </div>}
