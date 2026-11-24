@@ -74,15 +74,15 @@ function markers(occurrences: Occurrence[], snapshotProfiles: Set<string>): Find
 }
 
 function overflowFix(detail: string | undefined): string {
-  if (detail?.includes("scrollbar")) return "Use width: 100% instead of 100vw, and drop min-width values equal to the viewport so the box fits beside the scrollbar.";
+  if (detail?.includes("scrollbar")) return "Use width: 100% instead of 100vw, and drop viewport-wide min-widths.";
 
-  if (detail?.includes("tracks are")) return "Size the tracks fluidly (repeat(auto-fit, minmax(min(100%, 16rem), 1fr)) or minmax(0, 1fr)) or drop to fewer columns in this width range instead of fixed track widths.";
+  if (detail?.includes("tracks are")) return "Make the tracks fluid (repeat(auto-fit, minmax(min(100%, 16rem), 1fr))), or use fewer columns at these widths.";
 
-  if (detail?.includes("children extend")) return "Let the container wrap (flex-wrap: wrap, or grid with repeat(auto-fit, minmax(min(100%, 16rem), 1fr))) and allow children to shrink with min-width: 0 instead of fixed widths.";
+  if (detail?.includes("children extend")) return "Let the container wrap (flex-wrap: wrap) and let children shrink (min-width: 0).";
 
-  if (detail?.includes("unbreakable") || detail?.includes("Text overflows")) return "Allow long strings to wrap: overflow-wrap: anywhere on the text container (and min-width: 0 on its flex/grid parent).";
+  if (detail?.includes("unbreakable") || detail?.includes("Text overflows")) return "Let long strings wrap: overflow-wrap: anywhere, plus min-width: 0 on a flex or grid parent.";
 
-  return "Replace the fixed width with a fluid one (max-width: 100%, width: min(100%, <size>), or minmax(0, 1fr) tracks) so the box never exceeds its container.";
+  return "Make the width fluid: max-width: 100% or width: min(100%, <size>).";
 }
 
 function worstOf({ sample, issue }: Occurrence): AuditFinding["worst"] {
@@ -141,7 +141,7 @@ export function buildReport(input: {
       add(kind, items, {
         worst,
         title: kind === "page-overflow" ? `Horizontal scroll at ${where}` : `Content cut off by overflow-x: hidden at ${where}`,
-        detail: `${worst.issue.detail ?? ""} Worst case: ${amount}px past the edge at ${worst.sample.width}px.${atReflowWidth ? "" : " Not measured at 320px, so this is a breakpoint gap rather than a 1.4.10 failure."}`.trim(),
+        detail: `${worst.issue.detail ?? ""} Worst at ${worst.sample.width}px.${atReflowWidth ? "" : " Fine at 320px, so it is a breakpoint gap, not a WCAG failure."}`.trim(),
         fixHint: overflowFix(worst.issue.detail),
         criterion: atReflowWidth ? REFLOW : null,
         severity: atReflowWidth || amount >= 40 || kind === "clipped-by-page" ? "serious" : "moderate",
@@ -166,19 +166,19 @@ export function buildReport(input: {
       const unreachable = items.filter((item) => item.issue.scroller && !item.issue.scroller.keyboard);
       const unnamed = items.filter((item) => item.issue.scroller?.role === "region" && !item.issue.scroller.named);
       const failing = items.filter((item) => unreachable.includes(item) || unnamed.includes(item));
-      const problems = [...(unreachable.length ? ["it cannot be reached with the keyboard (no tabindex=\"0\" and no focusable children)"] : []), ...(unnamed.length ? ["role=\"region\" has no accessible name"] : [])];
+      const problems = [...(unreachable.length ? ["keyboard users cannot reach it"] : []), ...(unnamed.length ? ["its region has no name"] : [])];
       const where = failing.length < items.length ? ` at ${formatRanges(widthRanges(failing.map((item) => item.sample.width), scanned))}` : "";
 
       if (failing.length) add("scroller-a11y", failing, {
         title: "Intentional scroller is not keyboard accessible",
-        detail: `Kept as a deliberate horizontal scroller (${allSignals.join(", ")}), but ${problems.join(" and ")}${where}. Safari does not focus scroll containers by default.`,
-        fixHint: "Keep the scrolling. Add tabindex=\"0\", role=\"region\" and an aria-label to the scroll container (or give it focusable items), and keep a visible focus style.",
+        detail: `Scrolls sideways on purpose (${allSignals.join(", ")}), but ${problems.join(" and ")}${where}.`,
+        fixHint: "Add tabindex=\"0\", role=\"region\" and an aria-label to the scroller, with a visible focus style.",
         criterion: KEYBOARD, severity: "moderate", classification: "intentional",
       });
     } else add("scroller-review", items, {
       title: `Container scrolls horizontally at ${formatRanges(ranges)}`,
-      detail: `No carousel, table or code-block signals, and it only scrolls at narrower widths, so the inner horizontal scroll is probably accidental.${signals.length ? ` Weak signals: ${signals.join(", ")}.` : ""}`,
-      fixHint: "If it is not meant to scroll, let its content wrap or shrink (flex-wrap, minmax(0, 1fr), min-width: 0). If it is a carousel, mark it as intentional in Mauxi and make it keyboard reachable.",
+      detail: `Only scrolls at narrow widths and does not look like a carousel, table or code block, so it is probably accidental.${signals.length ? ` Weak signals: ${signals.join(", ")}.` : ""}`,
+      fixHint: "Let its content wrap or shrink (flex-wrap, min-width: 0). If it is a carousel, mark it intentional and make it keyboard reachable.",
       criterion: Math.min(...widths) <= 320 ? REFLOW : null, severity: "moderate", classification: "review",
     });
   }
@@ -196,8 +196,8 @@ export function buildReport(input: {
     if (clippedText.has(key) && !clippedText.get(key)!.some((item) => item.issue.ellipsis)) continue;
     add("content-clipped", items, {
       title: `Content hidden by overflow at ${formatRanges(widthRanges(widths, scanned))}`,
-      detail: `${items[0].issue.detail ?? "Content is clipped."} The same container fits at wider widths, so narrow layouts lose content.`,
-      fixHint: "Let the content wrap or stack at narrow widths instead of clipping it; if hiding is intended, provide another way to reach the hidden items.",
+      detail: `${items[0].issue.detail ?? "Content is clipped."} It fits at wider widths, so narrow screens lose content.`,
+      fixHint: "Let the content wrap or stack at narrow widths, or offer another way to reach what is hidden.",
       criterion: Math.min(...widths) <= 320 ? REFLOW : null, severity: "moderate", classification: "review",
     });
   }
@@ -212,8 +212,8 @@ export function buildReport(input: {
     const narrowOnly = !wideKeys.has(key);
     add(ellipsis ? "text-truncated" : "content-clipped", ellipsis ? items : [...items, ...hiddenContent.get(key) ?? []], {
       title: ellipsis ? "Text truncated at narrow widths" : narrowOnly ? "Text cut off at narrow widths" : "Text cut off at every width",
-      detail: `${items[0].issue.detail ?? ""}${narrowOnly ? " It fits at desktop widths, so the narrow layout loses information." : ""}`.trim(),
-      fixHint: ellipsis ? "Make sure the full text is available elsewhere (title, expandable row, detail view), or let it wrap at narrow widths." : "Remove fixed heights/widths and white-space: nowrap from the text container so it can grow with its content.",
+      detail: `${items[0].issue.detail ?? ""}${narrowOnly ? " It fits on desktop." : ""}`.trim(),
+      fixHint: ellipsis ? "Show the full text somewhere (tooltip, expandable row), or let it wrap." : "Drop fixed sizes and white-space: nowrap so the text box can grow.",
       criterion: REFLOW, severity: ellipsis ? "minor" : "moderate", classification: ellipsis || !narrowOnly ? "review" : "bug",
     });
   }
@@ -235,8 +235,8 @@ export function buildReport(input: {
 
       add("text-spacing-clipped", items, {
         title: "Text clipped when users increase text spacing",
-        detail: `${items[0].issue.detail ?? ""} Appears only after applying WCAG 1.4.12 overrides (line-height 1.5, letter-spacing 0.12em, word-spacing 0.16em, paragraph spacing 2em).`.trim(),
-        fixHint: "Avoid fixed heights and line-heights on text containers; use min-height and let boxes grow, and avoid overflow: hidden around text.",
+        detail: `${items[0].issue.detail ?? ""} Only with WCAG text spacing applied (taller lines, wider letters, words and paragraphs).`.trim(),
+        fixHint: "Use min-height instead of fixed heights, and avoid overflow: hidden around text.",
         criterion: TEXT_SPACING, severity: "serious", classification: "bug",
       });
     }
@@ -247,7 +247,7 @@ export function buildReport(input: {
     add("target-size", items, {
       title: "Touch target smaller than 24×24px",
       detail: items[0].issue.detail ?? "Small target close to another target.",
-      fixHint: "Give the control at least 24×24 CSS px (min-width/min-height or padding), or space it so a 24px circle around it does not overlap other targets.",
+      fixHint: "Make it at least 24×24px (padding or min size), or space it away from its neighbors.",
       criterion: TARGET_SIZE, severity: "moderate", classification: "bug",
     });
   }
@@ -258,8 +258,8 @@ export function buildReport(input: {
     add("sticky-obstruction", items, {
       worst,
       title: `Fixed bars cover ${coverage}% of the screen at ${worst.sample.width}×${worst.sample.height}`,
-      detail: `${worst.issue.detail ?? ""} At high zoom, focused elements can end up hidden behind them.`,
-      fixHint: "Make the bar static or collapsible at short viewports (for example @media (max-height: 400px) { position: static }) and add scroll-padding-top equal to its height.",
+      detail: `${worst.issue.detail ?? ""} At high zoom they can hide focused elements.`,
+      fixHint: "Make the bar static on short screens (@media (max-height: 400px)) and add scroll-padding-top equal to its height.",
       criterion: FOCUS_NOT_OBSCURED, severity: coverage >= 50 ? "serious" : "moderate", classification: coverage >= 50 ? "bug" : "review",
     });
   }
@@ -323,15 +323,15 @@ export function buildReport(input: {
 
   if (first?.viewportMeta.zoomBlocked) findings.push({
     id: "zoom-blocked:viewport", kind: "zoom-blocked", title: "Pinch-zoom is disabled by the viewport meta tag",
-    detail: `<meta name="viewport" content="${first.viewportMeta.content}"> prevents users from zooming to 200%.`,
-    fixHint: "Remove user-scalable=no and any maximum-scale below 2 (ideally remove maximum-scale entirely).",
+    detail: `<meta name="viewport" content="${first.viewportMeta.content}"> stops users zooming to 200%.`,
+    fixHint: "Remove user-scalable=no and any maximum-scale below 2.",
     criterion: RESIZE_TEXT, severity: "serious", classification: "bug", element: null, ranges: [[narrowest, widest]], worst: { width: narrowest, height: samples[0].height }, profiles: [], markers: [],
   });
 
   if (first && (!first.viewportMeta.present || !first.viewportMeta.deviceWidth)) findings.push({
     id: "viewport-meta:viewport", kind: "viewport-meta", title: first.viewportMeta.present ? "Viewport meta tag does not use width=device-width" : "Missing viewport meta tag",
-    detail: "Phones will lay the page out at about 980px and scale it down, so none of the narrow layouts measured here are what mobile users see.",
-    fixHint: 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to the document head.',
+    detail: "Phones lay the page out at about 980px and shrink it, so mobile users never see your narrow layouts.",
+    fixHint: 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to the head.',
     criterion: null, severity: "serious", classification: "bug", element: null, ranges: [[narrowest, widest]], worst: { width: narrowest, height: samples[0].height }, profiles: [], markers: [],
   });
 

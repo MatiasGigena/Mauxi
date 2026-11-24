@@ -210,7 +210,7 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
       if (parent && parent !== body && parentEntry && /grid|flex/.test(parentEntry.style.display) && parent.scrollWidth > parent.clientWidth + 1) {
         if (pageClipsX && !meaningful(parent)) continue;
         reported.add(parent);
-        push({ kind: pageClipsX ? "clipped-by-page" : "page-overflow", element: describe(parent), overflowPx: round(Math.max(...group.map((entry) => entry.rect.right - viewportWidth))), detail: `Its ${parentEntry.style.display.includes("grid") ? "grid" : "flex"} tracks are ${round(parent.scrollWidth)}px wide inside a ${round(parentEntry.rect.width)}px container; ${group.length > 1 ? `${group.length} children extend` : "a child extends"} past the viewport.` });
+        push({ kind: pageClipsX ? "clipped-by-page" : "page-overflow", element: describe(parent), overflowPx: round(Math.max(...group.map((entry) => entry.rect.right - viewportWidth))), detail: `Its ${parentEntry.style.display.includes("grid") ? "grid" : "flex"} tracks are ${round(parent.scrollWidth)}px wide in a ${round(parentEntry.rect.width)}px container, pushing ${group.length > 1 ? `${group.length} children` : "a child"} off screen.` });
         continue;
       }
 
@@ -224,13 +224,13 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
       if (group.length > 1 && parent && parent !== body) {
         const overflow = Math.max(...group.map((entry) => entry.rect.right - viewportWidth));
         reported.add(parent);
-        push({ kind, element: describe(parent), overflowPx: round(overflow), detail: `${group.length} children extend past the viewport; the container does not wrap or shrink them.` });
+        push({ kind, element: describe(parent), overflowPx: round(overflow), detail: `${group.length} children extend off screen because the container does not wrap or shrink them.` });
       } else for (const entry of group.slice(0, 6)) {
         reported.add(entry.element);
         const scrollbarOnly = innerWidth > viewportWidth && Math.abs(entry.rect.right - innerWidth) < 1;
         push({ kind, element: describe(entry.element), overflowPx: round(entry.rect.right - viewportWidth), detail: scrollbarOnly
-          ? `Box spans the full window including the vertical scrollbar (100vw or a min-width equal to the viewport), so it overflows by the scrollbar's ${round(innerWidth - viewportWidth)}px.`
-          : `Box is ${round(entry.rect.width)}px wide and ends ${round(entry.rect.right - viewportWidth)}px past the viewport.` });
+          ? `Sized to the full window (100vw or a viewport-wide min-width), so it runs ${round(innerWidth - viewportWidth)}px under the scrollbar.`
+          : `The box is ${round(entry.rect.width)}px wide and sticks out ${round(entry.rect.right - viewportWidth)}px.` });
       }
     }
 
@@ -247,10 +247,10 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
       if ([...element.children].some((child) => reported.has(child))) continue;
       reported.add(element);
       const longest = ownText(element).split(" ").reduce((best, word) => word.length > best.length ? word : best, "");
-      push({ kind: pageClipsX ? "clipped-by-page" : "page-overflow", element: describe(element), overflowPx: round(contentRight - viewportWidth), detail: clip(`Text overflows its box${longest.length > 18 ? `; unbreakable string "${longest}"` : ""}.`, 512) });
+      push({ kind: pageClipsX ? "clipped-by-page" : "page-overflow", element: describe(element), overflowPx: round(contentRight - viewportWidth), detail: clip(`Text overflows its box${longest.length > 18 ? ` (unbreakable "${longest}")` : ""}.`, 512) });
     }
 
-    if (!reported.size && pageOverflowPx > 0) push({ kind: "page-overflow", element: describe(doc, false), overflowPx: round(pageOverflowPx), detail: "The document scrolls horizontally but no single offending element was isolated." });
+    if (!reported.size && pageOverflowPx > 0) push({ kind: "page-overflow", element: describe(doc, false), overflowPx: round(pageOverflowPx), detail: "The page scrolls sideways, but no single element could be pinned as the cause." });
   }
 
   // 2. Containers that scroll or clip horizontally: classify deliberate scrollers vs. accidental ones.
@@ -367,7 +367,7 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
 
       if (!crowded) continue;
       small++;
-      push({ kind: "target-size", element: describe(element), detail: `Target is ${round(entry.rect.width)}×${round(entry.rect.height)}px and sits within 24px of another target.` });
+      push({ kind: "target-size", element: describe(element), detail: `Target is ${round(entry.rect.width)}×${round(entry.rect.height)}px, within 24px of another target.` });
     }
 
     // 5. Fixed or sticky bars that cover a large share of a short viewport (WCAG 2.4.11 risk).
@@ -383,7 +383,7 @@ export function measurePage(options: MeasureOptions): PageMeasurement {
 
     if (coverage > .4 && bars.length) {
       const largest = [...top, ...bottom].sort((a, b) => b.rect.height - a.rect.height)[0];
-      push({ kind: "sticky-obstruction", element: describe(largest.element), coverage: round(coverage * 100), detail: `Fixed/sticky bars cover ${Math.round(coverage * 100)}% of a ${viewportWidth}×${viewportHeight} viewport (${[...top, ...bottom].map((entry) => selectorOf(entry.element)).slice(0, 3).join(", ")}).` });
+      push({ kind: "sticky-obstruction", element: describe(largest.element), coverage: round(coverage * 100), detail: `Fixed or sticky bars cover ${Math.round(coverage * 100)}% of a ${viewportWidth}×${viewportHeight} screen (${[...top, ...bottom].map((entry) => selectorOf(entry.element)).slice(0, 3).join(", ")}).` });
     }
   }
 
