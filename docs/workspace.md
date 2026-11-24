@@ -9,7 +9,7 @@ Mauxi opens one local project at a time. **Open Project** statically inspects ma
 3. Install missing project dependencies yourself; Mauxi does not install them during setup.
 4. Choose **Confirm & start**. Direct Vite/Next scripts receive a session-only port argument; if their usual port is occupied, Mauxi chooses a free port and leaves the existing server alone. Mauxi waits for Vite to serve the instrumented HTML after configuration reload.
 5. Wait for both preview bridges, not just HTTP readiness.
-6. Open the repository-title menu → **Close project**, or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
+6. Click the Mauxi logo in the top-left corner → **Close project**, or quit to stop the process group Mauxi started and remove its unchanged temporary integration.
 
 Configure and Review keep their action icons visible and reveal their labels on row hover or keyboard focus, without a filled background. Labels stay visible while expanded and on touch devices; keyboard reveals are instant, and reduced motion removes the small horizontal movement.
 
@@ -36,7 +36,7 @@ The preview bridge is development-only. Project pages receive no Node, Electron 
 
 ## Appearance
 
-Mauxi opens in dark mode. Switch with the sun/moon button in the top-right corner of the launch screen, or **Light mode** / **Dark mode** in the repository-title menu. The choice is remembered across restarts. Previews always show the page as the project renders it; the theme only changes Mauxi's own chrome.
+Mauxi opens in dark mode. Switch with the sun/moon button in the top-right corner of the launch screen, or **Light mode** / **Dark mode** in the Mauxi logo menu. The choice is remembered across restarts. Previews always show the page as the project renders it; the theme only changes Mauxi's own chrome.
 
 ## Canvas and previews
 

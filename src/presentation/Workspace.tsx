@@ -13,10 +13,11 @@ import { PreviewTools } from "./PreviewTools";
 import { PreviewHeader } from "./PreviewHeader";
 import { useBrowserControl } from "./BrowserControl";
 import { RepositoryMenu } from "./RepositoryMenu";
-import { ArrowLeft, ScanSearch } from "lucide-react";
+import { ArrowLeft, Maximize, ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
-import { auditMatrix, AuditBoards, type FormingAudit } from "./AuditBoards";
-import { CAPTION } from "../application/audit-layout";
+import { auditMatrix, AuditBoards, matrixTile, type FormingAudit } from "./AuditBoards";
+import { WidthScope } from "./WidthScope";
+import { CAPTION, seenOn } from "../application/audit-layout";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
 import { Type } from "typebox";
@@ -44,6 +45,9 @@ function releaseDraftCaptures(files: string[]): void {
 
 /** Horizontal space the audit panel covers on the right of the canvas. */
 const AUDIT_PANEL_SPACE = 400;
+
+/** Vertical space the peek bar takes under the top bar, kept clear so it never covers the tile it names. */
+const PEEK_BAR_SPACE = 52;
 
 const sameCamera = (a: Camera, b: Camera | null) => !!b && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
@@ -101,7 +105,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   /** A tile brought into view for a closer look: the camera to return to and whether the peek opened the tile. */
   const [peek, setPeek] = useState<{ profileId: string; label: string; camera: Camera; opened: boolean } | null>(null);
-  /** The width last chosen on the sweep strip, and the live boards the sheet keeps its layout from while a drag lasts. */
+  /** The width last chosen on the width scope, and the live boards the sheet keeps its layout from while a drag lasts. */
   const [scrub, setScrub] = useState<{ width: number; frozen: Artboard[] | null } | null>(null);
   /** A "Show at" highlight waiting for its preview to load a newer document than `stale` and settle at the finding's width. */
   const [showing, setShowing] = useState<{ id: PreviewId; route: string; stale: string | null; deadline: number; selector: string | null; label: string } | null>(null);
@@ -714,9 +718,16 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   // A single-route run (the user's or the agent's) forms the matrix on the canvas; a site batch reports in the panel only.
   const forming = auditRunning || hostAudit;
   const measuring = forming && auditProgress?.phase === "profiles" ? auditProgress.profile ?? null : null;
-  // While the sweep strip is dragged, the sheet keeps the layout it had when the drag began, so it holds still under the pointer.
+  // While the width scope is dragged, the sheet keeps the layout it had when the drag began, so it holds still under the pointer.
   const frozen = scrub?.frozen ?? null;
-  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, frozen ?? PREVIEW_IDS.map((id) => layout.boards[id]), expanded), [audit, forming, streamed, measuring, layout.boards, expanded, frozen]);
+  // Stage mode: a selected finding in a finished report puts its snapshots on the stage (see layoutStage).
+  const stagedFinding = !forming && audit && selectedFinding ? audit.findings.find((finding) => finding.id === selectedFinding) ?? null : null;
+  const stageFocus = useMemo(() => stagedFinding && audit ? audit.snapshots.map((snapshot) => snapshot.profileId).filter((id) => seenOn(stagedFinding, id)) : null, [stagedFinding, audit]);
+  const stageFocusRef = useRef(stageFocus); stageFocusRef.current = stageFocus;
+  const matrix = useMemo(() => auditMatrix(audit, forming ? { snapshots: streamed, current: measuring } : null, frozen ?? PREVIEW_IDS.map((id) => layout.boards[id]), expanded, stageFocus), [audit, forming, streamed, measuring, layout.boards, expanded, frozen, stageFocus]);
+
+  // The width scope in the top bar counts what the canvas shows: no findings while a run forms, none marked intentional.
+  const scopeFindings = useMemo(() => forming || !audit ? [] : audit.findings.filter((finding) => !ignoredFindings.has(finding.id)), [forming, audit, ignoredFindings]);
 
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
@@ -729,22 +740,49 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
 
   /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
-  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean): Camera {
+  function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean, focus: string[] | null = null): Camera {
     const live = PREVIEW_IDS.map((id) => state.boards[id]);
-    const { boards, sheet } = auditMatrix(report, forming, live);
+    const { boards, sheet, stage } = auditMatrix(report, forming, live, new Set(), focus);
 
-    return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : []], panel, OVERVIEW_MIN_ZOOM);
+    return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : [], ...stage ? [stage.frame, ...stage.boards] : []], panel, OVERVIEW_MIN_ZOOM);
   }
 
-  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free. */
-  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM): Camera {
+  // Entering, switching or leaving the stage flies the camera to the new arrangement and crops the stage's tiles again.
+  const stagedId = stagedFinding?.id ?? null;
+  const lastStaged = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (lastStaged.current === stagedId) return;
+    lastStaged.current = stagedId;
+    setPeek(null);
+    setExpanded((current) => [...current].some((key) => key.startsWith("stage:")) ? new Set([...current].filter((key) => !key.startsWith("stage:"))) : current);
+
+    if (!audit || forming) return;
+    flyTo(matrixCamera(unfocus(layoutRef.current), audit, null, panelOpenRef.current, stageFocusRef.current));
+  // flyTo and matrixCamera read refs; the stage changing is the only trigger.
+  }, [stagedId]);
+
+  /** Opens or crops every tile on the stage at once. */
+  function expandStage(open: boolean) {
+    const keys = matrix.stage?.boards.map((board) => board.key) ?? [];
+    setExpanded((current) => {
+      const next = new Set([...current].filter((key) => !keys.includes(key)));
+
+      if (open) keys.forEach((key) => next.add(key));
+
+      return next;
+    });
+  }
+
+  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free; reserve: more px kept clear under the top bar. */
+  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM, reserve = 0): Camera {
     const element = canvas.current;
 
     if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, minZoom, maxZoom);
     const rect = element.getBoundingClientRect();
     const bar = element.parentElement?.querySelector(".topbar")?.getBoundingClientRect();
     const dock = element.parentElement?.querySelector(".chat-dock")?.getBoundingClientRect();
-    const top = bar ? Math.max(0, bar.bottom - rect.top) : 0;
+    const top = (bar ? Math.max(0, bar.bottom - rect.top) : 0) + reserve;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
     const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, minZoom, maxZoom);
@@ -828,20 +866,20 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return () => window.clearTimeout(timer);
   }, [showing, runtimes, send]);
 
-  /** Opens a cropped sheet tile downward in place, or crops an open one keeping its bottom (where its button was) in place. */
-  function toggleTile(profileId: string) {
+  /** Opens a cropped tile (by its key) downward in place, or crops an open one keeping its bottom (where its button was) in place. */
+  function toggleTile(key: string) {
     const next = new Set(expanded);
 
-    if (!next.delete(profileId)) { next.add(profileId); setExpanded(next);
+    if (!next.delete(key)) { next.add(key); setExpanded(next);
 
       return; }
 
     const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
-    const open = matrix.boards.find((board) => board.id === profileId);
-    const cropped = auditMatrix(audit, null, live, next).boards.find((board) => board.id === profileId);
+    const open = matrixTile(matrix, key);
+    const cropped = matrixTile(auditMatrix(audit, null, live, next, stageFocus), key);
     setExpanded(next);
 
-    if (peek?.profileId === profileId) setPeek({ ...peek, opened: false });
+    if (peek?.profileId === key) setPeek({ ...peek, opened: false });
 
     if (open && cropped) setLayout((current) => ({ ...current, camera: { ...current.camera, y: current.camera.y + (open.height - cropped.height) * current.camera.zoom } }));
   }
@@ -877,28 +915,29 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
    * size, showing its top with the caption or, for a finding (a Seen at chip), a screen around its marker. Esc or Back
    * returns to the camera before the first peek and crops the tile again if the peek opened it.
    */
-  function peekAt(profileId: string, finding?: AuditFinding) {
+  function peekAt(key: string, finding?: AuditFinding) {
     if (!audit || forming) return;
     const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
     // Switching tiles crops the one the last peek opened.
     const base = new Set(expanded);
 
-    if (peek?.opened && peek.profileId !== profileId) base.delete(peek.profileId);
-    const tile = auditMatrix(audit, null, live, base).boards.find((board) => board.id === profileId);
+    if (peek?.opened && peek.profileId !== key) base.delete(peek.profileId);
+    const tile = matrixTile(auditMatrix(audit, null, live, base, stageFocus), key);
 
     if (!tile) return;
+    const profileId = tile.id;
     const opened = tile.cropped;
-    const open = opened ? new Set([...base, profileId]) : base;
-    const target = opened ? auditMatrix(audit, null, live, open).boards.find((board) => board.id === profileId)! : tile;
+    const open = opened ? new Set([...base, key]) : base;
+    const target = opened ? matrixTile(auditMatrix(audit, null, live, open, stageFocus), key)! : tile;
     const marker = finding?.markers.find((item) => item.profileId === profileId);
     const view = Math.min(target.height, Math.max(target.width * 1.6, 560));
     const from = marker ? Math.max(0, Math.min(target.height - view, Math.max(0, marker.rect.y) * target.scale - view / 3)) : 0;
     const caption = from === 0 ? CAPTION : 0;
     const header = geometry.current.headerHeight;
-    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale));
+    const camera = freeCamera([{ x: target.x, y: target.y + from, width: target.width, height: view, inset: caption - header }], panelOpenRef.current, OVERVIEW_MIN_ZOOM, Math.min(MAX_ZOOM, 1 / target.scale), PEEK_BAR_SPACE);
 
     setExpanded(open);
-    setPeek({ profileId, label: tile.label, camera: peek?.camera ?? layoutRef.current.camera, opened: opened || (!!peek?.opened && peek.profileId === profileId) });
+    setPeek({ profileId: key, label: tile.label, camera: peek?.camera ?? layoutRef.current.camera, opened: opened || (!!peek?.opened && peek.profileId === key) });
 
     if (finding) setSelectedFinding(finding.id);
     setLayout((current) => unfocus(current));
@@ -916,27 +955,43 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     flyTo(peek.camera);
   }
 
+  /** Brings everything on the canvas back into view: the live previews and, when there is one, the audit sheet or stage. */
+  function fitAll() {
+    if (browserLocked.current) return;
+
+    if (peek?.opened) setExpanded((current) => { const next = new Set(current); next.delete(peek.profileId);
+
+      return next; });
+    setPeek(null);
+    const base = unfocus(layoutRef.current);
+    setLayout((current) => unfocus(current));
+    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current));
+  }
+
   const endPeekRef = useRef(endPeek); endPeekRef.current = endPeek;
   const peeking = !!peek;
+  const staging = !!stagedId;
 
-  // Esc ends a peek before the canvas handles it, anywhere but in a text field.
+  // Esc ends a peek, or else leaves the stage, before the canvas handles it, anywhere but in a text field.
   useEffect(() => {
-    if (!peeking) return;
+    if (!peeking && !staging) return;
 
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
 
       if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], dialog')) return;
-      event.preventDefault(); endPeekRef.current();
+      event.preventDefault();
+
+      if (peeking) endPeekRef.current(); else setSelectedFinding(null);
     };
 
     window.addEventListener("keydown", keydown, true);
 
     return () => window.removeEventListener("keydown", keydown, true);
-  }, [peeking]);
+  }, [peeking, staging]);
 
   /**
-   * Resizes a live preview to a width chosen on the sweep strip: Mobile up to 1024 px, Desktop above, keeping its height.
+   * Resizes a live preview to a width chosen on the width scope: Mobile up to 1024 px, Desktop above, keeping its height.
    * A wider Desktop pushes a Mobile preview on its right along. Refused while the agent holds browser control.
    */
   function scrubTo(width: number, phase: "start" | "move" | "end") {
@@ -1027,11 +1082,14 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
         flushSync(() => setClosing(true));
 
         try { await onClose(); } catch (error) { setClosing(false); throw error; }
-      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="" /><strong>Mauxi</strong></div>}
+      }} /> : <div className="brand"><img className="brand-mark" src={logo} alt="Mauxi" /></div>}
+      <WidthScope findings={scopeFindings} lit={scopeFindings.find((finding) => finding.id === (panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding)) ?? null}
+        value={scrub?.width ?? layout.boards.mobile.width} locked={browser.locked} active={!!audit || forming} onScrub={scrubTo} />
       {!panelOpen && <button type="button" className="audit-launcher" aria-expanded={false} onClick={() => setPanelOpen(true)} title="Open the responsive audit" aria-label="Responsive audit">
         <ScanSearch size={16} aria-hidden="true" /><span className="audit-launcher-label">Responsive audit</span>{audit && <span className="audit-launcher-count" aria-hidden="true">{audit.summary.bug}</span>}
       </button>}
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
+      <button type="button" className="canvas-fit" aria-label="Fit everything in view" title="Fit everything in view" disabled={browser.locked} onClick={fitAll}><Maximize size={16} aria-hidden="true" /></button>
     </header>
     {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
@@ -1045,9 +1103,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); stopFlight(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      <AuditBoards matrix={matrix} report={audit} forming={forming} progress={auditProgress} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
-        expanded={expanded} peek={peek?.profileId ?? null} scrub={scrub?.width ?? layout.boards.mobile.width} locked={browser.locked}
-        onSelect={(finding) => setSelectedFinding(finding.id)} onExpand={toggleTile} onPeek={(id) => peekAt(id)} onScrub={scrubTo} />
+      <AuditBoards matrix={matrix} report={audit} forming={forming} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
+        expanded={expanded} peek={peek?.profileId ?? null}
+        onSelect={(finding) => setSelectedFinding(finding.id)} onExpand={toggleTile} onPeek={(key) => peekAt(key)}
+        onShow={showFinding} onExpandStage={expandStage} onUnstage={() => setSelectedFinding(null)} />
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;
@@ -1079,7 +1138,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     <ChatDock workspaceId={active?.workspaceId} browserControl={{ locked: browser.locked, pending: browser.pending || !!browser.state?.releasing, ready: !!browser.state && PREVIEW_IDS.every(id => runtimes[id].ready) && active?.status !== "failed", onGrant: grantBrowserControl, onRevoke: () => void browser.owner("human") }} minimizeRequest={chatMinimizeRequest} selections={selections} onRemove={(id) => setSelections((items) => items.filter((item) => item.capture.selectionId !== id))} onBeforeSend={revalidateDraft} onSelectionsSent={(ids) => setSelections((items) => items.filter((item) => !ids.includes(item.capture.selectionId)))}
       findings={attachedFindings} onRemoveFinding={(id) => setAttachedFindings((items) => items.filter((item) => item.id !== id))} onFindingsSent={(ids) => setAttachedFindings((items) => items.filter((item) => !ids.includes(item.id)))} />
     {panelOpen && <AuditPanel onClose={() => setPanelOpen(false)} report={siteView ? null : audit} progress={auditProgress} running={auditRunning || hostAudit || site.discovering || site.running} error={auditError || site.error} selected={selectedFinding} attached={new Set(attachedFindings.map((item) => item.id))} ignored={ignoredFindings}
-      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)} onLocate={(finding, profileId) => peekAt(profileId, finding)}
+      onRun={() => void runAudit(site.mode === "page" ? site.page ?? undefined : undefined)} onCancel={() => void window.mauxi?.auditCancel()} onSelect={selectFinding} onShow={showFinding} onFix={attachFinding} onIgnore={toggleIgnored} onHover={(finding) => setHoveredFinding(finding?.id ?? null)} onLocate={(finding, profileId) => peekAt(matrix.stage?.boards.some((board) => board.id === profileId) ? `stage:${profileId}` : profileId, finding)}
       onSite={startSite} siteView={siteView} pageBar={site.mode === "page" && <SitePageBar report={site.report} page={site.page} onBack={site.back} />} />}
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };

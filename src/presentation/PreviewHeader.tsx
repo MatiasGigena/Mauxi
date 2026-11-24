@@ -32,7 +32,7 @@ export function PreviewHeader({ id, board, ready, locked, interacting, selecting
       const step = event.shiftKey ? 100 : 20;
       onMove({ x: event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0, y: event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0 });
     }}>
-      <strong>{label}{interacting && <span className="preview-interaction-label"> · Interacting</span>}</strong>
+      <strong>{label}<span className="live-chip" data-ready={ready || undefined} title={ready ? "Live preview of your running app" : "Connecting to the preview"}><span>{ready ? "Live" : "Connecting"}</span></span>{interacting && <span className="preview-interaction-label">Interacting</span>}</strong>
       <span className={ready ? "bridge-ready" : ""}>{board.width} × {board.height}</span>
     </button>
     <div className="artboard-actions">

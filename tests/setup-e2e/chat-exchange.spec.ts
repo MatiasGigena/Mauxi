@@ -346,9 +346,12 @@ test("clicking inside a preview minimizes, unrelated shell clicks do not", async
   await page.getByRole("button", { name: "Project menu" }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
-  await editor.focus();
   await page.getByRole("button", { name: "Interact with Desktop preview", exact: true }).click();
+  await editor.focus();
+  await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");
   await page.frameLocator('[data-testid="desktop-preview"]').getByText("Test preview", { exact: true }).click();
+  // The preview takes focus asynchronously; refocusing the editor before it lands lets the late blur minimize the chat again.
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("desktop-preview");
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveCount(0);
   await editor.focus();
   await expect(page.getByRole("log", { name: "Agent response" })).toHaveText("Completed response");

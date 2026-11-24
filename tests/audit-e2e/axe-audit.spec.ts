@@ -104,8 +104,8 @@ test("runs axe-core at every width profile and reports layout-specific violation
   await expect(panel.locator(".audit-summary [data-kind=bug] dd")).toHaveText("5");
   await expect(panel.getByRole("note")).toHaveCount(0);
   const card = panel.locator(`.finding-card[data-finding-id="${toggle.id}"]`);
-  await expect(card.locator(".finding-rule")).toHaveText("axe · button-name");
   await card.locator(".finding-summary").click();
+  await expect(card.locator(".finding-rule")).toHaveText("axe · button-name");
   await expect(card.getByRole("button", { name: "Learn more" })).toBeVisible();
   const markerName = `Finding ${report.findings.indexOf(toggle) + 1}: ${toggle.title}`;
   await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"]').getByRole("button", { name: markerName })).toBeVisible();

@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Check, ChevronDown, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
+import { ArrowUpRight, Bot, Check, ChevronDown, Compass, Eye, EyeOff, Keyboard, Layers, LoaderCircle, PanelRightClose, Play, RotateCcw, ScanSearch, Square, Undo2 } from "lucide-react";
 import { AUDIT_PROFILES, formatRanges, type AuditFinding, type AuditProgress, type AuditReport, type FindingClassification } from "../application/audit-contract";
-import { mergeRanges } from "../application/audit-site";
 import { profileTag, seenOn } from "../application/audit-layout";
+import { scopePosition } from "./WidthScope";
 
-const MIN_WIDTH = 320;
-const MAX_WIDTH = 1920;
 const TICKS = [320, 768, 1280, 1920];
 
 const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> = [
@@ -14,7 +12,7 @@ const GROUPS: Array<{ id: FindingClassification; label: string; hint: string }> 
   { id: "intentional", label: "Intentional, with gaps", hint: "Deliberate patterns missing accessibility" },
 ];
 
-const CHECKS = ["1.4.10 Reflow", "1.4.12 Text spacing", "2.5.8 Target size", "2.4.11 Focus not obscured", "2.4.7 Focus visible", "1.4.13 Hover content", "1.4.4 Zoom", "2.1.1 Scroller keyboard access", "axe-core: contrast, names, labels, ARIA"];
+const CHECKS = ["Reflow and zoom, 320 to 1920px", "Text spacing and target size", "Keyboard focus, menus and tooltips", "Contrast, names, labels and ARIA"];
 
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
@@ -41,9 +39,9 @@ export function progressPercent(progress: AuditProgress | null): number {
   return Math.round((site ? (site.index + fraction) / Math.max(1, site.total) : fraction) * 100);
 }
 
-const position = (width: number) => `${((Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)) - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`;
+const position = (width: number) => `${scopePosition(width) * 100}%`;
 
-/** A 320–1920px ruler with the width ranges where a problem was measured. */
+/** A 320–1920px ruler (log scale, like the width scope) with the width ranges where a problem was measured. */
 export function WidthRuler({ ranges, severity, ticks = false, label }: { ranges: Array<[number, number]>; severity?: AuditFinding["severity"]; ticks?: boolean; label: string }) {
   return <div className="width-ruler" data-severity={severity} role="img" aria-label={label}>
     <div className="width-ruler-track">
@@ -81,18 +79,24 @@ function FindingCard({ finding, index, selected, attached, ignored, seen, onSele
       <span className="finding-heading">
         <strong>{finding.title}</strong>
         <span className="finding-meta">
-          {finding.criterion ? <span className="finding-criterion">WCAG {finding.criterion.id} {finding.criterion.name}</span> : <span className="finding-criterion muted">{finding.rule ? "Best practice" : "Responsive layout"}</span>}
-          {finding.rule && <span className="finding-rule" title={finding.rule.help}>axe · {finding.rule.id}</span>}
           <span className="finding-severity">{finding.severity}</span>
+          {finding.criterion ? <span className="finding-criterion">WCAG {finding.criterion.id} {finding.criterion.name}</span> : <span className="finding-criterion muted">{finding.rule ? "Best practice" : "Responsive layout"}</span>}
         </span>
       </span>
-      <ChevronDown className="finding-chevron" size={14} aria-hidden="true" />
+      <span className="finding-aside">
+        <ChevronDown className="finding-chevron" size={14} aria-hidden="true" />
+        <span className="finding-span" role="img" aria-label={`Measured at ${formatRanges(finding.ranges)}`}>
+          {finding.ranges.map(([from, to]) => <span key={`${from}-${to}`} style={{ left: position(from), width: `max(3px, calc(${position(to)} - ${position(from)}))` }} />)}
+        </span>
+      </span>
     </button>
-    <WidthRuler ranges={finding.ranges} severity={finding.severity} label={`Measured at ${formatRanges(finding.ranges)}`} />
     {selected && <div className="finding-body">
-      {finding.element && <p className="finding-element"><code>{finding.element.selector}</code>{source && <span title={finding.element.source?.verified ? "Host-verified source file" : "Unverified hint from the React development build"}>{source}{finding.element.source?.verified && <Check size={12} aria-label="verified" />}</span>}</p>}
       <p>{finding.detail}</p>
-      <p className="finding-fix"><strong>Direction:</strong> {finding.fixHint}</p>
+      <div className="finding-fix"><Compass size={15} aria-hidden="true" /><p><strong>Direction</strong>{finding.fixHint}</p></div>
+      {(finding.element || finding.rule) && <div className="finding-facts">
+        {finding.element && <p className="finding-element"><code>{finding.element.selector}</code>{source && <span title={finding.element.source?.verified ? "Host-verified source file" : "Unverified hint from the React development build"}>{source}{finding.element.source?.verified && <Check size={12} aria-label="verified" />}</span>}</p>}
+        {finding.rule && <span className="finding-rule" title={finding.rule.help}>axe · {finding.rule.id}</span>}
+      </div>}
       {seen.length > 0 && <div className="finding-seen" role="group" aria-label="Seen at">
         <span>Seen at</span>
         {seen.map((board) => <button key={board.id} type="button" title={`Show the ${board.label} snapshot on the canvas`} aria-label={`Show on the ${board.label} snapshot`} onClick={() => onLocate(board.id)}>
@@ -100,11 +104,13 @@ function FindingCard({ finding, index, selected, attached, ignored, seen, onSele
         </button>)}
       </div>}
       <div className="finding-actions">
-        <button type="button" onClick={onShow}><Eye size={14} aria-hidden="true" /><span>Show at {finding.worst.width}px</span></button>
         <button type="button" className="finding-fix-action" disabled={attached} onClick={onFix}><Bot size={14} aria-hidden="true" /><span>{attached ? "Attached to chat" : "Fix with agent"}</span></button>
+        <button type="button" onClick={onShow}><Eye size={14} aria-hidden="true" /><span>Show at {finding.worst.width}px</span></button>
+      </div>
+      {(finding.classification !== "bug" || help) && <div className="finding-actions" data-secondary="">
         {finding.classification !== "bug" && <button type="button" className="finding-ignore" onClick={onIgnore}>{ignored ? <Undo2 size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}<span>{ignored ? "Restore" : "Mark intentional"}</span></button>}
         {help && <button type="button" className="finding-help" title="Opens Deque's rule page in your browser" onClick={() => { setHelpError(false); void window.mauxi?.openAxeHelp(help).catch(() => setHelpError(true)); }}><span>Learn more</span><ArrowUpRight size={13} aria-hidden="true" /></button>}
-      </div>
+      </div>}
       {helpError && <p className="finding-help-error" role="alert">Could not open your default browser.</p>}
     </div>}
   </article>;
@@ -124,11 +130,13 @@ export function AuditPanel({ report, progress, running, error, selected, attache
 }) {
   const [showResolved, setShowResolved] = useState(true);
   const [showUnverified, setShowUnverified] = useState(false);
+  const [showInteractions, setShowInteractions] = useState(false);
+  const [showScrollers, setShowScrollers] = useState(false);
   const visible = report?.findings.filter((finding) => !ignored.has(finding.id)) ?? [];
   const hidden = report?.findings.filter((finding) => ignored.has(finding.id)) ?? [];
-  const failing = mergeRanges(visible.filter((finding) => finding.classification === "bug").flatMap((finding) => finding.ranges));
   const site = progress?.site;
   const percent = progressPercent(progress);
+  const stat = (kind: string, label: string, value: number) => <div data-kind={kind} data-zero={value === 0 || undefined}><dt>{label}</dt><dd>{value}</dd></div>;
 
   const card = (finding: AuditFinding) => <FindingCard key={finding.id} finding={finding} index={report!.findings.indexOf(finding) + 1} selected={selected === finding.id} attached={attached.has(finding.id)} ignored={ignored.has(finding.id)}
     seen={report!.snapshots.filter((snapshot) => seenOn(finding, snapshot.profileId)).map((snapshot) => ({ id: snapshot.profileId, label: snapshot.label, width: snapshot.width }))}
@@ -138,7 +146,7 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     <header className="audit-panel-header">
       <div>
         <h2><ScanSearch size={16} aria-hidden="true" />Responsive audit</h2>
-        <p>{report ? <><code>{report.route}</code> · {report.widthsScanned} widths · {(report.durationMs / 1000).toFixed(1)}s</> : siteView ? "Every page, across every width" : "Reflow, zoom and spacing across every width"}</p>
+        <p title={report ? `Scanned in ${(report.durationMs / 1000).toFixed(1)}s` : undefined}>{report ? <><code>{report.route}</code><span className="audit-panel-scan">{report.profiles.length} viewports · {report.widthsScanned} widths</span></> : siteView ? "Every page, across every width" : "Reflow, zoom and spacing across every width"}</p>
       </div>
       <div className="audit-panel-actions">
         {!running && <button type="button" className="audit-site" onClick={onSite} aria-label="Audit site" title="Audit site: find the pages linked from this route and audit them in a batch"><Layers size={15} aria-hidden="true" /></button>}
@@ -165,28 +173,27 @@ export function AuditPanel({ report, progress, running, error, selected, attache
     {report && pageBar}
 
     {!report && !running && !siteView && <div className="audit-empty">
-      <p>Mauxi loads this page in a hidden window, sweeps it from 320 to 1920px, then checks {AUDIT_PROFILES.length} profiles from a 320px phone to a 1920px desktop, in portrait and landscape, at 200% and 400% zoom and with increased text spacing, then tabs through the page and opens its menus at 320px. The visible previews stay untouched.</p>
+      <p>Mauxi sweeps this page from 320 to 1920px in a hidden window and checks it on {AUDIT_PROFILES.length} device profiles. Your previews stay untouched.</p>
       <ul aria-label="Checks">{CHECKS.map((check) => <li key={check}>{check}</li>)}</ul>
       <p className="audit-empty-site"><Layers size={13} aria-hidden="true" />Use <strong>Audit site</strong> to find the pages linked from here and audit them together.</p>
     </div>}
 
     {report && <div className="audit-overview">
-      <WidthRuler ranges={failing} severity="serious" ticks label={failing.length ? `Bugs measured at ${formatRanges(failing)}` : "No bugs measured at any width"} />
       <dl className="audit-summary">
-        <div data-kind="bug"><dt>Bugs</dt><dd>{visible.filter((finding) => finding.classification === "bug").length}</dd></div>
-        <div data-kind="review"><dt>Review</dt><dd>{visible.filter((finding) => finding.classification === "review").length}</dd></div>
-        <div data-kind="intentional"><dt>Intentional</dt><dd>{visible.filter((finding) => finding.classification === "intentional").length}</dd></div>
-        <div data-kind="resolved"><dt>Resolved</dt><dd>{report.resolved.length}</dd></div>
+        {stat("bug", "Bugs", visible.filter((finding) => finding.classification === "bug").length)}
+        {stat("review", "Review", visible.filter((finding) => finding.classification === "review").length)}
+        {stat("intentional", "Intentional", visible.filter((finding) => finding.classification === "intentional").length)}
+        {stat("resolved", "Resolved", report.resolved.length)}
       </dl>
     </div>}
 
     {report && <div className="audit-findings">
       {report.resolved.length > 0 && <section className="finding-group resolved-group">
-        <button type="button" className="finding-group-title" aria-expanded={showResolved} onClick={() => setShowResolved((open) => !open)}><Check size={14} aria-hidden="true" />Resolved since last run<span>{report.resolved.length}</span></button>
+        <button type="button" className="finding-group-title" aria-expanded={showResolved} onClick={() => setShowResolved((open) => !open)}><Check size={14} aria-hidden="true" />Resolved since last run<span>{report.resolved.length}</span><ChevronDown className="finding-chevron" size={14} aria-hidden="true" /></button>
         {showResolved && <ul>{report.resolved.map((finding) => <li key={finding.id} data-finding-id={finding.id} onPointerEnter={() => onHover(finding)} onPointerLeave={() => onHover(null)}><Check size={12} aria-hidden="true" /><span>{finding.title}</span></li>)}</ul>}
       </section>}
       {(report.unverified?.length ?? 0) > 0 && <section className="finding-group unverified-group">
-        <button type="button" className="finding-group-title" aria-expanded={showUnverified} onClick={() => setShowUnverified((open) => !open)}><RotateCcw size={14} aria-hidden="true" />Not re-checked this run<span>{report.unverified!.length}</span></button>
+        <button type="button" className="finding-group-title" aria-expanded={showUnverified} onClick={() => setShowUnverified((open) => !open)}><RotateCcw size={14} aria-hidden="true" />Not re-checked this run<span>{report.unverified!.length}</span><ChevronDown className="finding-chevron" size={14} aria-hidden="true" /></button>
         {showUnverified && <ul>{report.unverified!.map((finding) => <li key={finding.id}><span>{finding.title}</span></li>)}</ul>}
       </section>}
       {GROUPS.map((group) => {
@@ -199,13 +206,13 @@ export function AuditPanel({ report, progress, running, error, selected, attache
       })}
       {!visible.length && <p className="audit-clean"><Check size={16} aria-hidden="true" />No responsive findings at any measured width.</p>}
       {report.interactions && <section className="finding-group interaction-group" aria-label="Interaction checks">
-        <h3 className="finding-group-title" title="Tab-only focus walk, disclosures and tooltips at narrow profiles"><Keyboard size={14} aria-hidden="true" />Interaction checks<span>{(report.interactions.durationMs / 1000).toFixed(1)}s</span></h3>
-        <p className="interaction-summary">{count(report.interactions.focusStops, "focus stop")} · {count(report.interactions.disclosures, "disclosure")} opened · {count(report.interactions.hovers, "tooltip")} hovered · {report.interactions.profiles.map((id) => report.profiles.find((profile) => profile.id === id)?.label ?? id).join(", ")}</p>
-        {report.interactions.notes.length > 0 && <ul aria-label="Interaction notes">{report.interactions.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
+        <button type="button" className="finding-group-title" title="Tab-only focus walk, disclosures and tooltips at narrow profiles" aria-expanded={showInteractions} onClick={() => setShowInteractions((open) => !open)}><Keyboard size={14} aria-hidden="true" />Interaction checks<span>{(report.interactions.durationMs / 1000).toFixed(1)}s</span><ChevronDown className="finding-chevron" size={14} aria-hidden="true" /></button>
+        {showInteractions && <p className="interaction-summary">{count(report.interactions.focusStops, "focus stop")} · {count(report.interactions.disclosures, "disclosure")} opened · {count(report.interactions.hovers, "tooltip")} hovered · {report.interactions.profiles.map((id) => report.profiles.find((profile) => profile.id === id)?.label ?? id).join(", ")}</p>}
+        {showInteractions && report.interactions.notes.length > 0 && <ul aria-label="Interaction notes">{report.interactions.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
       </section>}
       {report.scrollers.length > 0 && <section className="finding-group scroller-group" aria-label="Intentional scrollers">
-        <h3 className="finding-group-title" title="Kept scrolling on purpose">Intentional scrollers<span>{report.scrollers.length}</span></h3>
-        <ul>{report.scrollers.map((scroller) => <li key={scroller.key}><code>{scroller.element.selector}</code><span>{scroller.signals.join(", ")}</span></li>)}</ul>
+        <button type="button" className="finding-group-title" title="Kept scrolling on purpose" aria-expanded={showScrollers} onClick={() => setShowScrollers((open) => !open)}>Intentional scrollers<span>{report.scrollers.length}</span><ChevronDown className="finding-chevron" size={14} aria-hidden="true" /></button>
+        {showScrollers && <ul>{report.scrollers.map((scroller) => <li key={scroller.key}><code>{scroller.element.selector}</code><span>{scroller.signals.join(", ")}</span></li>)}</ul>}
       </section>}
       {hidden.length > 0 && <section className="finding-group" data-group="ignored" aria-label="Marked intentional">
         <h3 className="finding-group-title">Marked intentional<span>{hidden.length}</span></h3>

@@ -80,7 +80,9 @@ test("the canvas opens with every audit viewport in view and the audit forming o
   const boards = page.locator(".snapshot-board");
   await expect(boards).toHaveCount(AUDIT_PROFILES.length);
   expect(await boards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-profile-id")))).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
-  await expect(page.locator(".audit-matrix-title")).toContainText("Auditing");
+  // Progress lives in the panel only; the canvas carries no second audit header.
+  await expect(panel().getByRole("status")).toContainText("%");
+  await expect(page.locator(".audit-matrix-title")).toHaveCount(0);
   await expect(page.locator('.snapshot-board[data-state="queued"]').first()).toBeVisible();
   const forming = await layout();
   summary.forming = forming;
@@ -105,8 +107,8 @@ test("the canvas opens with every audit viewport in view and the audit forming o
   expect(report.profiles.map((profile) => profile.id)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
   await expect(page.locator(".snapshot-board[data-state]")).toHaveCount(0);
   await expect(boards).toHaveCount(report.snapshots.length);
-  await expect(page.locator(".audit-matrix-title strong")).toHaveText("Responsive audit");
-  await expect(page.locator(".audit-matrix-title .audit-matrix-detail")).toHaveText(`${AUDIT_PROFILES.length} viewports · ${report.widthsScanned} widths`);
+  await expect(panel().locator(".audit-panel-header p")).toHaveText(`${report.route}${AUDIT_PROFILES.length} viewports · ${report.widthsScanned} widths`);
+  await expect(page.locator(".audit-matrix-title")).toHaveCount(0);
   await expect(panel().getByRole("button", { name: "Re-run", exact: true })).toBeVisible();
   const done = await layout();
   summary.report = { ...done, durationMs: report.durationMs, widthsScanned: report.widthsScanned, summary: report.summary, axe: report.axe?.profiles };

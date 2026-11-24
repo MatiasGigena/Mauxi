@@ -7,7 +7,7 @@ import { launch, text } from "../helpers/fake-provider";
 
 interface Box { x: number; y: number; width: number; height: number }
 
-/** Every tile on the audit sheet, its caption and spotlight, how its image and surface are sized, and the camera zoom. */
+/** Every tile on the audit sheet (or stage mode's grid) and the stage, captions, spotlight, image and surface sizes, and the camera zoom. */
 async function sheetState(page: Page) {
   return page.evaluate(() => {
     const box = (node: Element | null) => {
@@ -17,7 +17,7 @@ async function sheetState(page: Page) {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
 
-    const tiles = [...document.querySelectorAll<HTMLElement>(".snapshot-board")].map((node) => {
+    const read = (node: HTMLElement) => {
       const image = node.querySelector("img");
       const rail = node.querySelector(".snapshot-rail");
 
@@ -29,20 +29,24 @@ async function sheetState(page: Page) {
         grouped: node.querySelectorAll(".finding-marker[data-grouped]").length,
         crop: node.querySelector(".snapshot-crop button")?.getAttribute("aria-label") ?? null,
       };
-    });
+    };
 
-    const lanes = [...document.querySelectorAll<HTMLElement>(".sheet-lane-label")].map((node) => ({ id: node.dataset.lane!, rect: box(node)! }));
+    const tiles = [...document.querySelectorAll<HTMLElement>(".snapshot-board")].map(read);
+    const staged = [...document.querySelectorAll<HTMLElement>(".stage-tile")].map(read);
+
+    const lanes = [...document.querySelectorAll<HTMLElement>(".sheet-lane-label")].map((node) => ({ id: node.dataset.lane!, gutter: node.dataset.gutter !== undefined, rect: box(node)! }));
     const canvas = document.querySelector('[data-testid="canvas"]')!.getBoundingClientRect();
     const top = document.querySelector(".topbar")!.getBoundingClientRect().bottom;
     const right = document.querySelector(".audit-panel")?.getBoundingClientRect().left ?? canvas.right;
     const bottom = document.querySelector(".chat-dock")!.getBoundingClientRect().top;
-    const cells = [...document.querySelectorAll(".sweep-cells span")];
+    const bars = [...document.querySelectorAll(".width-scope .scope-bar")];
 
     return {
-      tiles, lanes, zoom: Number(document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value),
+      tiles, staged, lanes, zoom: Number(document.querySelector<HTMLInputElement>('[aria-label="Camera zoom"]')!.value),
       free: { x: canvas.left, y: top, width: right - canvas.left, height: bottom - top },
       live: [...document.querySelectorAll(".artboard[data-preview-id]")].map((node) => box(node)!),
-      sheet: box(document.querySelector(".audit-sheet")), cells: cells.length, lit: cells.filter((cell) => cell.hasAttribute("data-lit")).length,
+      sheet: box(document.querySelector(".audit-sheet")), stage: box(document.querySelector(".audit-stage")), title: box(document.querySelector(".stage-grid-title")),
+      bars: bars.length, lit: bars.filter((bar) => bar.hasAttribute("data-lit")).length,
     };
   });
 }
@@ -52,9 +56,19 @@ type SheetState = Awaited<ReturnType<typeof sheetState>>;
 const inside = (box: Box, area: Box) => box.x >= area.x - .5 && box.y >= area.y - .5 && box.x + box.width <= area.x + area.width + .5 && box.y + box.height <= area.y + area.height + .5;
 const overlap = (a: Box, b: Box) => a.x < b.x + b.width - .5 && b.x < a.x + a.width - .5 && a.y < b.y + b.height - .5 && b.y < a.y + a.height - .5;
 
+/** Waits until a locator's screen box stops changing (the camera finished flying). */
+async function still(locator: import("@playwright/test").Locator) {
+  let last = "";
+  await expect.poll(async () => { const now = JSON.stringify(await locator.boundingBox()); const same = now === last; last = now;
+
+    return same; }, { intervals: [150], timeout: 10_000 }).toBe(true);
+}
+
 // The canvas after the Vite audit lab's entry audit: one audit sheet under elevated live previews, tiles of three sizes in
-// lanes, captions that lead with the width, a sweep strip and a spotlight that follow the panel, and tiles that open in place.
-test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a finding's tile", async ({}, testInfo) => {
+// lanes, captions that lead with the width, a width scope and a spotlight that follow the panel. Selecting a finding puts
+// the canvas in stage mode: every tile moves to a grid beside the previews and the finding's snapshots go large on the
+// stage, where a "Seen at" chip locates one and its tile opens in place; Esc returns to the sheet.
+test("audit sheet and stage: lanes, tile sizes, crops, finding spotlight, staging and locating a finding's tile", async ({}, testInfo) => {
   const state = await mkdtemp(path.join(os.tmpdir(), "mauxi-audit-canvas-"));
   const { page, close } = await launch(state, () => text("No browser actions needed."), {}, "/audit-lab.html", "Local model");
   const evidence: Array<{ step: string; sheet: SheetState }> = [];
@@ -119,14 +133,15 @@ test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a fi
     expect(overview.tiles.find((tile) => tile.id === "phone-sm")!.rail).toBe("block");
     await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"] .finding-marker').first()).toBeAttached();
 
-    // Live previews carry the elevation; the sheet and its tiles are flat. The sweep strip has a cell per measured width.
+    // Live previews carry the elevation; the sheet and its tiles are flat. The width scope has a mark per measured width.
     expect(await page.locator('.artboard[data-preview-id="desktop"]').evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
     expect(await boards.first().evaluate((node) => getComputedStyle(node).boxShadow)).toBe("none");
-    expect(overview.cells).toBe(sweepWidths().length);
+    expect(overview.bars).toBe(sweepWidths().length);
+    expect(overview.stage).toBeNull();
     expect(overview.lit).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("01-overview.png") });
 
-    // Hovering a finding spotlights the tiles it was seen on, dims the rest and lights its widths on the sweep strip.
+    // Hovering a finding spotlights the tiles it was seen on, dims the rest and lights its widths on the width scope.
     const first = panel.locator(".finding-card").first();
     const findingId = (await first.getAttribute("data-finding-id"))!;
     await first.hover();
@@ -136,35 +151,66 @@ test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a fi
     expect(hovered.tiles.some((tile) => tile.spotlight === "dimmed")).toBe(true);
     expect(hovered.tiles.every((tile) => tile.spotlight === "lit" || tile.spotlight === "dimmed")).toBe(true);
     expect(hovered.lit).toBeGreaterThan(0);
-    expect(hovered.lit).toBeLessThan(hovered.cells);
+    expect(hovered.lit).toBeLessThan(hovered.bars);
     await expect(page.locator('.snapshot-board[data-spotlight="dimmed"]').first()).toHaveCSS("opacity", "0.45");
     await page.screenshot({ path: testInfo.outputPath("02-hover-spotlight.png") });
 
-    // Leaving the list clears the spotlight; selecting keeps it.
+    // Leaving the list clears the spotlight. Selecting stages the finding: every tile moves to a grid beside the previews,
+    // ringed where the finding was seen, and those snapshots go large on the stage, with the finding's markers leading.
     await page.mouse.move(5, 400);
     await expect(page.locator(".snapshot-board[data-spotlight]")).toHaveCount(0);
     await first.locator(".finding-summary").click();
     await page.mouse.move(5, 400);
-    await expect(page.locator('.snapshot-board[data-spotlight="lit"]').first()).toBeVisible();
-    await expect(page.locator(".finding-marker[data-spotlit]").first()).toBeAttached();
-    const selected = await snap(`selected ${findingId}`);
-    await page.screenshot({ path: testInfo.outputPath("03-selected-spotlight.png") });
+    const stage = page.getByRole("region", { name: "Stage: finding 1" });
+    await expect(stage).toBeVisible();
+    await still(stage);
+    const staged = await snap(`staged ${findingId}`);
+    await page.screenshot({ path: testInfo.outputPath("03-staged.png") });
+    // The same stage in light mode, once its colours settle.
+    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: testInfo.outputPath("03-staged-light.png") });
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
 
-    // "Seen at" lists the tiles the finding is lit on; a chip brings its tile into view at no more than 1:1 snapshot pixels.
+    // The grid keeps every tile in profile order, all one width, right of the live previews, lane names in a gutter.
+    expect(staged.tiles.map((tile) => tile.id)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
+    expect(new Set(staged.tiles.map((tile) => Math.round(tile.rect.width))).size).toBe(1);
+    const previewsRight = Math.max(...staged.live.map((box) => box.x + box.width));
+    expect(staged.tiles.every((tile) => tile.rect.x > previewsRight)).toBe(true);
+    expect(staged.lanes.every((lane) => lane.gutter)).toBe(true);
+    expect(staged.sheet).toBeNull();
+
+    // The stage shows exactly the lit tiles, in the same order, larger than in the grid.
+    const lit = staged.tiles.filter((tile) => tile.spotlight === "lit").map((tile) => tile.id);
+    expect(lit.length).toBeGreaterThan(0);
+    expect(staged.tiles.filter((tile) => tile.spotlight === "dimmed").length).toBe(staged.tiles.length - lit.length);
+    expect(staged.staged.map((tile) => tile.id)).toEqual(lit);
+
+    for (const tile of staged.staged) {
+      expect(tile.rect.width).toBeGreaterThan(staged.tiles.find((item) => item.id === tile.id)!.rect.width * 1.5);
+      expect(tile.image!.width / tile.image!.height).toBeCloseTo(tile.image!.naturalWidth / tile.image!.naturalHeight, 1);
+    }
+
+    await expect(page.locator(`.stage-tile .finding-marker[data-spotlit]`).first()).toBeAttached();
+    await expect(stage).toContainText(await first.locator(".finding-heading strong").innerText());
+
+    // Nothing in stage mode overlaps, and the camera fits it all in the free canvas.
+    const stagedBoxes = [...staged.live, ...staged.tiles.map((tile) => tile.rect), ...staged.staged.map((tile) => tile.rect), ...staged.lanes.map((lane) => lane.rect), staged.title!];
+    expect(stagedBoxes.flatMap((a, i) => stagedBoxes.slice(i + 1).filter((b) => overlap(a, b)))).toEqual([]);
+    expect([...staged.tiles.map((tile) => tile.rect), ...staged.live].filter((box) => overlap(box, staged.stage!))).toEqual([]);
+    expect([...stagedBoxes, staged.stage!].filter((box) => !inside(box, staged.free))).toEqual([]);
+
+    // "Seen at" lists the staged snapshots; a chip brings its stage tile into view at no more than 1:1 snapshot pixels.
     const seen = first.getByRole("group", { name: "Seen at" });
-    await expect(seen.getByRole("button")).toHaveCount(selected.tiles.filter((tile) => tile.spotlight === "lit").length);
+    await expect(seen.getByRole("button")).toHaveCount(staged.staged.length);
     await seen.getByRole("button", { name: "Show on the Small phone snapshot" }).click();
-    const tile = page.locator('.snapshot-board[data-profile-id="phone-sm"]');
+    const tile = page.locator('.stage-tile[data-profile-id="phone-sm"]');
     await expect.poll(async () => (await tile.boundingBox())!.width).toBeGreaterThan(200);
-    // The camera flies there; measure once it stops.
-    let last = "";
-    await expect.poll(async () => { const now = JSON.stringify(await tile.boundingBox()); const still = now === last; last = now;
-
-      return still; }, { intervals: [150], timeout: 10_000 }).toBe(true);
+    await still(tile);
     const located = await snap("located phone-sm");
-    const phone = located.tiles.find((item) => item.id === "phone-sm")!;
+    const phone = located.staged.find((item) => item.id === "phone-sm")!;
     expect(phone.image!.width).toBeLessThanOrEqual(phone.image!.naturalWidth + 1);
-    expect(phone.rail).toBe("none");
+    await expect(page.locator(".peek-bar")).toContainText("Peeking at Small phone");
 
     // Its marker lay below the crop, so the tile opened to the full page and the camera centred on the marker.
     await expect(tile).not.toHaveAttribute("data-cropped");
@@ -179,7 +225,7 @@ test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a fi
     const before = (await crop.boundingBox())!;
     await crop.dispatchEvent("click");
     await expect(tile).toHaveAttribute("data-cropped", "true");
-    const cropped = (await snap("cropped phone-sm")).tiles.find((item) => item.id === "phone-sm")!;
+    const cropped = (await snap("cropped phone-sm")).staged.find((item) => item.id === "phone-sm")!;
     expect(cropped.surface.height).toBeLessThan(cropped.image!.height - 1);
     const reopen = tile.getByRole("button", { name: /^Show the full Small phone page, \d+ more markers? below$/ });
     const after = (await reopen.boundingBox())!;
@@ -188,11 +234,30 @@ test("audit sheet: lanes, tile sizes, crops, finding spotlight and locating a fi
     await reopen.dispatchEvent("click");
     await expect(tile).not.toHaveAttribute("data-cropped");
 
-    // The same canvas in light mode, once its colours settle.
-    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: testInfo.outputPath("06-located-light.png") });
-    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    // Esc ends the peek, then leaves the stage: the tiles go back to the sheet and the finding is no longer selected.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".peek-bar")).toHaveCount(0);
+    await expect(stage).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(stage).toHaveCount(0);
+    await expect(page.locator(".stage-tile")).toHaveCount(0);
+    await expect(first.locator(".finding-summary")).toHaveAttribute("aria-expanded", "false");
+    await still(page.locator(".audit-sheet"));
+    const unstaged = await snap("unstaged");
+    expect(unstaged.lanes.some((lane) => lane.gutter)).toBe(false);
+    expect(unstaged.tiles.map((item) => item.id)).toEqual(AUDIT_PROFILES.map((profile) => profile.id));
+    await page.screenshot({ path: testInfo.outputPath("07-unstaged.png") });
+
+    // The sheet says what it holds. After the camera wanders off, Fit brings the previews and the sheet back into the free canvas.
+    await expect(page.locator(".sheet-head")).toContainText(`Snapshots${unstaged.tiles.length} captures`);
+    await page.getByLabel("Camera zoom").fill("1");
+    await page.getByRole("button", { name: "Fit everything in view" }).click();
+    await still(page.locator(".audit-sheet"));
+    const fitted = await snap("fitted");
+    expect(inside(fitted.sheet!, fitted.free)).toBe(true);
+    expect(fitted.live.filter((box) => !inside(box, fitted.free))).toEqual([]);
+    expect(fitted.zoom).toBeCloseTo(unstaged.zoom, 2);
+    await page.screenshot({ path: testInfo.outputPath("08-fitted.png") });
   } finally {
     await close();
     await rm(state, { recursive: true, force: true });

@@ -42,7 +42,8 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
     await expect.poll(() => app.evaluate(() => !!globalThis.releaseReplacement)).toBe(true);
     const stale = defaultCanvas(); stale.camera.x = 987654;
     await oldPage.evaluate(input => window.mauxi!.saveCanvas(input), { workspaceId: active.workspaceId, canvas: stale });
-    expect(stderr).not.toContain("Untrusted IPC sender");
+    // The old window may still send a browser heartbeat during the handoff; only the stale save must not be treated as untrusted.
+    expect(stderr).not.toContain("'mauxi:save-canvas': Error: Untrusted IPC sender");
     await app.evaluate(() => globalThis.releaseReplacement!());
     const page = await next;
     await expect(page.getByRole("button", { name: "Models & providers", exact: true })).toBeVisible();
@@ -50,8 +51,11 @@ test("window handoff discards old layout saves without trusting unrelated IPC se
     expect(restored.active?.canvas?.camera.x).not.toBe(987654);
 
     const current = defaultCanvas(); current.camera.x = 123456;
-    await page.evaluate(input => window.mauxi!.saveCanvas(input), { workspaceId: active.workspaceId, canvas: current });
-    expect((await page.evaluate(() => window.mauxi!.getBootstrap())).active?.canvas?.camera.x).toBe(123456);
+    // The new window debounces its own first layout save, which can land between this save and the read.
+    await expect(async () => {
+      await page.evaluate(input => window.mauxi!.saveCanvas(input), { workspaceId: active.workspaceId, canvas: current });
+      expect((await page.evaluate(() => window.mauxi!.getBootstrap())).active?.canvas?.camera.x).toBe(123456);
+    }).toPass();
 
     const rejection = await app.evaluate(async ({ BrowserWindow }, { preload, input }) => {
       const rogue = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false } });

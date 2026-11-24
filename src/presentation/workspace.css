@@ -4,23 +4,33 @@
 .workspace button:active:not(:disabled), .preview-tools button:active:not(:disabled) { background: var(--btn-active); box-shadow: inset 0 0 0 1px var(--btn-active-ring); }
 .workspace button[aria-pressed=true] { background: var(--pressed-bg); color: var(--pressed-fg); box-shadow: inset 0 0 0 1px var(--pressed-ring); }
 .topbar { position: absolute; z-index: 20; inset: .75rem .75rem auto; display: flex; align-items: center; justify-content: space-between; gap: .75rem; pointer-events: none; }
-.topbar > .brand, .repository-trigger.brand, .topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
-.brand { display: flex; flex: 0 1 auto; align-items: center; gap: .5rem; min-width: 0; max-width: 28rem; }
-.repository-menu { position: relative; min-width: 0; pointer-events: auto; }
-.workspace .repository-trigger.brand { display: flex; width: 100%; text-align: left; max-width: min(28rem, 50vw); color: var(--text); }
-.workspace .repository-trigger.brand:is(:hover, :active) { background: var(--surface); box-shadow: var(--floating-shadow); }
-.repository-trigger svg { flex: none; color: var(--text-muted); }
+.topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
+.topbar > .zoom { padding-inline: .875rem 1rem; }
+/* The brand is the logo alone, small; in a project it opens the project menu. */
+.brand { display: flex; flex: none; align-items: center; height: 3rem; padding: 0 .25rem; pointer-events: auto; }
+.topbar .brand-mark { width: 1.75rem; }
+.repository-menu { position: relative; flex: none; pointer-events: auto; }
+.workspace .repository-trigger.brand { padding: 0 .25rem; border-radius: .75rem; background: transparent; transition: opacity 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
+.workspace .repository-trigger.brand:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
+@media (hover: hover) and (pointer: fine) { .workspace .repository-trigger.brand:hover:not(:disabled) { opacity: .8; } }
+.workspace .repository-trigger.brand:active:not(:disabled) { transform: scale(.94); }
 .repository-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .repository-popover.action-modal { position: absolute; top: calc(100% + 8px); left: 0; width: min(17rem, calc(100vw - 24px)); padding: 10px 14px; }
 .repository-popover button { width: 100%; }
 .repository-popover p { overflow-wrap: anywhere; }
-.brand strong { min-width: 0; font-size: .8125rem; font-weight: 500; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.repository-name { margin: 2px 0 8px; padding: 0 4px 8px; border-bottom: 1px solid var(--border-subtle); color: var(--text); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .zoom { display: flex; flex: none; align-items: center; gap: .5rem; color: var(--text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
-.zoom span { width: 2.5rem; text-align: right; }
+.zoom span { width: 2.5rem; color: var(--text-2); font-weight: 500; text-align: right; }
 .zoom input { width: 5rem; height: 2rem; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .zoom input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .25rem; }
 .zoom input:disabled { opacity: .48; cursor: default; }
-.workspace-notice { position: absolute; z-index: 10; top: 4.5rem; left: .75rem; max-width: min(30rem, calc(100% - 1.5rem)); padding: .5rem .75rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface); color: var(--text-3); font-size: .75rem; overflow-wrap: anywhere; }
+.workspace .canvas-fit { display: grid; flex: none; place-items: center; width: 3rem; height: 3rem; margin-left: -.25rem; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); box-shadow: var(--floating-shadow); pointer-events: auto; transition: color 120ms ease; }
+.workspace .canvas-fit:is(:hover, :active):not(:disabled) { background: var(--surface); box-shadow: var(--floating-shadow); }
+.workspace .canvas-fit:active:not(:disabled) svg { transform: scale(.9); }
+.workspace .canvas-fit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .workspace .canvas-fit:hover:not(:disabled) { color: var(--text); } }
+@media (max-width: 640px) { .workspace .canvas-fit { display: none; } }
+.workspace-notice { position: absolute; z-index: 10; top: 4.5rem; left: .75rem; max-width: min(30rem, calc(100% - 1.5rem)); padding: .5rem .875rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; }
 .canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: var(--surface); }
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
@@ -29,10 +39,14 @@
 .artboard[data-preview-id] { box-shadow: var(--live-shadow); }
 .artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .5rem; background: var(--surface); border: 1px solid var(--border); border-bottom: 0; border-radius: 1.25rem 1.25rem 0 0; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
-.board-grip strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: .75rem; font-weight: 500; line-height: 1.5; }.board-grip span { font-size: .6875rem; font-weight: 400; white-space: nowrap; color: var(--text-muted); }
-.board-grip .bridge-ready::before { content: ""; display: inline-block; width: .35rem; height: .35rem; border-radius: 50%; background: var(--ok); margin-right: .3rem; vertical-align: middle; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation: live-pulse 2.4s ease-out infinite; }
+.board-grip strong { display: flex; align-items: center; gap: .5rem; max-width: 100%; overflow: hidden; white-space: nowrap; color: var(--text); font-size: .78125rem; font-weight: 600; line-height: 1.5; }.board-grip > span { font-size: .6875rem; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
+/* What sets a live preview apart from a snapshot: it says so, with the only pulse on the canvas. */
+.live-chip { display: inline-flex; flex: none; align-items: center; gap: .3rem; height: 1.125rem; padding: 0 .4375rem; border-radius: 999px; background: var(--surface-3); color: var(--text-muted); font-size: .625rem; font-weight: 500; line-height: 1; }
+.live-chip::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--text-faint); }
+.live-chip[data-ready] { background: var(--ok-bg); color: var(--ok-text); }
+.live-chip[data-ready]::before { background: var(--ok); animation: live-pulse 2.4s ease-out infinite; }
 @keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 .3rem transparent; } }
-@media (prefers-reduced-motion: reduce) { .board-grip .bridge-ready::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .live-chip[data-ready]::before { animation: none; } }
 .artboard-actions { display: flex; flex: none; gap: .2rem; }
 .artboard-actions button { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; padding: .25rem; }
 .workspace .artboard-header button { --board-action-accent: var(--accent-text); background: transparent; color: var(--text-muted); box-shadow: none; transition: color 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
@@ -50,7 +64,9 @@
   .workspace .artboard-actions button:active:not(:disabled):not(:focus-visible) { transform: none; }
 }
 @container artboard (width < 17rem) {
-  .board-grip > span, .board-grip .preview-interaction-label { display: none; }
+  .board-grip > span, .board-grip .preview-interaction-label, .live-chip > span { display: none; }
+  .live-chip { height: auto; padding: 0; background: transparent; }
+  .live-chip[data-ready] { background: transparent; }
 }
 @container artboard (width < 14rem) {
   .artboard-actions .board-select { display: none; }
@@ -80,7 +96,7 @@
 .workspace .preview-activate, .workspace .preview-activate:hover:not(:disabled), .workspace .preview-activate:active:not(:disabled) { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .preview-activate:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
 .artboard[data-interacting=true] .preview-surface { outline: 2px solid var(--focus); outline-offset: 1px; }
-.board-grip .preview-interaction-label { color: var(--accent-text); font-size: .6875rem; }
+.board-grip .preview-interaction-label { color: var(--accent-text); font-size: .6875rem; font-weight: 500; }
 .workspace .take-back { background: transparent; color: var(--accent-text); }
 .workspace .browser-control-action { display: grid; place-items: center; width: 36px; min-height: 36px; padding: 8px; background: transparent; color: var(--text-muted); box-shadow: none; }
 .workspace .browser-control-action:is(:hover, :active):not(:disabled) { background: transparent; color: var(--accent-text); box-shadow: none; }
@@ -322,5 +338,5 @@
   .provider-list article { align-items: flex-start; flex-direction: column; min-height: 78px; gap: 0; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
-@media (prefers-contrast: more) { .workspace, .action-modal { color: var(--text-strong); }.topbar > .brand, .repository-trigger.brand, .topbar > .zoom, .chat-surface, .selection-chip, .artboard-header, .action-modal { border-color: var(--border-contrast); }.workspace button, .action-modal button { outline: 1px solid var(--border-contrast); } }
+@media (prefers-contrast: more) { .workspace, .action-modal { color: var(--text-strong); }.topbar > .zoom, .chat-surface, .selection-chip, .artboard-header, .action-modal { border-color: var(--border-contrast); }.workspace button, .action-modal button { outline: 1px solid var(--border-contrast); } }
 @media (prefers-reduced-transparency: reduce) { .action-modal::backdrop, .agent-dialog-backdrop:not(.browser-approval) { background: var(--surface-3); } }
