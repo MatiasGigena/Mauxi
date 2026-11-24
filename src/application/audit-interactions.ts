@@ -131,7 +131,7 @@ export function interactionFindings(run: InteractionRun, existing: AuditFinding[
     findings.push(finding("focus-obscured", items, bar, {
       title: full.length ? `Keyboard focus hidden behind a fixed bar at ${where}` : `Keyboard focus partly hidden behind a fixed bar at ${where}`,
       detail: `${(full[0] ?? items[0]).issue.detail} Keyboard focus walk: ${evidence(items)}.`,
-      fixHint: "Add scroll-padding equal to the bars' heights (html { scroll-padding-top: <header height>; scroll-padding-bottom: <bar height> }) so focused elements scroll clear of them, and make the bar static or collapsible at short viewports (@media (max-height: 400px) { position: static }).",
+      fixHint: "Add scroll-padding-top and -bottom equal to the bars' heights, and make the bars static on short screens (@media (max-height: 400px)).",
       criterion: FOCUS_NOT_OBSCURED, severity: full.length ? "serious" : "moderate", classification: full.length ? "bug" : "review",
     }));
   }
@@ -141,12 +141,12 @@ export function interactionFindings(run: InteractionRun, existing: AuditFinding[
     const sample = items.find((item) => item.issue.variant === variant) ?? items[0];
     findings.push(finding("focus-not-visible", items, sample.issue.element, {
       title: variant === "offscreen" ? "Keyboard focus lands on an element that is not on screen" : variant === "none" ? "No visible focus indicator" : "Focus indicator is subtle",
-      detail: `${sample.issue.detail} Measured at ${list(items.map(viewport))}.${variant === "offscreen" ? "" : " Compared with its computed style before any element had focus; an indicator drawn by another element would not be seen, so a person confirms."}`,
+      detail: `${sample.issue.detail} Measured at ${list(items.map(viewport))}.${variant === "offscreen" ? "" : " Another element may draw the indicator, so check it by eye."}`,
       fixHint: variant === "offscreen"
-        ? "Keep hidden content out of the tab order while it is not shown (display: none, visibility: hidden or the inert attribute on the closed drawer), or bring it on screen when it receives focus."
+        ? "Keep hidden content out of the tab order (display: none, visibility: hidden or inert), or show it when it gets focus."
         : variant === "none"
-          ? "Do not remove the outline without a replacement: add a :focus-visible style such as outline: 2px solid currentColor; outline-offset: 2px, or a box-shadow ring."
-          : "Add a non-color indicator on :focus-visible (an outline or box-shadow ring with at least 3:1 contrast) instead of relying on a color or underline change.",
+          ? "Add a :focus-visible style, e.g. outline: 2px solid currentColor; outline-offset: 2px."
+          : "Add an outline or ring on :focus-visible with 3:1 contrast, not just a color change.",
       criterion: FOCUS_VISIBLE, severity: variant === "subtle" ? "minor" : "serious", classification: "review",
     }));
   }
@@ -156,7 +156,7 @@ export function interactionFindings(run: InteractionRun, existing: AuditFinding[
     findings.push(finding("disclosure-overflow", items, sample.issue.element, {
       title: `Opened ${sample.issue.cause?.tag === "summary" ? "disclosure" : "menu"} ${sample.issue.variant === "clipped" ? "is cut off" : "overflows the viewport"} at ${list(items.map(viewport))}`,
       detail: `${sample.issue.detail}${sample.issue.cause ? ` Opened with ${sample.issue.cause.tag} "${sample.issue.cause.label}".` : ""}`,
-      fixHint: "Size the opened content fluidly (width: min(<size>, 100%) or max-width: calc(100vw - 2rem)), keep it anchored inside the viewport, and give fixed menus max-height: 100dvh with overflow-y: auto so every item stays reachable at 320px and 400% zoom.",
+      fixHint: "Keep it inside the screen: max-width: calc(100vw - 2rem), and max-height: 100dvh with overflow-y: auto for fixed menus.",
       criterion: REFLOW, severity: "serious", classification: "bug",
     }));
   }
@@ -168,8 +168,8 @@ export function interactionFindings(run: InteractionRun, existing: AuditFinding[
       title: clipped ? `Hover content cut off at ${viewport(clipped)}` : "Hover content disappears when the pointer moves onto it",
       detail: [clipped?.issue.detail, unhoverable?.issue.detail].filter(Boolean).join(" "),
       fixHint: clipped
-        ? "Keep the tooltip inside the viewport: flip or shift it near the edges and cap its width (max-width: calc(100vw - 2rem)); also keep it open while the pointer moves onto it and close it on Escape."
-        : "Keep the tooltip open while the pointer moves onto it (make it a descendant of the hover target or bridge the gap between them) and close it on Escape.",
+        ? "Keep the tooltip on screen (flip near edges, max-width: calc(100vw - 2rem)), keep it open on hover, and close it on Escape."
+        : "Keep the tooltip open while the pointer is on it, and close it on Escape.",
       criterion: CONTENT_ON_HOVER, severity: clipped ? "serious" : "moderate", classification: clipped ? "bug" : "review",
     }));
   }

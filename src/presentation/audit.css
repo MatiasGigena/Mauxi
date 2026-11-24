@@ -235,8 +235,8 @@
 @media (hover: hover) and (pointer: fine) { .workspace .snapshot-crop button:hover { border-color: var(--text-muted); } }
 .finding-seen { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0 0 .25rem; }
 .finding-seen > span { margin-right: .25rem; color: var(--text-muted); font-size: .6875rem; }
-.workspace .finding-seen button { display: inline-flex; align-items: baseline; gap: .25rem; min-height: 1.625rem; padding: .15rem .5rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--surface); color: var(--text-2); font-size: .625rem; }
-.workspace .finding-seen button code { color: var(--text); font-size: .625rem; font-weight: 600; }
+.workspace .finding-seen button { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; line-height: 1; min-height: 1.625rem; padding: .15rem .5rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--surface); color: var(--text-2); font-size: .625rem; }
+.workspace .finding-seen button code { color: var(--text); font-size: .625rem; font-weight: 600; line-height: 1; }
 .workspace .finding-seen button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .workspace .finding-seen button:hover { border-color: var(--border-strong); color: var(--text); } }
 .workspace .finding-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
