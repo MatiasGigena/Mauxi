@@ -28,7 +28,7 @@ export function WidthScope({ findings, lit, value, locked, active, onScrub }: {
   const peak = Math.max(1, ...counts);
   const clamp = (index: number) => Math.max(0, Math.min(widths.length - 1, index));
   const index = clamp(widths.findIndex((width) => width >= value) === -1 ? widths.length - 1 : widths.findIndex((width) => width >= value));
-  const here = counts[index];
+  const here = findings.filter((finding) => covers(finding, value)).length;
   const preview = value <= 1024 ? "Mobile" : "Desktop";
 
   /** The measured width nearest the pointer, on the log scale the scope is drawn in. */
