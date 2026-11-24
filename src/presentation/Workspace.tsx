@@ -761,8 +761,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setExpanded((current) => current.size === open.size ? current : open);
 
     if (!audit || forming) return;
+    const base = unfocus(layoutRef.current);
     setLayout((current) => unfocus(current));
-    flyTo(matrixCamera(unfocus(layoutRef.current), audit, null, panelOpenRef.current, stageFocusRef.current, open));
+    flyTo(matrixCamera(base, audit, null, panelOpenRef.current, stageFocusRef.current, open), base.camera);
   // flyTo and matrixCamera read refs; the stage changing is the only trigger.
   }, [stagedId]);
 
@@ -889,14 +890,14 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
 
   /** Animates the camera to target (280 ms, easing out) through the canvas point at the screen centre; instant under reduced motion. */
-  function flyTo(target: Camera) {
+  /** from: the camera the flight starts at, when the state just changed under it (e.g. unfocusing). */
+  function flyTo(target: Camera, from = layoutRef.current.camera) {
     stopFlight();
 
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setLayout((current) => ({ ...current, camera: target }));
 
       return; }
 
-    const from = layoutRef.current.camera;
     const { width, height } = geometry.current;
     const centre = (camera: Camera) => ({ x: (width / 2 - camera.x) / camera.zoom, y: (height / 2 - camera.y) / camera.zoom });
     const [a, b] = [centre(from), centre(target)];
@@ -970,7 +971,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setPeek(null);
     const base = unfocus(layoutRef.current);
     setLayout((current) => unfocus(current));
-    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current, open));
+    flyTo(matrixCamera(base, audit, forming ? { snapshots: streamed, current: measuring } : null, panelOpenRef.current, forming ? null : stageFocusRef.current, open), base.camera);
   }
 
   const endPeekRef = useRef(endPeek); endPeekRef.current = endPeek;
