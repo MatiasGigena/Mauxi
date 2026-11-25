@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitCamera, FIT_MIN_ZOOM, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitCamera, FIT_GAP, FIT_MIN_ZOOM, HEADER_HEIGHT, LIVE_FRAME, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -46,6 +46,14 @@ function releaseDraftCaptures(files: string[]): void {
 
 /** Vertical space the peek bar takes under the top bar, kept clear so it never covers the tile it names. */
 const PEEK_BAR_SPACE = 52;
+/** The least px every automatic fit keeps between the boards and the top bar above and the chat below, past phone widths (24 on them). */
+const GAP = FIT_GAP;
+const FRAME = LIVE_FRAME;
+/** The snapshots offer's height (.snapshot-offer in audit.css): the fit keeps its slot between the top bar and the previews. */
+const OFFER_SLOT = 50;
+
+/** A live preview as fits see it: with its frame's left side and chin. */
+const framed = (board: Artboard): Artboard => ({ ...board, inset: (board.inset ?? 0) + FRAME, lead: FRAME });
 
 const sameCamera = (a: Camera, b: Camera | null) => !!b && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
@@ -105,6 +113,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const heldRef = useRef(held); heldRef.current = held;
   /** The snapshots offer: shown while held after a report, "leaving" while it animates out, "closed" once dismissed or taken. */
   const [offer, setOffer] = useState<"open" | "leaving" | "closed">("open");
+  /** Where the offer sits when the camera made room for it (px from the canvas top); null keeps it just below the top bar. */
+  const [offerTop, setOfferTop] = useState<number | null>(null);
   const offerShown = useRef(false);
   /** The snapshots just came in: the sheet and its tiles play their entrance once. */
   const [entering, setEntering] = useState(false);
@@ -235,12 +245,12 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (initialFit.current) {
         initialFit.current = false;
-        const camera = freeCamera(Object.values(layoutRef.current.boards), panelOpenRef.current, FIT_MIN_ZOOM);
+        const camera = freeCamera(Object.values(layoutRef.current.boards).map(framed), panelOpenRef.current, FIT_MIN_ZOOM);
         entryCamera.current = camera;
         setLayout((current) => ({ ...current, camera }));
         setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
-        setLayout((current) => ({ ...current, camera: freeCamera([current.boards[current.focus!.previewId]], panelOpenRef.current, FIT_MIN_ZOOM) }));
+        setLayout((current) => ({ ...current, camera: freeCamera([framed(current.boards[current.focus!.previewId])], panelOpenRef.current, FIT_MIN_ZOOM) }));
       }
     });
 
@@ -458,7 +468,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (current.focus?.previewId === id) return restored;
 
-      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: freeCamera([restored.boards[id]], panelOpenRef.current, FIT_MIN_ZOOM) };
+      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: freeCamera([framed(restored.boards[id])], panelOpenRef.current, FIT_MIN_ZOOM) };
     });
     setActivePreview(id);
   }
@@ -695,7 +705,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     navigation.exit(false); setSelecting(null); setTools(null);
     setLayout(current => { const restored = unfocus(current);
 
-      return { ...restored, camera: freeCamera(PREVIEW_IDS.map((id) => restored.boards[id]), panelOpenRef.current, FIT_MIN_ZOOM), linked: false }; });
+      return { ...restored, camera: freeCamera(PREVIEW_IDS.map((id) => framed(restored.boards[id])), panelOpenRef.current, FIT_MIN_ZOOM), linked: false }; });
     void browser.owner("agent");
   }
 
@@ -793,7 +803,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const live = PREVIEW_IDS.map((id) => state.boards[id]);
     const { boards, sheet, stage } = auditMatrix(report, forming, live, open, focus);
 
-    return freeCamera([...live, ...boards, ...sheet ? [sheet.frame] : [], ...stage ? [stage.frame, ...stage.boards] : []], panel, OVERVIEW_MIN_ZOOM);
+    return freeCamera([...live.map(framed), ...boards, ...sheet ? [sheet.frame] : [], ...stage ? [stage.frame, ...stage.boards] : []], panel, OVERVIEW_MIN_ZOOM);
   }
 
   // Entering, switching or leaving the stage flies the camera to the new arrangement and crops the stage's tiles again.
@@ -857,9 +867,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   /**
    * Fits boards in the canvas column, below the top bar and above the chat dock: every automatic fit (opening, focus,
    * Show at, handoff, the audit overview) goes through here, so no board header ever sits under the top bar.
-   * reserve: more px kept clear under the top bar.
+   * reserve: more px kept clear under the top bar. slot: the px of a bar (the offer) to fit between the top bar and the
+   * boards, the free height split evenly around it; slotTop then reports where the bar goes.
    */
-  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM, reserve = 0): Camera {
+  function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM, reserve = 0, slot = 0, slotTop?: { current: number }): Camera {
     const element = canvas.current;
 
     if (!element) return fitCamera(boards, geometry.current, geometry.current.headerHeight, minZoom, maxZoom);
@@ -869,7 +880,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const top = (bar ? Math.max(0, bar.bottom - rect.top) : 0) + reserve;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
-    const camera = fitCamera(boards, { ...canvasColumn(panel), height: bottom - top, gutter: 0 }, geometry.current.headerHeight, minZoom, maxZoom);
+    const camera = fitCamera(boards, { ...canvasColumn(panel), height: bottom - top, gutter: 0, gap: rect.width > 640 ? GAP : 24, slot }, geometry.current.headerHeight, minZoom, maxZoom);
+
+    // The boards' top less the bar and the even space above and below it.
+    if (slotTop) slotTop.current = top + (camera.y + Math.min(...boards.map((board) => board.y)) * camera.zoom - slot) / 2;
 
     return { ...camera, y: camera.y + top };
   }
@@ -886,7 +900,27 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!canvas.current || !sameCamera(layoutRef.current.camera, entryCamera.current)) return;
     const base = unfocus(layoutRef.current);
     setLayout((current) => unfocus(current));
-    flyTo(freeCamera(PREVIEW_IDS.map((id) => base.boards[id]), wide, FIT_MIN_ZOOM), base.camera, 360);
+    entryCamera.current = freeCamera(PREVIEW_IDS.map((id) => framed(base.boards[id])), wide, FIT_MIN_ZOOM);
+    flyTo(entryCamera.current, base.camera, 360);
+  }
+
+  /**
+   * Makes room for the offer (open) or takes it back (closing): the live previews glide so the top bar, the offer, the
+   * previews and the chat sit evenly apart, unless the user moved the camera since the canvas opened.
+   */
+  function settleOffer(open: boolean) {
+    if (!canvas.current || !sameCamera(layoutRef.current.camera, entryCamera.current)) return;
+    const top = { current: 0 };
+    entryCamera.current = freeCamera(PREVIEW_IDS.map((id) => framed(layoutRef.current.boards[id])), panelOpenRef.current, FIT_MIN_ZOOM, MAX_ZOOM, 0, open ? OFFER_SLOT : 0, top);
+
+    if (open) setOfferTop(top.current);
+    flyTo(entryCamera.current, layoutRef.current.camera, 360);
+  }
+
+  /** The offer's dismiss: it leaves, and the previews take its space back. */
+  function dismissOffer() {
+    setOffer("leaving");
+    settleOffer(false);
   }
 
   /** Audits the Desktop preview's route, or the given route (an open page of a site audit). The entry run keeps its snapshots for the offer and the camera on the live previews. */
@@ -909,6 +943,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       // No report: the workspace closed under the run. That is not a failure, and its layout must not change (or be saved) any more.
       // Held, the entry report goes to the panel and the offer; the camera stays on the live previews.
       if (report) showReport(report, !heldRef.current);
+
+      if (report && heldRef.current) settleOffer(true);
     } catch (error) {
       setAuditError(errorText(error));
     } finally { ownRun.current = false; setAuditRunning(false); }
@@ -1134,7 +1170,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       const restored = unfocus(current);
       const board = { ...restored.boards[id], width, height: Math.max(240, Math.min(2160, finding.worst.height)) };
 
-      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: freeCamera([board], panelOpenRef.current, FIT_MIN_ZOOM) };
+      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: freeCamera([framed(board)], panelOpenRef.current, FIT_MIN_ZOOM) };
     });
     setActivePreview(id);
     setShowing({ id, route: route ?? runtime.route, stale: navigating ? runtime.generation : null, deadline: Date.now() + 15_000, selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) });
@@ -1184,7 +1220,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
       <button type="button" className="canvas-fit" aria-label="Fit everything in view" title="Fit everything in view" disabled={browser.locked} onClick={fitAll}><Maximize size={16} aria-hidden="true" /></button>
     </header>
-    {audit && (offer === "leaving" || offerShown.current) && <SnapshotOffer report={audit} leaving={offer === "leaving"} onShow={acceptOffer} onDismiss={() => setOffer("leaving")} onGone={() => setOffer("closed")} />}
+    {audit && (offer === "leaving" || offerShown.current) && <SnapshotOffer report={audit} leaving={offer === "leaving"} onShow={acceptOffer} top={offerTop} onDismiss={dismissOffer} onGone={() => setOffer("closed")} />}
     {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
     {(statusText || browser.error || browser.locked) && <div className="canvas-notices">
       {browser.locked && <div className="agent-control" role="status" title="The agent is checking the previews. Route linking stays paused; re-enable it in a preview's actions afterwards.">
@@ -1243,6 +1279,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 
-    return next.focus ? { ...next, camera: freeCamera([next.boards[next.focus.previewId]], panelOpenRef.current, FIT_MIN_ZOOM) } : next; }); setTools(null); }} />}
+    return next.focus ? { ...next, camera: freeCamera([framed(next.boards[next.focus.previewId])], panelOpenRef.current, FIT_MIN_ZOOM) } : next; }); setTools(null); }} />}
   </div>;
 }

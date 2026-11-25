@@ -15,13 +15,20 @@ export const OVERVIEW_MIN_ZOOM = 0.05;
 export const FIT_MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 2;
 export const HEADER_HEIGHT = 48;
+/** The live previews' frame: screen px it reaches left of and below the page (.artboard[data-preview-id]::after). */
+export const LIVE_FRAME = 10;
+/** The least screen px an automatic fit keeps between the boards and the top bar or the chat, and between the live previews and the audit sheet. */
+export const FIT_GAP = 40;
 
 export interface Point { x: number; y: number }
 
 export interface Camera extends Point { zoom: number }
 
-/** inset: screen px (they do not scale with the camera) between the board's body and its canvas position, beyond its own header; boards in rows below others carry their bands. */
-export interface Artboard extends Point { width: number; height: number; inset?: number }
+/**
+ * inset: screen px (they do not scale with the camera) between the board's body and its canvas position, beyond its own
+ * header; boards in rows below others carry their bands. lead: screen px its frame reaches left of its canvas position.
+ */
+export interface Artboard extends Point { width: number; height: number; inset?: number; lead?: number }
 
 export interface CanvasState {
   version: 1;
@@ -56,31 +63,38 @@ export function dragBoard(board: Artboard, delta: Point, zoom: number): Artboard
 
 /**
  * The screen area a fit fills: x, where it starts (default 0); gutter, the screen px kept clear on its left and right
- * (default 24, as above and below). A gutter of 0 puts boards that fill the width exactly on the area's edges.
+ * (default 24). A gutter of 0 puts boards that fill the width exactly on the area's edges. gap: the least screen px kept
+ * above and below the boards (default 24). slot: the screen px of a bar to fit above the boards; the space left over is
+ * split evenly between the area's top and the bar, the bar and the boards, and the boards and the area's bottom.
  */
-export interface FitArea { width: number; height: number; x?: number; gutter?: number }
+export interface FitArea { width: number; height: number; x?: number; gutter?: number; gap?: number; slot?: number }
 
 export function fitCamera(boards: Artboard[], area: FitArea, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM, maxZoom = MAX_ZOOM): Camera {
   const left = Math.min(...boards.map((b) => b.x));
   const top = Math.min(...boards.map((b) => b.y));
 
-  const size = (zoom: number) => ({
-    width: Math.max(...boards.map((b) => (b.x - left + b.width) * zoom)),
-    height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight + (b.inset ?? 0))),
-  });
+  const gap = area.gap ?? 24; const slot = area.slot ?? 0; const spaces = slot ? 3 : 2;
+
+  // start: where the leftmost frame begins, past the boards' left edge.
+  const size = (zoom: number) => {
+    const start = Math.min(...boards.map((b) => (b.x - left) * zoom - (b.lead ?? 0)));
+
+    return { start, width: Math.max(...boards.map((b) => (b.x - left + b.width) * zoom)) - start, height: Math.max(...boards.map((b) => (b.y - top + b.height) * zoom + headerHeight + (b.inset ?? 0))) };
+  };
 
   let low = minZoom; let high = Math.max(minZoom, maxZoom);
 
   for (let i = 0; i < 30; i++) {
     const mid = (low + high) / 2; const bounds = size(mid);
 
-    if (bounds.width <= area.width - 2 * (area.gutter ?? 24) && bounds.height <= area.height - 48) low = mid; else high = mid;
+    if (bounds.width <= area.width - 2 * (area.gutter ?? 24) && bounds.height <= area.height - slot - spaces * gap) low = mid; else high = mid;
   }
 
   const bounds = size(low);
+  // Boards taller than the area even at minZoom hang from its top (past the gap) rather than from its middle, so their headers stay in view.
+  const even = Math.max(gap, (area.height - slot - bounds.height) / spaces);
 
-  // Boards taller than the area even at minZoom hang from its top (past the gutter) rather than from its middle, so their headers stay in view.
-  return { x: (area.x ?? 0) + (area.width - bounds.width) / 2 - left * low, y: Math.max(24, (area.height - bounds.height) / 2) - top * low, zoom: low };
+  return { x: (area.x ?? 0) + (area.width - bounds.width) / 2 - bounds.start - left * low, y: (slot ? 2 * even + slot : even) - top * low, zoom: low };
 }
 
 export function unfocus(state: CanvasState): CanvasState {

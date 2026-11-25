@@ -58,7 +58,8 @@ for (const width of [320, 768, 1440]) {
     expect(backgroundBounds.y).toBe(0);
     expect((await page.getByTestId("canvas").boundingBox())!.y).toBe(0);
     await expect(header).toHaveCSS("position", "absolute");
-    expect(headerBounds.y).toBe(12);
+    // The rail: 20px past phone widths, 12px on them.
+    expect(headerBounds.y).toBe(width > 640 ? 20 : 12);
     const brandBounds = (await header.locator(".brand").boundingBox())!;
     const zoomBounds = (await header.locator(".zoom").boundingBox())!;
     expect(zoomBounds.x - brandBounds.x - brandBounds.width).toBeGreaterThanOrEqual(12);

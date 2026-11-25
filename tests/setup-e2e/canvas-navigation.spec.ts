@@ -252,9 +252,11 @@ test("preview headers stay within the frame across zoom levels and narrow viewpo
         const header = node.querySelector<HTMLElement>(".artboard-header")!;
         const rect = header.getBoundingClientRect();
         const frame = node.querySelector("iframe")!.getBoundingClientRect();
+        // The header spans the page plus the frame's left side (the ::after reaches left of the page).
+        const side = -parseFloat(getComputedStyle(node, "::after").left);
 
         return {
-          width: rect.width, frameWidth: frame.width, left: rect.left, frameLeft: frame.left,
+          width: rect.width, frameWidth: frame.width + side, left: rect.left, frameLeft: frame.left - side,
           overflow: header.scrollWidth > header.clientWidth,
           escaped: [...header.querySelectorAll("button")].filter(button => button.getClientRects().length).some(button => {
             const bounds = button.getBoundingClientRect();
@@ -277,7 +279,8 @@ test("preview headers stay within the frame across zoom levels and narrow viewpo
   await page.getByRole("spinbutton", { name: "Width", exact: true }).fill("240");
   await page.getByRole("button", { name: "Apply viewport", exact: true }).click();
   const header = board(page, "mobile").locator(".artboard-header");
-  expect((await header.boundingBox())!.width).toBeCloseTo(24);
+  // 240px at the 10% floor, plus the frame's 10px left side.
+  expect((await header.boundingBox())!.width).toBeCloseTo(34);
   expect(await header.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.getByRole("button", { name: "Mobile actions", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();

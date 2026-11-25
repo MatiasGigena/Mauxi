@@ -10,7 +10,7 @@ interface Rect { x: number; y: number; width: number; height: number }
 interface Layout { boards: Array<{ id: string; state: string | null; rect: Rect; visible: boolean }>; free: Rect; zoom: number }
 
 /** The repeatable record of the run: the profile matrix, where every board was at entry and after the report, and the run log. */
-interface Summary { alignment?: { previews?: Column; offer?: Column; snapshots?: Column }; topbar?: Awaited<ReturnType<typeof topbarControls>>; frames?: Awaited<ReturnType<typeof previewFrames>>; profiles: Array<{ id: string; label: string; width: number; height: number }>; forming?: Layout; report?: Layout & { durationMs: number; widthsScanned: number; summary: AuditReport["summary"]; axe?: string[] }; runs?: number }
+interface Summary { alignment?: { previews?: Column; offer?: Column; snapshots?: Column }; gaps?: { previews?: number[]; offer?: number[]; snapshots?: number[] }; topbar?: Awaited<ReturnType<typeof topbarControls>>; frames?: Awaited<ReturnType<typeof previewFrames>>; profiles: Array<{ id: string; label: string; width: number; height: number }>; forming?: Layout; report?: Layout & { durationMs: number; widthsScanned: number; summary: AuditReport["summary"]; axe?: string[] }; runs?: number }
 
 declare global { interface Window { entryLog?: EntryLog; lastAuditReport?: AuditReport | null } }
 
@@ -63,14 +63,21 @@ async function layout(): Promise<Layout> {
 
 interface Column { topbar: Rect; chat: Rect; content: Rect; offer: Rect | null; peek: Rect | null }
 
-/** The canvas column's pieces on screen: the top bar, the chat dock, the floating offer or peek bar, and the union of every board and the sheet. */
+/** The canvas column's pieces on screen: the top bar, the chat dock, the floating offer or peek bar, and the union of every board (a live preview with its frame) and the sheet. */
 async function column(): Promise<Column> {
   return page.evaluate(() => {
     const rect = (node: Element | null) => { if (!node) return null; const box = node.getBoundingClientRect();
 
       return { x: box.x, y: box.y, width: box.width, height: box.height }; };
 
-    const parts = [...document.querySelectorAll(".artboard, .audit-sheet")].map((node) => node.getBoundingClientRect());
+    const parts = [...document.querySelectorAll(".artboard, .audit-sheet")].map((node) => {
+      const box = node.getBoundingClientRect();
+
+      if (!node.matches("[data-preview-id]")) return box;
+      const frame = getComputedStyle(node, "::after");
+
+      return new DOMRect(box.x + parseFloat(frame.left), box.y, box.width - parseFloat(frame.left), box.height - parseFloat(frame.bottom));
+    });
     const left = Math.min(...parts.map((box) => box.left)); const right = Math.max(...parts.map((box) => box.right));
     const top = Math.min(...parts.map((box) => box.top)); const bottom = Math.max(...parts.map((box) => box.bottom));
 
@@ -80,6 +87,13 @@ async function column(): Promise<Column> {
 }
 
 const centre = (rect: Rect) => rect.x + rect.width / 2;
+
+/** The screen px between the stacked pieces, top to bottom: the top bar, the offer (when up), the content and the chat. */
+function verticalGaps({ topbar, chat, content, offer }: Column): number[] {
+  const stack = [topbar, ...offer ? [offer] : [], content, chat];
+
+  return stack.slice(1).map((rect, at) => rect.y - (stack[at].y + stack[at].height));
+}
 
 /** Every control in the top bar (the logo, the width scope, the launcher, the zoom and Fit everything in view) and the gaps between neighbours. */
 async function topbarControls() {
@@ -97,7 +111,8 @@ async function previewFrames() {
     const frame = getComputedStyle(node, "::after");
     const header = getComputedStyle(node.querySelector(".artboard-header")!);
 
-    return { id: node.dataset.previewId!, bottom: node.getBoundingClientRect().bottom, surfaceBottom: surface.getBoundingClientRect().bottom, chin: parseFloat(frame.bottom),
+    return { id: node.dataset.previewId!, bottom: node.getBoundingClientRect().bottom, surfaceBottom: surface.getBoundingClientRect().bottom, chin: parseFloat(frame.bottom), side: parseFloat(frame.left),
+      headerLeft: node.querySelector(".artboard-header")!.getBoundingClientRect().left - node.getBoundingClientRect().left,
       frameRadius: frame.borderBottomLeftRadius, headerRadius: header.borderTopLeftRadius, pageRadius: getComputedStyle(surface).borderBottomLeftRadius, shadow: frame.boxShadow };
   }));
 }
@@ -116,6 +131,13 @@ function expectAligned(layout: Column, edges: boolean): void {
   expect(content.x + content.width).toBeLessThanOrEqual(topbar.x + topbar.width + 1);
 
   if (edges) expect(Math.abs(content.x - topbar.x) + Math.abs(content.x + content.width - (topbar.x + topbar.width))).toBeLessThanOrEqual(2);
+
+  // Even vertical rhythm: the content keeps at least 40px (GAP) from the top bar; the live previews sit evenly between the
+  // top bar and the chat, with the offer, when it is up, evenly between them too.
+  const gaps = verticalGaps(layout);
+  expect(gaps[0]).toBeGreaterThanOrEqual(39.5);
+
+  if (edges) for (const gap of gaps) expect(Math.abs(gap - gaps[0])).toBeLessThanOrEqual(1.5);
 
   for (const bar of [layout.offer, layout.peek]) if (bar) expect(Math.abs(centre(bar) - centre(topbar))).toBeLessThanOrEqual(1);
 }
@@ -150,7 +172,7 @@ test("the canvas opens on the two live previews while the panel audits, then off
   summary.forming = forming;
   expect(forming.boards.map((board) => board.id).sort()).toEqual(["desktop", "mobile"]);
   expect(forming.zoom).toBeGreaterThanOrEqual(0.25);
-  // The top bar: every control is one 48px pill on one centre line; neighbours sit 12px apart.
+  // The top bar: every control is one 48px pill on one centre line; neighbours sit 16px apart (--bar-gap), 20px from the window's top (--rail).
   const controls = await topbarControls();
   summary.topbar = controls;
 
@@ -161,8 +183,9 @@ test("the canvas opens on the two live previews while the panel audits, then off
     expect(Math.abs(control.y + control.height / 2 - (controls[0].y + controls[0].height / 2))).toBeLessThanOrEqual(0.5);
   }
 
-  expect(Math.round(controls[1].x - (controls[0].x + controls[0].width))).toBe(12);
-  expect(Math.round(controls.at(-1)!.x - (controls.at(-2)!.x + controls.at(-2)!.width))).toBe(12);
+  expect(Math.round(controls[0].y)).toBe(20);
+  expect(Math.round(controls[1].x - (controls[0].x + controls[0].width))).toBe(16);
+  expect(Math.round(controls.at(-1)!.x - (controls.at(-2)!.x + controls.at(-2)!.width))).toBe(16);
 
   // Each live preview closes with a 10px chin whose corners round like its header's; the page's corners stay inside it.
   const frames = await previewFrames();
@@ -170,6 +193,9 @@ test("the canvas opens on the two live previews while the panel audits, then off
 
   for (const frame of frames) {
     expect(frame.chin).toBe(-10);
+    // The left side matches the chin, and the header widens over it.
+    expect(frame.side).toBe(-10);
+    expect(Math.round(frame.headerLeft)).toBe(-10);
     expect(frame.frameRadius).toBe(frame.headerRadius);
     expect(frame.pageRadius).toBe("8px");
     expect(frame.shadow).not.toBe("none");
@@ -179,6 +205,7 @@ test("the canvas opens on the two live previews while the panel audits, then off
   // One column: the previews fill its width, edge to edge with the top bar and the chat dock.
   const formingColumn = await column();
   summary.alignment = { previews: formingColumn };
+  summary.gaps = { previews: verticalGaps(formingColumn) };
   expectAligned(formingColumn, true);
   await page.screenshot({ path: testInfo.outputPath("entry-previews.png") });
   await record();
@@ -213,6 +240,7 @@ test("the canvas opens on the two live previews while the panel audits, then off
   expect(card.x + card.width).toBeLessThanOrEqual(offered.free.x + offered.free.width);
   const offerColumn = await column();
   summary.alignment = { ...summary.alignment, offer: offerColumn };
+  summary.gaps = { ...summary.gaps, offer: verticalGaps(offerColumn) };
   expectAligned(offerColumn, true);
   await page.screenshot({ path: testInfo.outputPath("entry-offer.png") });
 
@@ -234,6 +262,19 @@ test("the canvas opens on the two live previews while the panel audits, then off
   summary.report = { ...done, durationMs: report.durationMs, widthsScanned: report.widthsScanned, summary: report.summary, axe: report.axe?.profiles };
   const sheetColumn = await column();
   summary.alignment = { ...summary.alignment, snapshots: sheetColumn };
+  // The sheet sits as far below the live previews' frames as the whole sits from the top bar and the chat.
+  // Its left edge lines up with the left side of the Desktop preview's frame.
+  const { sheetGap, sheetLeft } = await page.evaluate(() => {
+    const frames = [...document.querySelectorAll(".artboard[data-preview-id]")].map((node) => { const box = node.getBoundingClientRect(); const frame = getComputedStyle(node, "::after");
+
+      return { bottom: box.bottom - parseFloat(frame.bottom), left: box.left + parseFloat(frame.left) }; });
+    const sheet = document.querySelector(".audit-sheet")!.getBoundingClientRect();
+
+    return { sheetGap: sheet.top - Math.max(...frames.map((frame) => frame.bottom)), sheetLeft: sheet.left - Math.min(...frames.map((frame) => frame.left)) };
+  });
+  summary.gaps = { ...summary.gaps, snapshots: [...verticalGaps(sheetColumn), sheetGap] };
+  expect(Math.abs(sheetGap - verticalGaps(sheetColumn)[0])).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(sheetLeft)).toBeLessThanOrEqual(1);
   expectAligned(sheetColumn, false);
   await page.screenshot({ path: testInfo.outputPath("entry-snapshots.png") });
   await record();

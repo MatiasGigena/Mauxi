@@ -8,17 +8,18 @@ const FAN = ["phone", "tablet", "desktop"];
 /**
  * The small card that appears once the entry audit is done, while the canvas still shows only the two live previews:
  * it says the snapshots are ready, with how many bugs they mark, and puts them on the canvas when taken. It never takes
- * focus. leaving: it animates out (taken or dismissed), then onGone unmounts it.
+ * focus. leaving: it animates out (taken or dismissed), then onGone unmounts it. top: px from the canvas top, when the camera
+ * made room for it; null keeps it just below the top bar.
  */
-export function SnapshotOffer({ report, leaving, onShow, onDismiss, onGone }: {
-  report: AuditReport; leaving: boolean; onShow: () => void; onDismiss: () => void; onGone: () => void;
+export function SnapshotOffer({ report, leaving, top, onShow, onDismiss, onGone }: {
+  report: AuditReport; leaving: boolean; top: number | null; onShow: () => void; onDismiss: () => void; onGone: () => void;
 }) {
   const fan = FAN.flatMap((id) => report.snapshots.filter((snapshot) => snapshot.profileId === id).slice(0, 1));
   const thumbs = fan.length ? fan : report.snapshots.slice(0, 3);
   const bugs = report.summary.bug;
   const captures = report.snapshots.length;
 
-  return <div className="snapshot-offer" role="status" data-leaving={leaving || undefined} aria-label="Audit snapshots ready"
+  return <div className="snapshot-offer" role="status" data-leaving={leaving || undefined} aria-label="Audit snapshots ready" style={top === null ? undefined : { top }}
     onAnimationEnd={(event: AnimationEvent) => { if (leaving && event.target === event.currentTarget) onGone(); }}>
     <span className="snapshot-offer-fan" aria-hidden="true">
       {thumbs.map((snapshot, index) => <img key={snapshot.profileId} src={snapshot.image} alt="" draggable={false} style={{ "--i": index, "--n": thumbs.length }} />)}

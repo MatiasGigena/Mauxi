@@ -6,7 +6,7 @@
  * Workspace.tsx (canvasColumn) reads --rail, --column-max and --audit-panel-width to fit the camera into the column.
  */
 .workspace {
-  --rail: .75rem; --rail-end: var(--rail); --column-max: 70rem;
+  --rail: 1.25rem; --rail-end: var(--rail); --column-max: 70rem; --bar-gap: 1rem; --below-bar: calc(var(--rail) + 3rem + .75rem);
   --column-left: calc(var(--rail) + max(0px, (100% - var(--rail) - var(--rail-end) - var(--column-max)) / 2));
   --column-right: calc(var(--rail-end) + max(0px, (100% - var(--rail) - var(--rail-end) - var(--column-max)) / 2));
   --column-centre: calc(var(--column-left) + (100% - var(--column-left) - var(--column-right)) / 2);
@@ -16,7 +16,7 @@
 .workspace button:hover:not(:disabled), .preview-tools button:hover:not(:disabled) { background: var(--btn-hover); }
 .workspace button:active:not(:disabled), .preview-tools button:active:not(:disabled) { background: var(--btn-active); box-shadow: inset 0 0 0 1px var(--btn-active-ring); }
 .workspace button[aria-pressed=true] { background: var(--pressed-bg); color: var(--pressed-fg); box-shadow: inset 0 0 0 1px var(--pressed-ring); }
-.topbar { position: absolute; z-index: 20; inset: .75rem var(--column-right) auto var(--column-left); display: flex; align-items: center; justify-content: space-between; gap: .75rem; pointer-events: none; }
+.topbar { position: absolute; z-index: 20; inset: var(--rail) var(--column-right) auto var(--column-left); display: flex; align-items: center; justify-content: space-between; gap: var(--bar-gap); pointer-events: none; }
 /* Every top bar control is one 3rem pill on the same centre line, .75rem apart. */
 .topbar > :is(.brand, .repository-menu, .width-scope, .audit-launcher, .zoom, .canvas-fit) { height: 3rem; }
 .topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
@@ -47,9 +47,10 @@
 .workspace .canvas-fit:active:not(:disabled) svg { transform: scale(.9); }
 .workspace .canvas-fit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .workspace .canvas-fit:hover:not(:disabled) { color: var(--text); } }
-@media (max-width: 640px) { .workspace .canvas-fit { display: none; } }
+/* Phones keep the tight rail: every px of a 320-640 px canvas is the previews'. */
+@media (max-width: 640px) { .workspace { --rail: .75rem; --bar-gap: .75rem; } .workspace .canvas-fit { display: none; } }
 /* Notices stack under the top bar on the column's left edge, out of the way of the centred offer and peek bar. */
-.canvas-notices { position: absolute; z-index: 10; top: 4.5rem; left: var(--column-left); display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; max-width: min(30rem, calc(100% - var(--column-left) - var(--column-right))); pointer-events: none; }
+.canvas-notices { position: absolute; z-index: 10; top: var(--below-bar); left: var(--column-left); display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; max-width: min(30rem, calc(100% - var(--column-left) - var(--column-right))); pointer-events: none; }
 .canvas-notices > * { pointer-events: auto; animation: notice-in 200ms cubic-bezier(.23,1,.32,1); }
 @keyframes notice-in { from { opacity: 0; transform: translateY(-4px); } }
 /* While the agent holds the previews: one quiet line with the emergency way back, instead of a paragraph. */
@@ -73,8 +74,10 @@
  * ring; the page's own bottom corners round just enough to stay inside the chin's curve.
  */
 .artboard[data-preview-id] { box-shadow: none; }
-.artboard[data-preview-id]::after { content: ""; position: absolute; z-index: -1; inset: 0 0 -.625rem; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--surface); box-shadow: var(--live-shadow); pointer-events: none; }
+.artboard[data-preview-id]::after { content: ""; position: absolute; z-index: -1; inset: 0 0 -.625rem -.625rem; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--surface); box-shadow: var(--live-shadow); pointer-events: none; }
 .artboard[data-preview-id] .preview-surface { overflow: hidden; border-radius: 0 0 .5rem .5rem; }
+/* The frame's left side matches its chin: the header widens over it so their corners stay one curve (Workspace.tsx FRAME). */
+.artboard[data-preview-id] > .artboard-header { margin-left: -.625rem; }
 .artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .5rem; background: var(--surface); border: 1px solid var(--border); border-bottom: 0; border-radius: 1.25rem 1.25rem 0 0; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
 .board-grip strong { display: flex; align-items: center; gap: .5rem; max-width: 100%; overflow: hidden; white-space: nowrap; color: var(--text); font-size: .78125rem; font-weight: 600; line-height: 1.5; }.board-grip > span { font-size: .6875rem; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
