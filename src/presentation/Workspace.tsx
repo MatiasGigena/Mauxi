@@ -46,9 +46,11 @@ function releaseDraftCaptures(files: string[]): void {
 
 /** Vertical space the peek bar takes under the top bar, kept clear so it never covers the tile it names. */
 const PEEK_BAR_SPACE = 52;
+
 /** The least px every automatic fit keeps between the boards and the top bar above and the chat below, past phone widths (24 on them). */
 const GAP = FIT_GAP;
 const FRAME = LIVE_FRAME;
+
 /** The snapshots offer's height (.snapshot-offer in audit.css): the fit keeps its slot between the top bar and the previews. */
 const OFFER_SLOT = 50;
 

@@ -49,6 +49,7 @@ const ROW_GAP = 56;
 export const PAD = 48;
 
 const STAGE_GAP = 140;
+
 /** Screen px from the live previews' frames down to the sheet: the sheet starts right below them in canvas units and is lifted this much on screen, so the gap matches the fit's at every zoom. */
 const SHEET_LIFT = LIVE_FRAME + FIT_GAP;
 const LINE_MAX = 2400;

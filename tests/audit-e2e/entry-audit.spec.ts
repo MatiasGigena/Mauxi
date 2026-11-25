@@ -78,6 +78,7 @@ async function column(): Promise<Column> {
 
       return new DOMRect(box.x + parseFloat(frame.left), box.y, box.width - parseFloat(frame.left), box.height - parseFloat(frame.bottom));
     });
+
     const left = Math.min(...parts.map((box) => box.left)); const right = Math.max(...parts.map((box) => box.right));
     const top = Math.min(...parts.map((box) => box.top)); const bottom = Math.max(...parts.map((box) => box.bottom));
 
@@ -262,16 +263,19 @@ test("the canvas opens on the two live previews while the panel audits, then off
   summary.report = { ...done, durationMs: report.durationMs, widthsScanned: report.widthsScanned, summary: report.summary, axe: report.axe?.profiles };
   const sheetColumn = await column();
   summary.alignment = { ...summary.alignment, snapshots: sheetColumn };
+
   // The sheet sits as far below the live previews' frames as the whole sits from the top bar and the chat.
   // Its left edge lines up with the left side of the Desktop preview's frame.
   const { sheetGap, sheetLeft } = await page.evaluate(() => {
     const frames = [...document.querySelectorAll(".artboard[data-preview-id]")].map((node) => { const box = node.getBoundingClientRect(); const frame = getComputedStyle(node, "::after");
 
       return { bottom: box.bottom - parseFloat(frame.bottom), left: box.left + parseFloat(frame.left) }; });
+
     const sheet = document.querySelector(".audit-sheet")!.getBoundingClientRect();
 
     return { sheetGap: sheet.top - Math.max(...frames.map((frame) => frame.bottom)), sheetLeft: sheet.left - Math.min(...frames.map((frame) => frame.left)) };
   });
+
   summary.gaps = { ...summary.gaps, snapshots: [...verticalGaps(sheetColumn), sheetGap] };
   expect(Math.abs(sheetGap - verticalGaps(sheetColumn)[0])).toBeLessThanOrEqual(1.5);
   expect(Math.abs(sheetLeft)).toBeLessThanOrEqual(1);

@@ -15,8 +15,10 @@ export const OVERVIEW_MIN_ZOOM = 0.05;
 export const FIT_MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 2;
 export const HEADER_HEIGHT = 48;
+
 /** The live previews' frame: screen px it reaches left of and below the page (.artboard[data-preview-id]::after). */
 export const LIVE_FRAME = 10;
+
 /** The least screen px an automatic fit keeps between the boards and the top bar or the chat, and between the live previews and the audit sheet. */
 export const FIT_GAP = 40;
 
