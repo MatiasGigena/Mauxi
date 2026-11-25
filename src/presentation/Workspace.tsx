@@ -777,10 +777,11 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (!heldRef.current) return;
     heldRef.current = false;
     setHeld(false);
-    // Only an offer on screen animates out; one that never showed just closes.
-    setOffer((current) => current === "open" && offerShown.current ? "leaving" : current === "open" ? "closed" : current);
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Only an offer on screen animates out; one that never showed, or under reduced motion (no animation ends it), just closes.
+    setOffer((current) => current === "open" && offerShown.current && !still ? "leaving" : current === "open" ? "closed" : current);
 
-    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) setEntering(true);
+    if (!still) setEntering(true);
   }
 
   /** The offer's button: shows the snapshots and flies the camera out to the live previews and the whole sheet. */
@@ -919,9 +920,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     flyTo(entryCamera.current, layoutRef.current.camera, 360);
   }
 
-  /** The offer's dismiss: it leaves, and the previews take its space back. */
+  /** The offer's dismiss: it leaves (at once under reduced motion, where no animation ends it), and the previews take its space back. */
   function dismissOffer() {
-    setOffer("leaving");
+    setOffer(matchMedia("(prefers-reduced-motion: reduce)").matches ? "closed" : "leaving");
     settleOffer(false);
   }
 
@@ -1087,7 +1088,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   function fitAll() {
     if (browserLocked.current) return;
 
-    if (audit) showSheet();
+    if (audit || forming) showSheet();
 
     const open = new Set(expanded);
 
