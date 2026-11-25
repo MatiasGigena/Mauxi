@@ -31,9 +31,10 @@ for (const width of [320, 768, 1440]) {
     await openWorkspace(page);
     const header = page.locator(".topbar");
     await expect(header.locator("img")).toBeVisible();
-    // The brand is the logo alone: no project name, no pill.
+    // The brand is the logo alone, no project name, in the same round 3rem pill as Fit everything in view.
     await expect(header.locator("strong")).toHaveCount(0);
-    await expect(header.locator(".brand")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(header.locator(".brand")).toHaveCSS("background-color", "rgb(25, 26, 31)");
+    await expect(header.locator(".brand")).toHaveCSS("border-radius", "999px");
     expect((await header.locator(".brand img").boundingBox())!.width).toBeLessThanOrEqual(28);
     await expect(header.locator("button, a, select, input")).toHaveCount(4);
     // The fit button leaves the bar on narrow windows, where the zoom slider needs the room.
@@ -62,7 +63,17 @@ for (const width of [320, 768, 1440]) {
     const zoomBounds = (await header.locator(".zoom").boundingBox())!;
     expect(zoomBounds.x - brandBounds.x - brandBounds.width).toBeGreaterThanOrEqual(12);
 
-    expect(brandBounds.width).toBeLessThan(48);
+    expect(brandBounds.width).toBe(48);
+
+    // Every control in the bar is 48px tall on one centre line.
+    for (const control of await header.locator(":scope > *").all()) {
+      const bounds = await control.boundingBox();
+
+      if (!bounds) continue;
+      expect(bounds.height).toBe(48);
+      expect(bounds.y + bounds.height / 2).toBe(brandBounds.y + brandBounds.height / 2);
+    }
+
     await expect(header.locator(".connection, .browser-control, .fixture-switch")).toHaveCount(0);
     expect(await header.evaluate(node => {
       const rect = node.getBoundingClientRect();
@@ -77,7 +88,7 @@ for (const width of [320, 768, 1440]) {
   });
 }
 
-test("pills and chat share the same subtle shadow; live previews carry a deeper one with a teal ring", async ({ page }) => {
+test("pills and chat share the same subtle shadow; live previews' closed frames carry a deeper one with a teal ring", async ({ page }) => {
   await openWorkspace(page);
   const shadow = await page.locator(".zoom").evaluate(node => getComputedStyle(node).boxShadow);
   expect(shadow).not.toBe("none");
@@ -86,8 +97,10 @@ test("pills and chat share the same subtle shadow; live previews carry a deeper 
     await expect(page.locator(selector)).toHaveCSS("box-shadow", shadow);
   }
 
+  // The frame (::after) wraps header, page and the rounded chin below the page.
   for (const selector of ['[data-preview-id="desktop"]', '[data-preview-id="mobile"]']) {
-    await expect(page.locator(selector)).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.45) 0px 12px 32px 0px, rgba(60, 194, 189, 0.4) 0px 0px 0px 1px");
+    expect(await page.locator(selector).evaluate(node => getComputedStyle(node, "::after").boxShadow)).toBe("rgba(0, 0, 0, 0.45) 0px 12px 32px 0px, rgba(60, 194, 189, 0.4) 0px 0px 0px 1px");
+    expect(await page.locator(selector).evaluate(node => getComputedStyle(node, "::after").borderBottomLeftRadius)).toBe("20px");
   }
 
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Shadow check");

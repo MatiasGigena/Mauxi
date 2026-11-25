@@ -135,8 +135,8 @@ test("audit sheet and stage: lanes, tile sizes, crops, finding spotlight, stagin
     expect(overview.tiles.find((tile) => tile.id === "phone-sm")!.rail).toBe("block");
     await expect(page.locator('.snapshot-board[data-profile-id="phone-sm"] .finding-marker').first()).toBeAttached();
 
-    // Live previews carry the elevation; the sheet and its tiles are flat. The width scope has a mark per measured width.
-    expect(await page.locator('.artboard[data-preview-id="desktop"]').evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
+    // Live previews carry the elevation (on their closed frame); the sheet and its tiles are flat. The width scope has a mark per measured width.
+    expect(await page.locator('.artboard[data-preview-id="desktop"]').evaluate((node) => getComputedStyle(node, "::after").boxShadow)).not.toBe("none");
     expect(await boards.first().evaluate((node) => getComputedStyle(node).boxShadow)).toBe("none");
     expect(overview.bars).toBe(sweepWidths().length);
     expect(overview.stage).toBeNull();

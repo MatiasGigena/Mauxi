@@ -17,14 +17,19 @@
 .workspace button:active:not(:disabled), .preview-tools button:active:not(:disabled) { background: var(--btn-active); box-shadow: inset 0 0 0 1px var(--btn-active-ring); }
 .workspace button[aria-pressed=true] { background: var(--pressed-bg); color: var(--pressed-fg); box-shadow: inset 0 0 0 1px var(--pressed-ring); }
 .topbar { position: absolute; z-index: 20; inset: .75rem var(--column-right) auto var(--column-left); display: flex; align-items: center; justify-content: space-between; gap: .75rem; pointer-events: none; }
+/* Every top bar control is one 3rem pill on the same centre line, .75rem apart. */
+.topbar > :is(.brand, .repository-menu, .width-scope, .audit-launcher, .zoom, .canvas-fit) { height: 3rem; }
 .topbar > .zoom { min-height: 3rem; padding: .375rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--floating-shadow); pointer-events: auto; }
 .topbar > .zoom { padding-inline: .875rem 1rem; }
 /* The brand is the logo alone, small; in a project it opens the project menu. */
 .brand { display: flex; flex: none; align-items: center; height: 3rem; padding: 0 .25rem; pointer-events: auto; }
-.topbar .brand-mark { width: 1.75rem; }
+.topbar .brand-mark { width: 1.375rem; }
+/* In the top bar the logo sits in the same round 3rem pill as Fit everything in view. */
+.topbar .brand, .workspace .topbar .repository-trigger.brand { display: grid; place-items: center; width: 3rem; height: 3rem; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--floating-shadow); }
 .repository-menu { position: relative; flex: none; pointer-events: auto; }
 .workspace .repository-trigger.brand { padding: 0 .25rem; border-radius: .75rem; background: transparent; transition: opacity 120ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
 .workspace .repository-trigger.brand:is(:hover, :active):not(:disabled) { background: transparent; box-shadow: none; }
+.workspace .topbar .repository-trigger.brand:is(:hover, :active):not(:disabled) { background: var(--surface); box-shadow: var(--floating-shadow); }
 @media (hover: hover) and (pointer: fine) { .workspace .repository-trigger.brand:hover:not(:disabled) { opacity: .8; } }
 .workspace .repository-trigger.brand:active:not(:disabled) { transform: scale(.94); }
 .repository-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -37,19 +42,39 @@
 .zoom input { width: 5rem; height: 2rem; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .zoom input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .25rem; }
 .zoom input:disabled { opacity: .48; cursor: default; }
-.workspace .canvas-fit { display: grid; flex: none; place-items: center; width: 3rem; height: 3rem; margin-left: -.25rem; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); box-shadow: var(--floating-shadow); pointer-events: auto; transition: color 120ms ease; }
+.workspace .canvas-fit { display: grid; flex: none; place-items: center; width: 3rem; height: 3rem; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); box-shadow: var(--floating-shadow); pointer-events: auto; transition: color 120ms ease; }
 .workspace .canvas-fit:is(:hover, :active):not(:disabled) { background: var(--surface); box-shadow: var(--floating-shadow); }
 .workspace .canvas-fit:active:not(:disabled) svg { transform: scale(.9); }
 .workspace .canvas-fit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .workspace .canvas-fit:hover:not(:disabled) { color: var(--text); } }
 @media (max-width: 640px) { .workspace .canvas-fit { display: none; } }
-.workspace-notice { position: absolute; z-index: 10; top: 4.5rem; left: var(--column-left); max-width: min(30rem, calc(100% - var(--column-left) - var(--column-right))); padding: .5rem .875rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; }
+/* Notices stack under the top bar on the column's left edge, out of the way of the centred offer and peek bar. */
+.canvas-notices { position: absolute; z-index: 10; top: 4.5rem; left: var(--column-left); display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; max-width: min(30rem, calc(100% - var(--column-left) - var(--column-right))); pointer-events: none; }
+.canvas-notices > * { pointer-events: auto; animation: notice-in 200ms cubic-bezier(.23,1,.32,1); }
+@keyframes notice-in { from { opacity: 0; transform: translateY(-4px); } }
+/* While the agent holds the previews: one quiet line with the emergency way back, instead of a paragraph. */
+.agent-control { display: inline-flex; align-items: center; gap: .5rem; height: 2.25rem; padding: 0 .25rem 0 .75rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; font-weight: 500; white-space: nowrap; user-select: none; -webkit-user-select: none; }
+.agent-control-dot { width: .375rem; height: .375rem; border-radius: 50%; background: var(--accent-text); }
+.workspace .agent-control .take-back { min-height: 1.75rem; padding: .125rem .625rem; border-radius: 999px; background: color-mix(in srgb, var(--accent-text) 14%, transparent); color: var(--accent-text); font-size: .75rem; touch-action: manipulation; transition: background-color 120ms ease, transform 140ms cubic-bezier(.23,1,.32,1); }
+.workspace .agent-control .take-back:active:not(:disabled) { box-shadow: none; transform: scale(.97); }
+.workspace .agent-control .take-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .workspace .agent-control .take-back:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-text) 22%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .canvas-notices > * { animation-name: notice-fade; } .workspace .agent-control .take-back:active:not(:disabled) { transform: none; } }
+@keyframes notice-fade { from { opacity: 0; } }
+.workspace-notice { max-width: 100%; padding: .5rem .875rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--surface); box-shadow: var(--floating-shadow); color: var(--text-2); font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; }
 .canvas-surface { flex: 1; min-height: 0; position: relative; isolation: isolate; display: flex; flex-direction: column; background: var(--surface); }
 .canvas { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; isolation: isolate; touch-action: none; }
 .canvas:focus-visible { outline-offset: -3px; }
 .hand-mode, .input-shield { cursor: grab; }.dragging, .dragging * { cursor: grabbing !important; }
 .artboard { position: absolute; container: artboard / inline-size; border-radius: 1.25rem 1.25rem 0 0; box-shadow: var(--floating-shadow); }
-.artboard[data-preview-id] { box-shadow: var(--live-shadow); }
+/*
+ * A live preview is a closed frame: header, page, and a short chin of the header's surface whose bottom corners round
+ * like the header's top ones. The frame (::after, behind the header and the page) carries the elevation and the teal
+ * ring; the page's own bottom corners round just enough to stay inside the chin's curve.
+ */
+.artboard[data-preview-id] { box-shadow: none; }
+.artboard[data-preview-id]::after { content: ""; position: absolute; z-index: -1; inset: 0 0 -.625rem; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--surface); box-shadow: var(--live-shadow); pointer-events: none; }
+.artboard[data-preview-id] .preview-surface { overflow: hidden; border-radius: 0 0 .5rem .5rem; }
 .artboard-header { height: 3rem; display: flex; align-items: center; justify-content: space-between; gap: .3rem; padding: .25rem .5rem; background: var(--surface); border: 1px solid var(--border); border-bottom: 0; border-radius: 1.25rem 1.25rem 0 0; cursor: grab; user-select: none; touch-action: none; }
 .artboard-header .board-grip { display: flex; flex-direction: column; align-items: flex-start; padding: 0 .25rem; min-width: 0; background: transparent; cursor: grab; box-shadow: none; }
 .board-grip strong { display: flex; align-items: center; gap: .5rem; max-width: 100%; overflow: hidden; white-space: nowrap; color: var(--text); font-size: .78125rem; font-weight: 600; line-height: 1.5; }.board-grip > span { font-size: .6875rem; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }

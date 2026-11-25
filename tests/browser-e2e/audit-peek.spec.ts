@@ -139,6 +139,12 @@ test("audit sheet: peek and return, width scope scrubbing and resolved ghosts", 
     // While the agent holds the browser, the strip refuses to resize anything.
     await page.getByRole("button", { name: "Give agent control", exact: true }).click();
     await expect(page.getByRole("button", { name: "Emergency take back control" })).toBeVisible();
+    // Handing over says so in one quiet line with the way back, not a paragraph about route linking.
+    const control = page.locator(".agent-control");
+    await expect(control).toHaveText("Agent has controlTake back");
+    expect((await control.boundingBox())!.height).toBeLessThanOrEqual(37);
+    await expect(page.getByText("Route linking paused", { exact: false })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("03b-agent-control.png") });
     await strip.focus();
     await page.keyboard.press("Home");
     await expect(page.locator(".workspace-notice")).toContainText("Return browser control to resize the previews.");

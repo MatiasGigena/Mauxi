@@ -696,7 +696,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setLayout(current => { const restored = unfocus(current);
 
       return { ...restored, camera: freeCamera(PREVIEW_IDS.map((id) => restored.boards[id]), panelOpenRef.current, FIT_MIN_ZOOM), linked: false }; });
-    setNotice("Route linking paused during agent checks. Re-enable it in preview actions when needed.");
     void browser.owner("agent");
   }
 
@@ -1187,7 +1186,13 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </header>
     {audit && (offer === "leaving" || offerShown.current) && <SnapshotOffer report={audit} leaving={offer === "leaving"} onShow={acceptOffer} onDismiss={() => setOffer("leaving")} onGone={() => setOffer("closed")} />}
     {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
-    {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
+    {(statusText || browser.error || browser.locked) && <div className="canvas-notices">
+      {browser.locked && <div className="agent-control" role="status" title="The agent is checking the previews. Route linking stays paused; re-enable it in a preview's actions afterwards.">
+        <span className="agent-control-dot" aria-hidden="true" />Agent has control
+        <button type="button" className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back</button>
+      </div>}
+      {(browser.error || statusText) && <div className="workspace-notice" role="status">{browser.error || statusText}</div>}
+    </div>}
     <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-sheet-entering={entering || undefined} data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
       onPointerDown={(event) => {
