@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitBoards, fitCamera, FIT_MIN_ZOOM, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -17,6 +17,7 @@ import { ArrowLeft, Maximize, ScanSearch } from "lucide-react";
 import { AuditPanel } from "./AuditPanel";
 import { auditMatrix, AuditBoards, matrixTile, type FormingAudit } from "./AuditBoards";
 import { WidthScope } from "./WidthScope";
+import { SnapshotOffer } from "./SnapshotOffer";
 import { CAPTION, seenOn } from "../application/audit-layout";
 import { SitePageBar, SiteSetup, SiteSummary, useSiteAudit } from "./AuditSite";
 import { findingContext, type AuditFinding, type AuditFindingContext, type AuditProgress, type AuditReport, type AuditSnapshot } from "../application/audit-contract";
@@ -96,6 +97,20 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   const [streamed, setStreamed] = useState<AuditSnapshot[]>([]);
   /** A single-route run the host reports, including one the agent started. */
   const [hostAudit, setHostAudit] = useState(false);
+  /** A run this canvas started itself is in flight; the host announces it too, and that announcement is not the agent's. */
+  const ownRun = useRef(false);
+  /**
+   * The canvas opens on the two live previews: the entry audit runs in the panel only, and its snapshots wait for the
+   * offer that appears when it finishes. Anything that needs the snapshots (the offer, a finding, a Seen at chip, a run
+   * the user or the agent starts, a site page, Fit everything) shows them, and they stay for the rest of the session.
+   */
+  const [held, setHeld] = useState(!manualAudit);
+  const heldRef = useRef(held); heldRef.current = held;
+  /** The snapshots offer: shown while held after a report, "leaving" while it animates out, "closed" once dismissed or taken. */
+  const [offer, setOffer] = useState<"open" | "leaving" | "closed">("open");
+  const offerShown = useRef(false);
+  /** The snapshots just came in: the sheet and its tiles play their entrance once. */
+  const [entering, setEntering] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelOpenRef = useRef(panelOpen); panelOpenRef.current = panelOpen;
   const [auditError, setAuditError] = useState("");
@@ -703,6 +718,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       setHostAudit(running);
 
       if (running) { setAuditProgress(null); setStreamed([]); setAuditError(""); setPanelOpen(true); }
+
+      // The agent's run forms on the canvas like the user's own; the entry run announced here is this canvas's.
+      if (running && !ownRun.current) showSheet();
     });
 
     const offReport = window.mauxi.onAuditReport((report) => { setAudit(report); setAuditError(""); setPanelOpen(true); reportArrived(report); });
@@ -729,6 +747,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   // The width scope in the top bar counts what the canvas shows: no findings while a run forms, none marked intentional.
   const scopeFindings = useMemo(() => forming || !audit ? [] : audit.findings.filter((finding) => !ignoredFindings.has(finding.id)), [forming, audit, ignoredFindings]);
 
+  offerShown.current = !!audit && offer === "open" && held && !forming;
+
   const desktopRoute = () => runtimeRef.current.desktop.route || projectRoute(baseUrl, origin) || "/";
 
   /** Shows a report in the panel and, unless told not to, fits the canvas to the live previews plus its board matrix. */
@@ -736,8 +756,38 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     setAudit(report);
     setSelectedFinding(null); setHoveredFinding(null); setExpanded(new Set()); setPeek(null); stopFlight();
 
-    if (fit) setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
+    if (!fit) return;
+    showSheet();
+    setLayout((current) => ({ ...unfocus(current), camera: matrixCamera(unfocus(current), report, null, panelOpenRef.current) }));
   }
+
+  /** Puts the snapshots on the canvas for the rest of the session; the offer, if it is up, leaves as they arrive. */
+  function showSheet() {
+    if (!heldRef.current) return;
+    heldRef.current = false;
+    setHeld(false);
+    // Only an offer on screen animates out; one that never showed just closes.
+    setOffer((current) => current === "open" && offerShown.current ? "leaving" : current === "open" ? "closed" : current);
+
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) setEntering(true);
+  }
+
+  /** The offer's button: shows the snapshots and flies the camera out to the live previews and the whole sheet. */
+  function acceptOffer() {
+    if (!audit) return;
+    showSheet();
+    const base = unfocus(layoutRef.current);
+    setLayout((current) => unfocus(current));
+    flyTo(matrixCamera(base, audit, null, panelOpenRef.current), base.camera, 440);
+  }
+
+  // The entrance plays once: the last tile starts about half a second in.
+  useEffect(() => {
+    if (!entering) return;
+    const timer = window.setTimeout(() => setEntering(false), 1_100);
+
+    return () => window.clearTimeout(timer);
+  }, [entering]);
 
   /** Fits the live previews and the audit sheet in the part of the canvas the top bar, the chat dock and the audit panel leave free; open: keys of tiles shown uncropped. */
   function matrixCamera(state: CanvasState, report: AuditReport | null, forming: FormingAudit | null, panel: boolean, focus: string[] | null = null, open: ReadonlySet<string> = new Set()): Camera {
@@ -795,41 +845,44 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     return { ...camera, y: camera.y + top };
   }
 
-  /** Opens the panel and fits the live previews and a placeholder for every audit profile, unless the user moved the camera since the canvas opened. */
-  function revealMatrix(): Camera | null {
-    const element = canvas.current;
-
-    if (!element || !sameCamera(layoutRef.current.camera, entryCamera.current)) return null;
+  /**
+   * Opens the panel beside the two live previews for the entry audit, and settles the previews into the canvas the panel
+   * leaves free, unless the user moved the camera since the canvas opened.
+   */
+  function enterAudit() {
     const wide = matchMedia("(min-width: 1100px)").matches;
-    const camera = matrixCamera(unfocus(layoutRef.current), null, { snapshots: [], current: null }, wide);
 
     if (wide) setPanelOpen(true);
-    setLayout((current) => ({ ...unfocus(current), camera }));
 
-    return camera;
+    if (!canvas.current || !sameCamera(layoutRef.current.camera, entryCamera.current)) return;
+    const base = unfocus(layoutRef.current);
+    setLayout((current) => unfocus(current));
+    flyTo(freeCamera(PREVIEW_IDS.map((id) => base.boards[id]), wide, FIT_MIN_ZOOM), base.camera, 360);
   }
 
-  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). The entry run fits the matrix and leaves a camera the user moved alone. */
+  /** Audits the Desktop preview's route, or the given route (an open page of a site audit). The entry run keeps its snapshots for the offer and the camera on the live previews. */
   async function runAudit(target?: string, entry = false) {
     if (!window.mauxi || auditRunning || hostAudit) return;
     const route = target ?? desktopRoute();
-    let revealed: Camera | null = null;
+
+    // A run the user starts shows its snapshots forming; the entry run keeps them for the offer.
+    if (!entry) showSheet();
+
+    ownRun.current = true;
     setAuditRunning(true); setAuditError(""); setAuditProgress(null); setStreamed([]);
 
     try {
       const pending = window.mauxi.auditRun(active ? { workspaceId: active.workspaceId, route } : { route, fixture });
 
-      if (entry) revealed = revealMatrix();
+      if (entry) enterAudit();
       const report = await pending;
 
       // No report: the workspace closed under the run. That is not a failure, and its layout must not change (or be saved) any more.
-      if (report) showReport(report, !entry || sameCamera(layoutRef.current.camera, revealed));
+      // Held, the entry report goes to the panel and the offer; the camera stays on the live previews.
+      if (report) showReport(report, !heldRef.current);
     } catch (error) {
       setAuditError(errorText(error));
-
-      // A stopped or failed entry run takes its placeholders away: return to the live previews if the camera is still where the run put it.
-      if (revealed && sameCamera(layoutRef.current.camera, revealed)) setLayout((current) => fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight));
-    } finally { setAuditRunning(false); }
+    } finally { ownRun.current = false; setAuditRunning(false); }
   }
 
   // The canvas opens with the audit: once the Desktop preview is ready, run it unless another run already covers the entry.
@@ -837,7 +890,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   useEffect(() => {
     if (manualAudit || entryAudit.current === session || !window.mauxi || !runtimes.desktop.ready || active?.status === "failed") return;
 
-    if (audit || auditRunning || hostAudit || site.mode !== "off" || site.running || site.discovering) { entryAudit.current = session;
+    if (audit || auditRunning || hostAudit || site.mode !== "off" || site.running || site.discovering) { entryAudit.current = session; showSheet();
 
     return; }
 
@@ -852,6 +905,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }
 
   function selectFinding(finding: AuditFinding) {
+    showSheet();
     setSelectedFinding((current) => current === finding.id ? null : finding.id);
   }
 
@@ -889,9 +943,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     if (open && cropped) setLayout((current) => ({ ...current, camera: { ...current.camera, y: current.camera.y + (open.height - cropped.height) * current.camera.zoom } }));
   }
 
-  /** Animates the camera to target (280 ms, easing out) through the canvas point at the screen centre; instant under reduced motion. */
+  /** Animates the camera to target (280 ms unless told otherwise, easing out) through the canvas point at the screen centre; instant under reduced motion. */
   /** from: the camera the flight starts at, when the state just changed under it (e.g. unfocusing). */
-  function flyTo(target: Camera, from = layoutRef.current.camera) {
+  function flyTo(target: Camera, from = layoutRef.current.camera, duration = 280) {
     stopFlight();
 
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setLayout((current) => ({ ...current, camera: target }));
@@ -904,7 +958,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const start = performance.now();
 
     const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 280);
+      const t = Math.min(1, (now - start) / duration);
       const k = 1 - (1 - t) ** 5;
       const zoom = from.zoom * (target.zoom / from.zoom) ** k;
       const point = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
@@ -922,6 +976,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
    */
   function peekAt(key: string, finding?: AuditFinding) {
     if (!audit || forming) return;
+    showSheet();
     const live = PREVIEW_IDS.map((id) => layoutRef.current.boards[id]);
     // Switching tiles crops the one the last peek opened.
     const base = new Set(expanded);
@@ -963,6 +1018,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   /** Brings everything on the canvas back into view: the live previews and, when there is one, the audit sheet or stage. */
   function fitAll() {
     if (browserLocked.current) return;
+
+    if (audit) showSheet();
 
     const open = new Set(expanded);
 
@@ -1097,9 +1154,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       <label className="zoom"><span>{Math.round(layout.camera.zoom * 100)}%</span><input aria-label="Camera zoom" aria-valuetext={`${Math.round(layout.camera.zoom * 100)}%`} type="range" min={zoomFloor(layout.camera)} max={MAX_ZOOM} step="0.01" value={layout.camera.zoom} disabled={browser.locked} onChange={(event) => changeZoom(Number(event.target.value))} /></label>
       <button type="button" className="canvas-fit" aria-label="Fit everything in view" title="Fit everything in view" disabled={browser.locked} onClick={fitAll}><Maximize size={16} aria-hidden="true" /></button>
     </header>
+    {audit && (offer === "leaving" || offerShown.current) && <SnapshotOffer report={audit} leaving={offer === "leaving"} onShow={acceptOffer} onDismiss={() => setOffer("leaving")} onGone={() => setOffer("closed")} />}
     {peek && <div className="peek-bar" role="status"><span>Peeking at <strong>{peek.label}</strong></span><button type="button" onClick={endPeek}><ArrowLeft size={14} aria-hidden="true" />Back<kbd>Esc</kbd></button></div>}
     {(statusText || browser.error || browser.locked) && <div className="workspace-notice" role="status">{browser.error || statusText}{browser.locked && <button className="take-back" aria-label="Emergency take back control" onClick={() => void browser.owner("human")}>Take back control</button>}</div>}
-    <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
+    <main ref={canvas} className={`canvas ${navigationHeld ? "hand-mode" : ""} ${dragging ? "dragging" : ""}`} data-testid="canvas" data-sheet-entering={entering || undefined} data-navigation-gesture={navigation.wheeling} aria-label="Preview canvas" tabIndex={0}
       onPointerDownCapture={event => { if (event.button === 0) minimizeChat(); }}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) { if (!browserLocked.current && !navigationHeld) navigation.exit(); startDrag(null, event); }
@@ -1109,10 +1167,10 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       onKeyDown={(event) => { if (browserLocked.current || event.target !== event.currentTarget) return;
 
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); stopFlight(); setLayout((current) => ({ ...current, camera: { ...current.camera, x: current.camera.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0), y: current.camera.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0) } })); } }}>
-      <AuditBoards matrix={matrix} report={audit} forming={forming} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
+      {!held && <AuditBoards matrix={matrix} report={audit} forming={forming} camera={layout.camera} selected={selectedFinding} spotlight={panelOpen ? hoveredFinding ?? selectedFinding : selectedFinding} ignored={ignoredFindings}
         expanded={expanded} peek={peek?.profileId ?? null}
         onSelect={(finding) => setSelectedFinding(finding.id)} onExpand={toggleTile} onPeek={(key) => peekAt(key)}
-        onShow={showFinding} onExpandStage={expandStage} onUnstage={() => setSelectedFinding(null)} />
+        onShow={showFinding} onExpandStage={expandStage} onUnstage={() => setSelectedFinding(null)} />}
       {PREVIEW_IDS.map((id) => {
         const board = layout.boards[id]; const zoom = layout.camera.zoom;
         const interacting = navigation.interactive === id && !selecting && !navigationHeld;

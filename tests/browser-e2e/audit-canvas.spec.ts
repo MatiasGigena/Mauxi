@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AUDIT_PROFILES, sweepWidths } from "../../src/application/audit-contract";
+import { showSnapshots } from "../helpers/entry-audit";
 import { launch, text } from "../helpers/fake-provider";
 
 interface Box { x: number; y: number; width: number; height: number }
@@ -86,6 +87,7 @@ test("audit sheet and stage: lanes, tile sizes, crops, finding spotlight, stagin
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
     await expect(panel.getByRole("button", { name: "Re-run" })).toBeEnabled({ timeout: 120_000 });
     await expect(page.locator(".workspace-notice")).toHaveCount(0, { timeout: 15_000 });
+    await showSnapshots(page);
     const boards = page.locator(".snapshot-board");
     await expect(boards).toHaveCount(AUDIT_PROFILES.length);
     const overview = await snap("overview");
