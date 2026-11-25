@@ -94,8 +94,8 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
   // Screen position of a canvas y, below the live previews' header band and px more of bands that keep their size.
   const top = (y: number, px: number) => `calc(${camera.y + y * zoom}px + 3rem + ${px}px)`;
 
-  /** One snapshot tile; on the stage it is larger, and the staged finding's markers lead while the others fade. */
-  const tile = ({ key, id, label, note, viewport, snapshot, state, x, y, width, height, scale, cropped, inset }: MatrixBoard, onStage: boolean): ReactNode => {
+  /** One snapshot tile; on the stage it is larger, and the staged finding's markers lead while the others fade. order: its place in the entrance stagger. */
+  const tile = ({ key, id, label, note, viewport, snapshot, state, x, y, width, height, scale, cropped, inset }: MatrixBoard, onStage: boolean, order: number): ReactNode => {
     const markers = visible.flatMap((finding) => finding.markers.filter((marker) => marker.profileId === id).map((marker) => ({ finding, marker, index: findings.indexOf(finding) + 1 })));
     const issues = new Set(markers.map((item) => item.finding.id)).size + visible.filter((finding) => !finding.markers.length && finding.profiles.includes(id)).length;
     const status = state === "queued" ? "Queued" : state === "measuring" ? "Measuring" : "Captured";
@@ -129,7 +129,7 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
     return <section key={key} className={`artboard ${onStage ? "stage-tile" : "snapshot-board"}`} data-profile-id={id} data-state={forming ? state : undefined}
       data-spotlight={!onStage && lit ? seenOn(lit, id) ? "lit" : "dimmed" : undefined} data-cropped={cropped || undefined} data-peek={peek === key || undefined} data-resolved={ghosts.length || undefined} aria-busy={forming && state !== "captured" || undefined}
       aria-label={forming ? `${label} viewport, ${status.toLowerCase()}` : onStage ? `${label} on the stage, ${issues} findings` : `${label} snapshot, ${issues} findings`}
-      style={{ left: camera.x + x * zoom, top: top(y, inset - CAPTION), width: width * zoom }}>
+      style={{ left: camera.x + x * zoom, top: top(y, inset - CAPTION), width: width * zoom, "--i": order }}>
       <header className="artboard-header snapshot-header" style={{ height: CAPTION }}>
         {forming
           ? <div className="snapshot-title" title={`${label} · ${viewport.width} × ${viewport.height}${note ? ` · ${note}` : ""}`}>{caption}</div>
@@ -164,7 +164,7 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
   };
 
   return <>
-    {sheet && !stage && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom, top: top(sheet.frame.y, 0), width: sheet.frame.width * zoom, height: sheet.frame.height * zoom + sheet.frame.inset }}>
+    {sheet && !stage && <div className="audit-sheet" style={{ left: camera.x + sheet.frame.x * zoom - (sheet.frame.lead ?? 0), top: top(sheet.frame.y, sheet.frame.top), width: sheet.frame.width * zoom + (sheet.frame.lead ?? 0), height: sheet.frame.height * zoom + sheet.frame.inset - sheet.frame.top }}>
       <div className="sheet-head" aria-hidden="true" style={{ height: SHEET_HEAD + PAD * zoom, paddingInline: Math.max(12, PAD * zoom) }}>
         <strong>Snapshots</strong><span className="sheet-head-count">{forming ? `${matrix.boards.filter((board) => board.state === "captured").length} of ${matrix.boards.length} captured` : `${matrix.boards.length} captures`}</span>
         {!forming && <span className="sheet-head-hint">Click a snapshot to look closer</span>}
@@ -192,7 +192,7 @@ export function AuditBoards({ matrix, report, forming, camera, selected, spotlig
       </header>
       {!stage.boards.length && <p className="stage-empty">This finding has no snapshot to show; its widths are on the scope above.</p>}
     </section>}
-    {matrix.boards.map((board) => tile(board, false))}
-    {stage?.boards.map((board) => tile(board, true))}
+    {matrix.boards.map((board, index) => tile(board, false, index))}
+    {stage?.boards.map((board, index) => tile(board, true, index))}
   </>;
 }

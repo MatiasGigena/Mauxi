@@ -1,5 +1,5 @@
 import { AUDIT_PROFILES, type AuditFinding } from "./audit-contract";
-import type { Artboard, Point } from "./canvas-state";
+import { FIT_GAP, LIVE_FRAME, type Artboard, type Point } from "./canvas-state";
 
 /*
  * The audit sheet: one surface below the live previews where every snapshot is a tile of one of three canvas widths,
@@ -41,14 +41,17 @@ const LANES: Array<{ id: LaneId; label: string }> = [
 /** Tile classes: canvas width and the most of the page shown before cropping. True widths span 1 : 6; tiles span 1 : 2. */
 const TILES = { S: { width: 260, crop: 540 }, M: { width: 360, crop: 480 }, L: { width: 520, crop: 400 } };
 
-const TILE_GAP = 28;
+const TILE_GAP = 40;
 const LANE_GAP = 72;
-const ROW_GAP = 40;
+const ROW_GAP = 56;
 
 /** Canvas units between the sheet's edge and its tiles. */
 export const PAD = 48;
 
 const STAGE_GAP = 140;
+
+/** Screen px from the live previews' frames down to the sheet: the sheet starts right below them in canvas units and is lifted this much on screen, so the gap matches the fit's at every zoom. */
+const SHEET_LIFT = LIVE_FRAME + FIT_GAP;
 const LINE_MAX = 2400;
 
 /** The packing scores rows for a landscape canvas of this aspect at about this zoom (the screen bands' share). */
@@ -64,8 +67,8 @@ export interface SheetTile extends Artboard { id: string; lane: LaneId; scale: n
 /** A lane label above one line of tiles (in stage mode's grid, beside it: gutter); continued lines carry no label. */
 export interface SheetLane { id: LaneId; label: string | null; x: number; y: number; width: number; inset: number; gutter?: boolean }
 
-/** frame: the sheet surface; its heading sits at frame.y, one live header band below the canvas position. */
-export interface Sheet { tiles: SheetTile[]; lanes: SheetLane[]; frame: Artboard & { inset: number } }
+/** frame: the sheet surface; its heading sits at frame.y, one live header band and top screen px below the canvas position; inset counts every screen band down to its bottom; lead, the screen px it reaches left to line up with the live previews' frames. */
+export interface Sheet { tiles: SheetTile[]; lanes: SheetLane[]; frame: Artboard & { inset: number; top: number } }
 
 const PROFILES = new Map(AUDIT_PROFILES.map((profile) => [profile.id, profile]));
 
@@ -145,20 +148,20 @@ export function layoutSheet(items: SheetItem[], live: Artboard[], expanded: Read
     const rows = wrap(units, limit);
     const width = Math.max(span, Math.max(...rows.map(rowWidth)) + 2 * PAD);
     const bands = (SHEET_HEAD + rows.length * (LANE_LABEL + CAPTION)) / TYPICAL_ZOOM;
-    const height = bottom - top + STAGE_GAP + 2 * PAD + rows.reduce((sum, row) => sum + Math.max(...row.map((unit) => unit.crop)), (rows.length - 1) * ROW_GAP) + bands;
+    const height = bottom - top + SHEET_LIFT / TYPICAL_ZOOM + 2 * PAD + rows.reduce((sum, row) => sum + Math.max(...row.map((unit) => unit.crop)), (rows.length - 1) * ROW_GAP) + bands;
     const scale = Math.min(ASPECT / width, 1 / height);
 
     if (scale > best.scale * 1.000001) best = { rows, scale };
   }
 
-  const sheetTop = bottom + STAGE_GAP;
+  const sheetTop = bottom;
   const tiles: SheetTile[] = [];
   const lanes: SheetLane[] = [];
   let y = sheetTop + PAD;
-  let inset = 0;
+  let inset = SHEET_LIFT;
 
   best.rows.forEach((row, index) => {
-    inset = SHEET_HEAD + (index + 1) * (LANE_LABEL + CAPTION);
+    inset = SHEET_LIFT + SHEET_HEAD + (index + 1) * (LANE_LABEL + CAPTION);
     let x = left + PAD;
 
     for (const unit of row) {
@@ -178,7 +181,7 @@ export function layoutSheet(items: SheetItem[], live: Artboard[], expanded: Read
 
   const width = Math.max(span, Math.max(...best.rows.map(rowWidth)) + 2 * PAD);
 
-  return { tiles, lanes, frame: { x: left, y: sheetTop, width, height: y - ROW_GAP + PAD - sheetTop, inset } };
+  return { tiles, lanes, frame: { x: left, y: sheetTop, width, height: y - ROW_GAP + PAD - sheetTop, inset, top: SHEET_LIFT, lead: LIVE_FRAME } };
 }
 
 /*
@@ -258,7 +261,7 @@ export function layoutStage(items: SheetItem[], live: Artboard[], focus: string[
   const gridBottom = y - ROW_GAP;
   const gridBands = GRID_HEAD + line * CAPTION;
   const gridWidth = Math.max(...tiles.flatMap((tile) => tile ? [tile.x + tile.width] : [])) - gridLeft;
-  const grid: Sheet = { tiles, lanes, frame: { x: gridLeft, y: top, width: gridWidth, height: gridBottom - top, inset: gridBands } };
+  const grid: Sheet = { tiles, lanes, frame: { x: gridLeft, y: top, width: gridWidth, height: gridBottom - top, inset: gridBands, top: 0 } };
 
   // The stage: the focused snapshots at stage size, below whichever of the previews and the grid reaches lower. The grid's
   // screen bands count at every zoom, so the stage always clears them.

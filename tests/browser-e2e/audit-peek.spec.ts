@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { sweepWidths } from "../../src/application/audit-contract";
+import { showSnapshots } from "../helpers/entry-audit";
 import { launch, text } from "../helpers/fake-provider";
 
 const LAB_CSS = path.resolve("fixtures/vite/src/audit-lab/audit-lab.css");
@@ -63,6 +64,7 @@ test("audit sheet: peek and return, width scope scrubbing and resolved ghosts", 
     const panel = page.getByRole("complementary", { name: "Responsive audit" });
     await expect(panel.getByRole("button", { name: "Re-run" })).toBeEnabled({ timeout: 120_000 });
     await expect(page.locator(".workspace-notice")).toHaveCount(0, { timeout: 15_000 });
+    await showSnapshots(page);
     const overview = await settled(page);
     const tablet = page.locator('.snapshot-board[data-profile-id="tablet"]');
     await expect(tablet).toHaveAttribute("data-cropped", "true");
@@ -137,6 +139,12 @@ test("audit sheet: peek and return, width scope scrubbing and resolved ghosts", 
     // While the agent holds the browser, the strip refuses to resize anything.
     await page.getByRole("button", { name: "Give agent control", exact: true }).click();
     await expect(page.getByRole("button", { name: "Emergency take back control" })).toBeVisible();
+    // Handing over says so in one quiet line with the way back, not a paragraph about route linking.
+    const control = page.locator(".agent-control");
+    await expect(control).toHaveText("Agent has controlTake back");
+    expect((await control.boundingBox())!.height).toBeLessThanOrEqual(37);
+    await expect(page.getByText("Route linking paused", { exact: false })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("03b-agent-control.png") });
     await strip.focus();
     await page.keyboard.press("Home");
     await expect(page.locator(".workspace-notice")).toContainText("Return browser control to resize the previews.");
