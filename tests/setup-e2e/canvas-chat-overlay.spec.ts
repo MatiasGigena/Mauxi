@@ -19,12 +19,17 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1280, height: 600
     expect(bounds.y).toBeCloseTo(surface.y, 0);
     expect(bounds.height).toBeCloseTo(surface.height, 0);
     const board = page.getByRole("region", { name: "Desktop artboard", exact: true });
-    const boardBounds = await board.boundingBox();
+    let boardBounds = await board.boundingBox();
     const dockBounds = (await dock.boundingBox())!;
     const bottomGap = viewport.width <= 600 || viewport.height <= 650 ? 16 : 32;
     expect(viewport.height - dockBounds.y - dockBounds.height).toBeCloseTo(bottomGap, 0);
+    // Pan the page down until it runs past the dock: wherever the fit left it, the canvas goes on under the chat.
+    const before = (await page.getByTestId("desktop-preview").boundingBox())!;
+    const reach = Math.max(0, dockBounds.y + dockBounds.height - (before.y + before.height) + 40);
+    await canvas.evaluate((node, deltaY) => node.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })), -reach);
     const preview = (await page.getByTestId("desktop-preview").boundingBox())!;
     expect(preview.y + preview.height).toBeGreaterThan(dockBounds.y + dockBounds.height);
+    boardBounds = await board.boundingBox();
     expect(await dock.evaluate(node => {
       const box = node.getBoundingClientRect();
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 import { BRIDGE_PROTOCOL, isBridgeMessage, type PreviewId, type SelectionCapture, type ShellToBridgeMessage } from "../application/preview-contract";
-import { defaultCanvas, dragBoard, fitBoards, fitCamera, FIT_MIN_ZOOM, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
+import { defaultCanvas, dragBoard, fitCamera, FIT_MIN_ZOOM, HEADER_HEIGHT, LABELS, MAX_ZOOM, OVERVIEW_MIN_ZOOM, PREVIEW_IDS, unfocus, zoomAt, zoomFloor, type Artboard, type Camera, type CanvasState } from "../application/canvas-state";
 import { projectRoute, RouteLink, supportedRoute, type RouteCommand } from "../application/route-link";
 import { markSelectionsAfterDocumentChange, markSelectionsAfterRouteChange, selectionCapturePaths, selectionMarkerIds, type StoredSelection } from "../application/selection-state";
 import { selectionCropToShell } from "../application/selection-geometry";
@@ -43,9 +43,6 @@ function releaseDraftCaptures(files: string[]): void {
   if (!files.length || !window.mauxi) return;
   void window.mauxi.releaseCaptures(files).catch(error => console.warn("Could not release selection captures", error));
 }
-
-/** Horizontal space the audit panel covers on the right of the canvas. */
-const AUDIT_PANEL_SPACE = 400;
 
 /** Vertical space the peek bar takes under the top bar, kept clear so it never covers the tile it names. */
 const PEEK_BAR_SPACE = 52;
@@ -166,7 +163,8 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   /** The session whose entry audit was started or found unnecessary: it runs once per opened canvas. */
   const entryAudit = useRef<string | null>(null);
   const [boardsPlaced, setBoardsPlaced] = useState(!!active?.canvas);
-  const geometry = useRef({ width: 1000, height: 600, headerHeight: HEADER_HEIGHT });
+  /** The canvas column (x, width: see canvasColumn) and the canvas height: where automatic fits put the boards. */
+  const geometry = useRef({ x: 0, width: 1000, height: 600, headerHeight: HEADER_HEIGHT, gutter: 0 });
   const drag = useRef<{ id: PreviewId | null; x: number; y: number; state: CanvasState } | null>(null);
   const dragMoved = useRef(false);
 
@@ -233,16 +231,16 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const observer = new ResizeObserver(() => {
       if (!canvas.current) return;
       const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      geometry.current = { width: Math.max(320, canvas.current.clientWidth - (panelOpenRef.current ? AUDIT_PANEL_SPACE : 0)), height: canvas.current.clientHeight, headerHeight: rootSize * 3 };
+      geometry.current = { ...canvasColumn(panelOpenRef.current), height: canvas.current.clientHeight, headerHeight: rootSize * 3, gutter: 0 };
 
       if (initialFit.current) {
         initialFit.current = false;
-        const camera = fitCamera(Object.values(layoutRef.current.boards), geometry.current, geometry.current.headerHeight);
+        const camera = freeCamera(Object.values(layoutRef.current.boards), panelOpenRef.current, FIT_MIN_ZOOM);
         entryCamera.current = camera;
         setLayout((current) => ({ ...current, camera }));
         setBoardsPlaced(true);
       } else if (layoutRef.current.focus) {
-        setLayout((current) => ({ ...current, camera: fitCamera([current.boards[current.focus!.previewId]], geometry.current, geometry.current.headerHeight) }));
+        setLayout((current) => ({ ...current, camera: freeCamera([current.boards[current.focus!.previewId]], panelOpenRef.current, FIT_MIN_ZOOM) }));
       }
     });
 
@@ -262,7 +260,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   }, []);
 
   useEffect(() => {
-    if (canvas.current) geometry.current = { ...geometry.current, width: Math.max(320, canvas.current.clientWidth - (panelOpen ? AUDIT_PANEL_SPACE : 0)) };
+    if (canvas.current) geometry.current = { ...geometry.current, ...canvasColumn(panelOpen) };
   }, [panelOpen]);
 
   const persist = useCallback(async (state: CanvasState) => {
@@ -460,7 +458,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       if (current.focus?.previewId === id) return restored;
 
-      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: fitCamera([restored.boards[id]], geometry.current, geometry.current.headerHeight) };
+      return { ...restored, focus: { previewId: id, camera: restored.camera, positions: { desktop: { x: restored.boards.desktop.x, y: restored.boards.desktop.y }, mobile: { x: restored.boards.mobile.x, y: restored.boards.mobile.y } } }, camera: freeCamera([restored.boards[id]], panelOpenRef.current, FIT_MIN_ZOOM) };
     });
     setActivePreview(id);
   }
@@ -474,7 +472,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
   function changeZoom(zoom: number) {
     stopFlight();
-    setLayout((current) => ({ ...current, camera: zoomAt(current.camera, zoom, { x: geometry.current.width / 2, y: geometry.current.height / 2 }) }));
+    setLayout((current) => ({ ...current, camera: zoomAt(current.camera, zoom, { x: geometry.current.x + geometry.current.width / 2, y: geometry.current.height / 2 }) }));
   }
 
   useEffect(() => {
@@ -695,7 +693,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
   function grantBrowserControl() {
     if (browser.locked || !PREVIEW_IDS.every(id => runtimeRef.current[id].ready) || active?.status === "failed") return;
     navigation.exit(false); setSelecting(null); setTools(null);
-    setLayout(current => ({ ...fitBoards(current, PREVIEW_IDS, geometry.current, geometry.current.headerHeight), linked: false }));
+    setLayout(current => { const restored = unfocus(current);
+
+      return { ...restored, camera: freeCamera(PREVIEW_IDS.map((id) => restored.boards[id]), panelOpenRef.current, FIT_MIN_ZOOM), linked: false }; });
     setNotice("Route linking paused during agent checks. Re-enable it in preview actions when needed.");
     void browser.owner("agent");
   }
@@ -829,7 +829,37 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     });
   }
 
-  /** Fits boards in the part of the canvas the top bar, the chat dock and the audit panel leave free; reserve: more px kept clear under the top bar. */
+  /**
+   * The canvas column, in canvas px: the left edge and width the top bar, the chat dock and the floating bars share
+   * (see .workspace in workspace.css, whose variables this reads), with the audit panel open or not. Fits fill it edge
+   * to edge, so boards that fill its width line up with the top bar and the chat above and below them.
+   */
+  function canvasColumn(panel: boolean) {
+    const element = canvas.current;
+    const host = element?.closest<HTMLElement>(".workspace");
+
+    if (!element || !host) return { x: geometry.current.x, width: geometry.current.width };
+    const style = getComputedStyle(host);
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+    const length = (name: string) => {
+      const value = style.getPropertyValue(name).trim();
+
+      return (parseFloat(value) || 0) * (value.endsWith("rem") ? rem : 1);
+    };
+
+    const rail = length("--rail");
+    const free = element.clientWidth - rail - (panel ? length("--audit-panel-width") + 2 * rail : rail);
+    const width = Math.max(240, Math.min(free, length("--column-max") || free));
+
+    return { x: rail + Math.max(0, (free - width) / 2), width };
+  }
+
+  /**
+   * Fits boards in the canvas column, below the top bar and above the chat dock: every automatic fit (opening, focus,
+   * Show at, handoff, the audit overview) goes through here, so no board header ever sits under the top bar.
+   * reserve: more px kept clear under the top bar.
+   */
   function freeCamera(boards: Artboard[], panel: boolean, minZoom: number, maxZoom = MAX_ZOOM, reserve = 0): Camera {
     const element = canvas.current;
 
@@ -840,7 +870,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     const top = (bar ? Math.max(0, bar.bottom - rect.top) : 0) + reserve;
     // An expanded chat covers too much to fit above; the boards then go behind it like the live previews do.
     const bottom = dock?.height && dock.top - rect.top > rect.height / 2 ? dock.top - rect.top : rect.height;
-    const camera = fitCamera(boards, { width: Math.max(320, element.clientWidth - (panel ? AUDIT_PANEL_SPACE : 0)), height: bottom - top }, geometry.current.headerHeight, minZoom, maxZoom);
+    const camera = fitCamera(boards, { ...canvasColumn(panel), height: bottom - top, gutter: 0 }, geometry.current.headerHeight, minZoom, maxZoom);
 
     return { ...camera, y: camera.y + top };
   }
@@ -952,8 +982,9 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
 
       return; }
 
-    const { width, height } = geometry.current;
-    const centre = (camera: Camera) => ({ x: (width / 2 - camera.x) / camera.zoom, y: (height / 2 - camera.y) / camera.zoom });
+    const { x, width, height } = geometry.current;
+    const middle = x + width / 2;
+    const centre = (camera: Camera) => ({ x: (middle - camera.x) / camera.zoom, y: (height / 2 - camera.y) / camera.zoom });
     const [a, b] = [centre(from), centre(target)];
     const start = performance.now();
 
@@ -962,7 +993,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       const k = 1 - (1 - t) ** 5;
       const zoom = from.zoom * (target.zoom / from.zoom) ** k;
       const point = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
-      setLayout((current) => ({ ...current, camera: t === 1 ? target : { x: width / 2 - point.x * zoom, y: height / 2 - point.y * zoom, zoom } }));
+      setLayout((current) => ({ ...current, camera: t === 1 ? target : { x: middle - point.x * zoom, y: height / 2 - point.y * zoom, zoom } }));
       flight.current = t < 1 ? requestAnimationFrame(step) : null;
     };
 
@@ -1104,7 +1135,7 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
       const restored = unfocus(current);
       const board = { ...restored.boards[id], width, height: Math.max(240, Math.min(2160, finding.worst.height)) };
 
-      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: fitCamera([board], geometry.current, geometry.current.headerHeight) };
+      return { ...restored, boards: { ...restored.boards, [id]: board }, camera: freeCamera([board], panelOpenRef.current, FIT_MIN_ZOOM) };
     });
     setActivePreview(id);
     setShowing({ id, route: route ?? runtime.route, stale: navigating ? runtime.generation : null, deadline: Date.now() + 15_000, selector: finding.element?.selector ?? null, label: finding.title.slice(0, 160) });
@@ -1207,6 +1238,6 @@ export function Workspace({ active, onClose }: { active?: ActiveWorkspace; onClo
     </div>
     {tools && <PreviewTools id={tools} linked={layout.linked} onToggleLinked={() => { if (!browserLocked.current) setLayout(current => ({ ...current, linked: !current.linked })); }} selecting={selecting === tools} focused={layout.focus?.previewId === tools} onSelect={() => { toggleSelection(tools); setTools(null); }} onFocus={() => { focus(tools); setTools(null); }} board={layout.boards[tools]} ready={runtimes[tools].ready} canCopy={PREVIEW_IDS.every((id) => runtimes[id].ready) && runtimes[tools].safe && !!supportedRoute(runtimes[tools].route, origin)} canCapture={!!window.mauxi && fullyVisible(tools)} onClose={() => setTools(null)} onReload={() => { if (runtimeRef.current[tools].ready) send(tools, { kind: "reload" }); else if (frames.current[tools]) frames.current[tools]!.src = urls[tools]; setTools(null); }} onCopy={() => { navigate(routes.copy(tools)); setTools(null); }} onCapture={() => void capture(tools)} onResize={(width, height) => { setLayout((current) => { const next = { ...current, boards: { ...current.boards, [tools]: { ...current.boards[tools], width, height } } };
 
-    return next.focus ? { ...next, camera: fitCamera([next.boards[next.focus.previewId]], geometry.current, geometry.current.headerHeight) } : next; }); setTools(null); }} />}
+    return next.focus ? { ...next, camera: freeCamera([next.boards[next.focus.previewId]], panelOpenRef.current, FIT_MIN_ZOOM) } : next; }); setTools(null); }} />}
   </div>;
 }

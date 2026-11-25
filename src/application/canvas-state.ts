@@ -54,7 +54,13 @@ export function dragBoard(board: Artboard, delta: Point, zoom: number): Artboard
   return { ...board, x: board.x + delta.x / zoom, y: board.y + delta.y / zoom };
 }
 
-export function fitCamera(boards: Artboard[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM, maxZoom = MAX_ZOOM): Camera {
+/**
+ * The screen area a fit fills: x, where it starts (default 0); gutter, the screen px kept clear on its left and right
+ * (default 24, as above and below). A gutter of 0 puts boards that fill the width exactly on the area's edges.
+ */
+export interface FitArea { width: number; height: number; x?: number; gutter?: number }
+
+export function fitCamera(boards: Artboard[], area: FitArea, headerHeight = HEADER_HEIGHT, minZoom = FIT_MIN_ZOOM, maxZoom = MAX_ZOOM): Camera {
   const left = Math.min(...boards.map((b) => b.x));
   const top = Math.min(...boards.map((b) => b.y));
 
@@ -68,12 +74,13 @@ export function fitCamera(boards: Artboard[], area: { width: number; height: num
   for (let i = 0; i < 30; i++) {
     const mid = (low + high) / 2; const bounds = size(mid);
 
-    if (bounds.width <= area.width - 48 && bounds.height <= area.height - 48) low = mid; else high = mid;
+    if (bounds.width <= area.width - 2 * (area.gutter ?? 24) && bounds.height <= area.height - 48) low = mid; else high = mid;
   }
 
   const bounds = size(low);
 
-  return { x: (area.width - bounds.width) / 2 - left * low, y: (area.height - bounds.height) / 2 - top * low, zoom: low };
+  // Boards taller than the area even at minZoom hang from its top (past the gutter) rather than from its middle, so their headers stay in view.
+  return { x: (area.x ?? 0) + (area.width - bounds.width) / 2 - left * low, y: Math.max(24, (area.height - bounds.height) / 2) - top * low, zoom: low };
 }
 
 export function unfocus(state: CanvasState): CanvasState {
@@ -85,7 +92,7 @@ export function unfocus(state: CanvasState): CanvasState {
   return { ...state, camera: state.focus.camera, boards: { desktop: restore("desktop"), mobile: restore("mobile") }, focus: null };
 }
 
-export function fitBoards(state: CanvasState, ids: readonly PreviewId[], area: { width: number; height: number }, headerHeight = HEADER_HEIGHT): CanvasState {
+export function fitBoards(state: CanvasState, ids: readonly PreviewId[], area: FitArea, headerHeight = HEADER_HEIGHT): CanvasState {
   const next = unfocus(state);
 
   return { ...next, camera: fitCamera(ids.map((id) => next.boards[id]), area, headerHeight) };
